@@ -1,0 +1,50 @@
+<resources>
+    <!-- Base application theme. -->
+    <style name="Theme.CineMind" parent="android:Theme.Material3.Dark.NoActionBar">
+        <!-- Primary brand color. -->
+        <item name="colorPrimary">@color/cinematic_gold</item>
+        <item name="colorPrimaryContainer">@color/surface_container</item>
+        
+        <!-- Secondary brand color. -->
+        <item name="colorSecondary">@color/cyan_accent</item>
+        <item name="colorSecondaryContainer">@color/surface_container_high</item>
+        
+        <!-- Tertiary brand color. -->
+        <item name="colorTertiary">@color/coral_destructive</item>
+        
+        <!-- Surface colors -->
+        <item name="colorSurface">@color/surface</item>
+        <item name="colorOnSurface">@color/on_surface</item>
+        <item name="colorOnSurfaceVariant">@color/on_surface_variant</item>
+        
+        <!-- Outline -->
+        <item name="colorOutline">@color/outline</item>
+        <item name="colorOutlineVariant">@color/outline_variant</item>
+        
+        <!-- Status bar -->
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+        
+        <!-- Navigation bar -->
+        <item name="android:navigationBarColor">@color/surface</item>
+    </style>
+    
+    <!-- Splash theme -->
+    <style name="Theme.CineMind.Splash" parent="Theme.CineMind">
+        <item name="android:windowBackground">@drawable/ic_launcher_background</item>
+    </style>
+    
+    <!-- Component styles -->
+    <style name="Widget.CineMind.Button.Primary" parent="Widget.Material3.Button">
+        <item name="android:backgroundTint">@color/cinematic_gold</item>
+        <item name="android:textColor">@color/surface</item>
+    </style>
+    
+    <style name="Widget.CineMind.Button.Secondary" parent="Widget.Material3.Button.OutlinedButton">
+        <item name="android:backgroundTint">@android:color/transparent</item>
+        <item name="android:textColor">@color/cyan_accent</item>
+    </style>
+    
+    <style name="Widget.CineMind.Slider" parent="Widget.Material3.Slider">
+        <item name="colorPrimary">@color/cinematic_gold</item>
+    </style>

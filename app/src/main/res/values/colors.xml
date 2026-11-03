@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Brand Colors -->
+    <color name="cinematic_gold">#FFFFD600</color>
+    <color name="cyan_accent">#FF00E5FF</color>
+    <color name="coral_destructive">#FFFF3D00</color>
+    
+    <!-- Surface Colors (Dark Theme) -->
+    <color name="surface">#FF0D0D0D</color>
+    <color name="surface_container">#FF1A1A1A</color>
+    <color name="surface_container_high">#FF262626</color>
+    <color name="surface_container_highest">#FF333333</color>
+    
+    <!-- Text Colors -->
+    <color name="on_surface">#FFFFFFFF</color>
+    <color name="on_surface_variant">#FFB3B3B3</color>
+    <color name="outline">#FF404040</color>
+    <color name="outline_variant">#FF2A2A2A</color>
+    
+    <!-- Track Colors -->
+    <color name="track_video">#FF1E3A5F</color>
+    <color name="track_audio">#FF5F1E3A</color>
+    <color name="track_effect">#FF3A5F1E</color>
+    <color name="track_overlay">#FF5F3A1E</color>
+    
+    <!-- Semantic -->
+    <color name="success">#FF00E676</color>
+    <color name="warning">#FFFFD600</color>
+    <color name="error">#FFFF3D00</color>
+    
+    <!-- AI -->
+    <color name="ai_primary">#FFBB86FC</color>
+    <color name="ai_secondary">#FF03DAC6</color>
