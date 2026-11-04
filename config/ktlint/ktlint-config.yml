@@ -1,0 +1,45 @@
+# Ktlint configuration for CineMind AI
+# See https://github.com/pinterest/ktlint for more info
+
+# Disabled rules
+disabled_rules:
+  - no-consecutive-blank-lines
+  - trailing-whitespace
+  - import-ordering
+  - wildcards-in-import
+  - no-wildcard-imports
+  - function-max-length
+  - parameter-list-wrapping
+  - comment-wrapping
+  - string-template-formatting
+  - no-empty-first-line-in-method-block
+  - no-empty-line-after-left-brace
+  - no-empty-line-before-else
+  - no-multiple-spaces
+  - newline-at-end-of-file
+  - no-commented-code
+  - package-name
+  - class-name
+  - variable-name
+  - function-name
+  - property-name
+  - parameter-name
+  - filename
+
+# Editorconfig-based rules (will be read from .editorconfig if present)
+editorconfig: true
+
+# Experimental rules
+experimental: false
+
+# Ruleset
+ruleset: standard
+
+# Verbose output
+verbose: false
+
+# Android-specific
+android: true
+
+# Kotlin version
+kotlin_version: "2.0.0"
