@@ -1,0 +1,189 @@
+# Detekt configuration for CineMind AI
+# See https://detekt.dev/docs/introduction for more info
+
+build:
+  maxIssues: 10
+  weights:
+    complexity: 2
+    LongParameterList: 1
+    style: 1
+    comments: 1
+
+config:
+  validation: true
+  warnsAsErrors: false
+
+processors:
+  active: true
+  exclude:
+    - 'functionOnlyReturningConstant'
+    - 'propertyOnlyReturningConstant'
+
+console-reports:
+  active: true
+  exclude:
+    - 'ProjectStatisticsReport'
+    - 'ComplexityReport'
+    - 'NotificationReport'
+    - 'FindingsReport'
+    - 'BuildFailureReport'
+
+output-reports:
+  active: true
+  exclude:
+    - 'TxtOutputReport'
+    - 'XmlOutputReport'
+    - 'HtmlOutputReport'
+    - 'MdOutputReport'
+    - 'SarifOutputReport'
+
+comments:
+  active: true
+  exclude:
+    - 'CommentOverPrivateFunction'
+    - 'CommentOverPrivateProperty'
+
+complexity:
+  active: true
+  exclude:
+    - 'ComplexCondition'
+    - 'ComplexInterface'
+    - 'ComplexMethod'
+    - 'LabeledExpression'
+    - 'LargeClass'
+    - 'LongMethod'
+    - 'LongParameterList'
+    - 'MethodOverloading'
+    - 'NestedBlockDepth'
+    - 'TooManyFunctions'
+
+exceptions:
+  active: true
+  exclude:
+    - 'ExceptionRaisedInUnexpectedLocation'
+    - 'InstanceOfCheckForException'
+    - 'NotImplementedDeclaration'
+    - 'PrintStackTrace'
+    - 'ReturnFromFinally'
+    - 'SwallowedException'
+    - 'ThrowingExceptionFromFinally'
+    - 'ThrowingExceptionsWithoutMessageOrCause'
+    - 'ThrowingNewInstanceOfSameException'
+    - 'TooGenericExceptionCaught'
+    - 'TooGenericExceptionThrown'
+
+formatting:
+  active: true
+  autoCorrect: true
+  exclude:
+    - 'CommentSpacing'
+    - 'FileLineLength'
+    - 'LineLength'
+    - 'MaximumLineLength'
+    - 'NoBlankLineBeforeRbrace'
+    - 'NoConsecutiveBlankLines'
+    - 'NoEmptyFirstLineInMethodBlock'
+    - 'NoEmptyLineAfterLeftBrace'
+    - 'NoEmptyLineBeforeElse'
+    - 'NoMultipleSpaces'
+    - 'NoTrailingSpaces'
+    - 'NoWildcardImports'
+    - 'ParameterListWrapping'
+    - 'StringTemplateFormatting'
+
+naming:
+  active: true
+  exclude:
+    - 'BooleanPropertyNaming'
+    - 'ClassNaming'
+    - 'ConstructorParameterNaming'
+    - 'FunctionMaxLength'
+    - 'FunctionMinLength'
+    - 'FunctionNaming'
+    - 'FunctionParameterNaming'
+    - 'MemberNameEqualsClassName'
+    - 'NoPackageName'
+    - 'ObjectPropertyNaming'
+    - 'PackageNaming'
+    - 'ParameterNaming'
+    - 'VariableMaxLength'
+    - 'VariableMinLength'
+    - 'VariableNaming'
+
+performance:
+  active: true
+  exclude:
+    - 'ArrayPrimitive'
+    - 'ForEachOnRange'
+    - 'MapGetWithNotNullAssertionOperator'
+    - 'SpreadOperator'
+    - 'UnnecessaryAnnotationUseSiteTarget'
+
+style:
+  active: true
+  exclude:
+    - 'AnonymousParameterName'
+    - 'CollapsibleIfStatements'
+    - 'DataClassContainsFunctions'
+    - 'DefaultLocale'
+    - 'DestructuringDeclarationWithTooManyEntries'
+    - 'EqualsNullCall'
+    - 'ExplicitCollectionElementAccessMethod'
+    - 'ExplicitGarbageCollectionCall'
+    - 'ExplicitItLambdaParameter'
+    - 'ExplicitLambdaReturnType'
+    - 'ExplicitUnitReturnType'
+    - 'ForLoopWithRange'
+    - 'FunctionOnlyReturningConstant'
+    - 'FunctionParameterCount'
+    - 'MagicNumber'
+    - 'MandatoryBracesIfStatements'
+    - 'MandatoryBracesLoops'
+    - 'MaxChainedCallsOnSameLine'
+    - 'MaxLineLength'
+    - 'MissingDefaultCase'
+    - 'NestedClassesVisibility'
+    - 'NestedScopeFunctions'
+    - 'NewLineAtEndOfFile'
+    - 'NoFloatAndDoubleLiteralSuffixes'
+    - 'ObjectLiteralToLambda'
+    - 'OptionalAbstractKeyword'
+    - 'OptionalUnit'
+    - 'OptionalWhenBraces'
+    - 'PreferToOverPair'
+    - 'PropertyMaxLength'
+    - 'PropertyMinLength'
+    - 'RedundantExplicitType'
+    - 'RedundantHigherOrderMapUsage'
+    - 'ReturnCount'
+    - 'SafeCallNotNeeded'
+    - 'SingleExpressionFunction'
+    - 'StrictOrderingOfImports'
+    - 'StringLiteralDuplication'
+    - 'TooManyFunctions'
+    - 'UnnecessaryAnnotation'
+    - 'UnnecessaryApply'
+    - 'UnnecessaryInheritance'
+    - 'UnnecessaryLet'
+    - 'UnnecessaryParentheses'
+    - 'UnusedImports'
+    - 'UnusedPrivateMember'
+    - 'UtilityClassWithPublicConstructor'
+    - 'WildcardImport'
+
+wildcard-imports:
+  active: true
+  exclude:
+    - 'androidx.*'
+    - 'kotlin.*'
+    - 'kotlinx.*'
+
+# Specific rules for this project
+include:
+  - '.*\.kt$'
+
+exclude:
+  - '**/build/**'
+  - '**/generated/**'
+  - '**/R\.kt'
+  - '**/BR\.kt'
