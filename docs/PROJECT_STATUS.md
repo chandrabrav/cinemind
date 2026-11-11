@@ -10,12 +10,12 @@ _Last updated: 2026-11-11_
 | | |
 |---|---|
 | **Stage** | Stage 1 — Project foundation (in progress) |
-| **Last completed milestone** | Editor preview (2026-11-11): ExoPlayer playback of the clip sequence with play/pause, scrubbing, timecode, current-clip highlight. Built and unit-tested in CI; **not yet verified on a device**. |
-| **Previous milestones** | Media import (run 43013511655); foundation repair, first green build (run 43011809441). |
-| **Current task** | Device check of import + preview, then project list. |
+| **Last completed milestone** | Project list (2026-11-11): home screen lists projects (cover, clip count, length, last edited) with open, rename, duplicate and delete. Built and unit-tested in CI; **not yet verified on a device**. |
+| **Previous milestones** | Editor preview (run 43015369603); media import (run 43013511655); foundation repair, first green build (run 43011809441). |
+| **Current task** | Device check of import, preview and project list; then the AI prompt screen. |
 | **Branch** | `dev-main` |
-| **Latest verified build** | CI run 43015369603 (#14), commit `a3a732c`, 29/29 unit tests passed — https://github.com/chandrabrav/cinemind/actions/runs/43015369603 |
-| **Latest verified APK** | Artifact `cinemind-debug-14` (19.3 MB, expires 2026-12-11). Built, not yet device-tested. |
+| **Latest verified build** | CI run 43017020090 (#17), commit `89d1276`, 37/37 unit tests passed — https://github.com/chandrabrav/cinemind/actions/runs/43017020090 |
+| **Latest verified APK** | Artifact `cinemind-debug-17` (19.3 MB, expires 2026-12-11). Built, not yet device-tested. |
 
 ## Build environment (hard rule)
 
@@ -55,12 +55,13 @@ Modules compiled in CI (`settings.gradle.kts`):
 | `:core:data` | Room DB + migrations, DAOs, repository implementations (`createProjectWithTimeline` is one transaction) |
 | `:core:ui` | Theme, colors, typography, `formatTimecode` |
 | `:feature:media` | `MediaImporter` (picker URI → `MediaAsset`), `MediaLibraryViewModel`, library screen (grid, ordered multi-select, create project) |
+| `:feature:project` | Home screen: `ProjectListViewModel`, project list (open, rename, duplicate, delete with confirmation) |
 | `:feature:editor:timeline` | Editor screen: `PreviewPlayer` + `TimelineMath` (preview), `TimelineViewModel` (owns/releases the player), transport controls, clip strip |
 | `:feature:export` | Export foreground service (stub) |
 | `:feature:settings` | Settings DataStore |
 | `:feature:ai:{analysis,llm,generation,cloud}` | Interfaces / data classes only |
 
-Scaffolded but **excluded** until they get code: `:feature:editor:{preview,effects,color,audio}`, `:feature:project`, `:media3`, `:benchmark`.
+Scaffolded but **excluded** until they get code: `:feature:editor:{preview,effects,color,audio}`, `:media3`, `:benchmark`.
 
 ## Feature status
 
@@ -70,13 +71,14 @@ Scaffolded but **excluded** until they get code: `:feature:editor:{preview,effec
 | Media import (Photo Picker, multi-select, thumbnails, metadata) | Implemented; pure logic unit-tested; **not device-verified** |
 | Create project from selection | Implemented; `ProjectFactory` unit-tested; **not device-verified** |
 | Video preview | Implemented (play/pause, scrub, timecode, current-clip highlight, tap clip to jump, pause on background); `TimelineMath` unit-tested; **not device-verified** |
+| Project list (home) | Implemented: cover, clip count, length, aspect, last edited; open / rename / duplicate / delete. `ProjectNames` + `ProjectCopier` unit-tested; **not device-verified** |
 | AI prompt screen | Not started |
 | Editor workspace / timeline | Partial: preview + clip strip in order; no zoomable timeline, playhead on tracks, trim or reorder |
 | Trim / reorder | Not started |
 | Export (Media3 Transformer) | Stub service only |
-| Project storage | Partial: Room v2 with migration; atomic project creation; no project list, autosave, recovery or versioned project file |
+| Project storage | Partial: Room v2 with migration; atomic create and duplicate; rename; delete (cascades tracks/clips, keeps media); no autosave, crash recovery or versioned project file |
 | AI (all) | Interfaces only |
-| Tests | 29 unit tests: `TimecodeTest` (5), `ProjectFactoryTest` (9), `MediaMetadataParsingTest` (6), `MediaLabelsTest` (2), `TimelineMathTest` (7). No instrumented/UI tests yet. |
+| Tests | 37 unit tests: core/domain 17 (`ProjectFactoryTest` 9, `ProjectNamesTest` 4, `ProjectCopierTest` 4), core/ui 6 (`TimecodeTest` 5, `FormattersTest` 1), feature/media 7, feature/editor/timeline 7. No instrumented/UI or Room DAO tests yet. |
 
 ## Architecture decisions
 
@@ -93,7 +95,8 @@ Scaffolded but **excluded** until they get code: `:feature:editor:{preview,effec
 
 - Photo EXIF orientation is not applied to stored width/height (thumbnails are still correct). Matters only when a rotated photo is the first item of a project.
 - If a provider refuses a persistable URI grant, that media is readable only until the app restarts (logged as a warning). Missing-media handling is not built yet.
-- No project list yet: after leaving the editor, a project can't be reopened from the UI.
+- Project list query, rename/duplicate/delete are not covered by automated DAO tests (would need Robolectric or instrumented tests); verify on device.
+- Projects are not marked "edited" when opened — `updatedAt` changes only on create/rename until editing exists.
 - Preview: switching between clips goes through ExoPlayer's playlist, so there may be a brief stall at cuts (not gapless-guaranteed). If a clip fails to decode, playback stops with an error label; pressing Play retries. No preview of transitions, speed, color or audio mixing yet.
 - Preview duration per clip comes from stored metadata; if a file's real duration is slightly shorter, the playhead may jump a few ms at that cut.
 - Assets can't be removed from the library yet (clips reference them with `RESTRICT`).
@@ -109,7 +112,7 @@ Foundation milestone, each verified on the Vivo X200 Pro:
 1. ~~Photo Picker multi-select import with metadata + thumbnails~~ (done; needs device check)
 2. ~~Create project from selected clips~~ (done; needs device check)
 3. ~~ExoPlayer preview of the clip sequence~~ (done; needs device check)
-4. **Next:** Project list on the home screen (reopen / delete projects; never deletes source media).
-5. AI prompt input screen (UI + stored prompt; no AI yet).
+4. ~~Project list on the home screen~~ (done; needs device check)
+5. **Next:** AI prompt input screen (UI + stored prompt; no AI yet).
 6. Timeline: trim + reorder with an undoable command model, unit-tested.
 7. Media3 Transformer export of the edited sequence to an MP4 in `Movies/CineMind`, playable in the gallery.
