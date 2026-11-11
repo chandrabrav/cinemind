@@ -21,6 +21,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.BottomAppBar
@@ -63,6 +64,7 @@ import com.cinemind.feature.editor.timeline.preview.PreviewState
 @Composable
 fun TimelineScreen(
     projectId: String,
+    onOpenBrief: () -> Unit,
     viewModel: TimelineViewModel = hiltViewModel(),
 ) {
     LaunchedEffect(projectId) { viewModel.loadProject(projectId) }
@@ -116,8 +118,12 @@ fun TimelineScreen(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                TextButton(onClick = { /* Add clip: next tasks */ }) { Text("Add Clip") }
-                TextButton(onClick = { /* Export: next tasks */ }) { Text("Export") }
+                TextButton(onClick = onOpenBrief) {
+                    Icon(Icons.Default.AutoAwesome, contentDescription = null)
+                    Text("AI brief", modifier = Modifier.padding(start = 6.dp))
+                }
+                // Export arrives with the Media3 Transformer task; disabled rather than a dead button.
+                TextButton(onClick = {}, enabled = false) { Text("Export (soon)") }
             }
         }
     }

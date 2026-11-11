@@ -1,8 +1,10 @@
 package com.cinemind.core.domain.repository
 
 import com.cinemind.core.domain.model.Clip
+import com.cinemind.core.domain.model.EditBrief
 import com.cinemind.core.domain.model.MediaAsset
 import com.cinemind.core.domain.model.Project
+import com.cinemind.core.domain.model.ProjectFormat
 import com.cinemind.core.domain.model.ProjectSummary
 import com.cinemind.core.domain.model.ProjectTimeline
 import com.cinemind.core.domain.model.Track
@@ -15,6 +17,10 @@ interface ProjectRepository {
     suspend fun createProjectWithTimeline(timeline: ProjectTimeline): String
 
     suspend fun getProject(id: String): Project?
+    fun observeProject(id: String): Flow<Project?>
+
+    /** Changes the output shape (aspect ratio + resolution) of a project. */
+    suspend fun setProjectFormat(id: String, format: ProjectFormat)
     fun getAllProjects(): Flow<List<Project>>
 
     /** Projects with clip count and cover image, most recently edited first. */
@@ -57,4 +63,9 @@ interface MediaAssetRepository {
     suspend fun updateAsset(asset: MediaAsset)
     suspend fun deleteAsset(id: String)
     fun searchAssets(query: String): Flow<List<MediaAsset>>
+}
+interface EditBriefRepository {
+    /** The saved brief, or a default (empty) brief if the user hasn't written one yet. */
+    fun observeBrief(projectId: String): Flow<EditBrief>
+    suspend fun saveBrief(brief: EditBrief)
 }

@@ -1,23 +1,28 @@
 package com.cinemind.core.data.repository
 
 import com.cinemind.core.data.local.dao.ClipDao
+import com.cinemind.core.data.local.dao.EditBriefDao
 import com.cinemind.core.data.local.dao.MediaAssetDao
 import com.cinemind.core.data.local.dao.ProjectDao
 import com.cinemind.core.data.local.dao.TrackDao
 import com.cinemind.core.data.local.database.AppDatabase
 import androidx.room.withTransaction
 import com.cinemind.core.domain.model.Clip
+import com.cinemind.core.domain.model.EditBrief
 import com.cinemind.core.domain.model.MediaAsset
 import com.cinemind.core.domain.model.Project
 import com.cinemind.core.domain.model.ProjectCopier
+import com.cinemind.core.domain.model.ProjectFormat
 import com.cinemind.core.domain.model.ProjectSummary
 import com.cinemind.core.domain.model.ProjectTimeline
 import com.cinemind.core.domain.model.Track
 import com.cinemind.core.domain.repository.ClipRepository
+import com.cinemind.core.domain.repository.EditBriefRepository
 import com.cinemind.core.domain.repository.MediaAssetRepository
 import com.cinemind.core.domain.repository.ProjectRepository
 import com.cinemind.core.domain.repository.TrackRepository
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 
 class ProjectRepositoryImpl(
     private val database: AppDatabase,
@@ -41,6 +46,22 @@ class ProjectRepositoryImpl(
     override suspend fun getProject(id: String): Project? = projectDao.getProject(id)
 
     override fun getAllProjects(): Flow<List<Project>> = projectDao.getAllProjects()
+
+    override fun observeProject(id: String): Flow<Project?> = projectDao.observeProject(id)
+
+    override suspend fun setProjectFormat(id: String, format: ProjectFormat) {
+        database.withTransaction {
+            val project = projectDao.getProject(id) ?: return@withTransaction
+            projectDao.update(
+                project.copy(
+                    aspectRatio = format.ratio,
+                    resolutionWidth = format.width,
+                    resolutionHeight = format.height,
+                    updatedAt = System.currentTimeMillis(),
+                ),
+            )
+        }
+    }
 
     override fun getProjectSummaries(): Flow<List<ProjectSummary>> = projectDao.getProjectSummaries()
 
@@ -68,6 +89,9 @@ class ProjectRepositoryImpl(
             projectDao.insert(copy.project)
             copy.tracks.forEach { database.trackDao().insert(it) }
             copy.clips.forEach { database.clipDao().insert(it) }
+            database.editBriefDao().get(id)?.let { brief ->
+                database.editBriefDao().upsert(brief.copy(projectId = copy.project.id, updatedAt = copy.project.updatedAt))
+            }
             copy.project.id
         }
 
@@ -138,4 +162,14 @@ class MediaAssetRepositoryImpl(
 
     override fun searchAssets(query: String): Flow<List<MediaAsset>> =
         mediaAssetDao.searchAssets("%$query%")
+}
+
+class EditBriefRepositoryImpl(
+    private val editBriefDao: EditBriefDao,
+) : EditBriefRepository {
+    override fun observeBrief(projectId: String): Flow<EditBrief> =
+        editBriefDao.observe(projectId).map { it ?: EditBrief(projectId = projectId, updatedAt = 0) }
+
+    override suspend fun saveBrief(brief: EditBrief) =
+        editBriefDao.upsert(brief.copy(updatedAt = System.currentTimeMillis()))
 }

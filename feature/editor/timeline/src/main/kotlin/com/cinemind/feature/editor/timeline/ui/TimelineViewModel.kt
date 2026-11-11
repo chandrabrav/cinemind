@@ -46,8 +46,10 @@ class TimelineViewModel @Inject constructor(
     val player: Player get() = preview.player
 
     private val projectId = MutableStateFlow<String?>(null)
-    private val _project = MutableStateFlow<Project?>(null)
-    val project: StateFlow<Project?> = _project.asStateFlow()
+    /** Live project row, so format changes made elsewhere (e.g. the AI brief) reshape the preview. */
+    val project: StateFlow<Project?> = projectId.filterNotNull()
+        .flatMapLatest { projectRepository.observeProject(it) }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     private val _previewState = MutableStateFlow(PreviewState())
     val previewState: StateFlow<PreviewState> = _previewState.asStateFlow()
@@ -79,7 +81,6 @@ class TimelineViewModel @Inject constructor(
     fun loadProject(id: String) {
         if (projectId.value == id) return
         projectId.value = id
-        viewModelScope.launch { _project.value = projectRepository.getProject(id) }
     }
 
     fun togglePlayPause() {
