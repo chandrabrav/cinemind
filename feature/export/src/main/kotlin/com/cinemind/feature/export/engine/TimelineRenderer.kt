@@ -227,9 +227,8 @@ class TimelineRenderer(private val context: Context) {
      */
     private fun buildVoiceSequence(voice: RenderVoiceover, totalUs: Long): EditedMediaItemSequence {
         val byId = voice.clips.associateBy { it.clip.id }
-        // A voiceover that starts after 0:00 begins with a gap; Media3 1.11 needs this flag to fill it with silence.
-        @Suppress("DEPRECATION")
-        val builder = EditedMediaItemSequence.Builder(setOf(C.TRACK_TYPE_AUDIO)).experimentalSetForceAudioTrack(true)
+        // Declaring the audio track type makes gaps (also a leading one) play as silence.
+        val builder = EditedMediaItemSequence.Builder(setOf(C.TRACK_TYPE_AUDIO))
         for (piece in OverlayEditing.pieces(voice.clips.map { it.clip }, totalUs)) {
             when (piece) {
                 is OverlayEditing.Piece.Gap -> builder.addGap(piece.durationUs)

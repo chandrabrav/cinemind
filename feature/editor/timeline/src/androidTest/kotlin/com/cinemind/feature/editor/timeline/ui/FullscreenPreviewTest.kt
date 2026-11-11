@@ -60,7 +60,7 @@ class FullscreenPreviewTest {
         compose.onNodeWithContentDescription("Playback position").assertIsDisplayed()
         compose.onNodeWithContentDescription("Play").performClick()
         assertEquals(1, toggles)
-        compose.saveScreenshot("fullscreen_light")
+        compose.saveScreenshot("fullscreen_light", topWindow = true)
         compose.onNodeWithContentDescription("Exit full screen").performClick()
         assertEquals(1, exits)
     }
@@ -69,7 +69,7 @@ class FullscreenPreviewTest {
     fun androidBackExits() {
         show(dark = true)
         compose.onNodeWithContentDescription("Exit full screen").assertIsDisplayed()
-        compose.saveScreenshot("fullscreen_dark")
+        compose.saveScreenshot("fullscreen_dark", topWindow = true)
         InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK)
         compose.waitForIdle()
         assertEquals(1, exits)

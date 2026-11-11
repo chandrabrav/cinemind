@@ -5,6 +5,7 @@ import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.ComposeContentTestRule
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.onLast
 import androidx.test.platform.app.InstrumentationRegistry
 import java.io.File
 
@@ -13,7 +14,7 @@ import java.io.File
  * connected-test task copies back to build/outputs/connected_android_test_additional_output/
  * (CI uploads it). Falls back to the app's external files dir when run outside Gradle.
  */
-fun ComposeContentTestRule.saveScreenshot(name: String): File {
+fun ComposeContentTestRule.saveScreenshot(name: String, topWindow: Boolean = false): File {
     // The CI emulator renders on the CPU; give it time and retry the capture if a frame is slow.
     var bitmap: Bitmap? = null
     var lastError: Throwable? = null
@@ -21,7 +22,9 @@ fun ComposeContentTestRule.saveScreenshot(name: String): File {
         if (bitmap == null) {
             try {
                 waitForIdle()
-                bitmap = onRoot().captureToImage().asAndroidBitmap()
+                // A dialog (e.g. full-screen preview) is its own window: capture the top-most root then.
+                val root = if (topWindow) onAllNodes(androidx.compose.ui.test.isRoot()).onLast() else onRoot()
+                bitmap = root.captureToImage().asAndroidBitmap()
             } catch (t: Throwable) {
                 lastError = t
                 Thread.sleep(1_500)
