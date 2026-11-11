@@ -5,6 +5,18 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateCentroid
+import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.material.icons.automirrored.filled.FirstPage
+import androidx.compose.material.icons.automirrored.filled.LastPage
+import androidx.compose.material.icons.filled.CenterFocusStrong
+import androidx.compose.material.icons.filled.FitScreen
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
@@ -103,46 +115,107 @@ internal fun MultiTrackTimeline(
     modifier: Modifier = Modifier,
     captions: List<com.cinemind.core.domain.captions.Caption> = emptyList(),
     onCaptionsTap: () -> Unit = {},
+    fps: Int = 30,
 ) {
     val c = CineMind.colors
     val density = LocalDensity.current
-    var zoomIndex by rememberSaveable { mutableIntStateOf(TimelineLayout.DEFAULT_ZOOM_INDEX) }
-    val pps = with(density) { TimelineLayout.ZOOM_DP_PER_SECOND[zoomIndex].dp.toPx() }
+    var pps by rememberSaveable { mutableFloatStateOf(with(density) { TimelineLayout.DEFAULT_DP_PER_SECOND.dp.toPx() }) }
+    val scroll = rememberScrollState()
+    // Scroll target computed with the new zoom; applied after the wider/narrower row is laid out.
+    var pendingScroll by remember { mutableStateOf<Float?>(null) }
+    LaunchedEffect(pendingScroll) {
+        val target = pendingScroll ?: return@LaunchedEffect
+        withFrameNanos { }
+        scroll.scrollTo(target.roundToInt())
+        pendingScroll = null
+    }
 
-    Column(modifier = modifier) {
+    BoxWithConstraints(modifier = modifier) {
+        val viewportPx = constraints.maxWidth.toFloat()
+        val leadPx = with(density) { Spacing.gutter.toPx() }
+        val range = TimelineLayout.zoomRange(totalUs, fps, density.density, viewportPx, leadPx)
+        // Keep the zoom valid when the project gets shorter/longer.
+        LaunchedEffect(range) { pps = pps.coerceIn(range.start, range.endInclusive) }
+
+        fun zoomTo(target: Float, anchorX: Float) {
+            val next = target.coerceIn(range.start, range.endInclusive)
+            if (next == pps) return
+            val from = pendingScroll ?: scroll.value.toFloat()
+            pendingScroll = TimelineLayout.scrollAfterZoom(from, anchorX, leadPx, pps, next)
+            pps = next
+        }
+        fun fit(startUs: Long, endUs: Long) {
+            val next = TimelineLayout.fitPxPerSecond(endUs - startUs, viewportPx, leadPx).coerceIn(range.start, range.endInclusive)
+            pps = next
+            pendingScroll = TimelineLayout.scrollToShow(startUs, leadPx, next)
+        }
+        val playheadViewportX = (leadPx + TimelineLayout.xForUs(positionUs, pps) - scroll.value).coerceIn(0f, viewportPx)
+        val selected = clips.firstOrNull { it.clip.id == selectedClipId }?.clip
+        val zoom by rememberUpdatedState<(Float, Float) -> Unit>({ factor, anchor -> zoomTo(pps * factor, anchor) })
+
+    Column {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = Spacing.gutter, end = Spacing.xs)) {
-            Text("Timeline", style = MaterialTheme.typography.labelLarge, color = c.textPrimary)
-            Spacer(Modifier.width(Spacing.s))
-            Text(formatDuration(totalUs), style = MaterialTheme.typography.labelMedium, color = c.textTertiary, modifier = Modifier.weight(1f))
-            IconButton(onClick = hapticClick { zoomIndex = (zoomIndex - 1).coerceAtLeast(0) }, enabled = zoomIndex > 0) {
+            Text(formatDuration(totalUs), style = MaterialTheme.typography.labelLarge, color = c.textPrimary, modifier = Modifier.weight(1f))
+            IconButton(onClick = hapticClick { onSeek(0); pendingScroll = 0f }) {
+                Icon(Icons.AutoMirrored.Filled.FirstPage, contentDescription = "Go to start", tint = c.textSecondary)
+            }
+            IconButton(onClick = hapticClick { onSeek(totalUs); pendingScroll = TimelineLayout.xForUs(totalUs, pps) + leadPx - viewportPx * 0.6f }) {
+                Icon(Icons.AutoMirrored.Filled.LastPage, contentDescription = "Go to end", tint = c.textSecondary)
+            }
+            IconButton(onClick = hapticClick { if (selected != null) fit(selected.timelineInUs, selected.timelineOutUs) else fit(0, totalUs) }) {
+                Icon(
+                    if (selected != null) Icons.Default.CenterFocusStrong else Icons.Default.FitScreen,
+                    contentDescription = if (selected != null) "Zoom to selected clip" else "Zoom to fit the whole video",
+                    tint = c.textSecondary,
+                )
+            }
+            IconButton(onClick = hapticClick { zoomTo(pps / 1.6f, playheadViewportX) }, enabled = pps > range.start + 0.01f) {
                 Icon(Icons.Default.Remove, contentDescription = "Zoom out", tint = c.textSecondary)
             }
-            IconButton(onClick = hapticClick { zoomIndex = (zoomIndex + 1).coerceAtMost(TimelineLayout.ZOOM_DP_PER_SECOND.lastIndex) }, enabled = zoomIndex < TimelineLayout.ZOOM_DP_PER_SECOND.lastIndex) {
+            IconButton(onClick = hapticClick { zoomTo(pps * 1.6f, playheadViewportX) }, enabled = pps < range.endInclusive - 0.01f) {
                 Icon(Icons.Default.Add, contentDescription = "Zoom in", tint = c.textSecondary)
             }
         }
 
-        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-            val viewportPx = constraints.maxWidth.toFloat()
-            val leadPx = with(density) { Spacing.gutter.toPx() }
+        Box(modifier = Modifier.fillMaxWidth()) {
             // Trailing room so the end of the timeline can scroll under the playhead.
             val contentPx = leadPx + TimelineLayout.xForUs(totalUs, pps) + viewportPx * 0.6f
-            val scroll = rememberScrollState()
             val playheadX = leadPx + TimelineLayout.xForUs(positionUs, pps)
+            val currentPps by rememberUpdatedState(pps)
 
-            // Keep the playhead in view while playing (and when it jumps out of view).
-            LaunchedEffect(positionUs, isPlaying, pps) {
-                val visible = playheadX >= scroll.value && playheadX <= scroll.value + viewportPx
-                if (isPlaying || !visible) scroll.scrollTo(TimelineLayout.followScroll(playheadX, viewportPx, contentPx))
+            // Keep the playhead in view while playing (and when it jumps out of view). Not on zoom:
+            // zooming keeps the point under the fingers / playhead fixed instead.
+            LaunchedEffect(positionUs, isPlaying) {
+                if (pendingScroll != null) return@LaunchedEffect
+                val x = leadPx + TimelineLayout.xForUs(positionUs, currentPps)
+                val visible = x >= scroll.value && x <= scroll.value + viewportPx
+                if (isPlaying || !visible) scroll.scrollTo(TimelineLayout.followScroll(x, viewportPx, contentPx))
             }
 
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
+                    // Two fingers = zoom around their midpoint. Handled before scrolling and the
+                    // clips see the events, and consumed then, so a pinch never scrolls, moves or trims.
+                    .pointerInput(Unit) {
+                        awaitEachGesture {
+                            awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                            do {
+                                val event = awaitPointerEvent(PointerEventPass.Initial)
+                                if (event.changes.count { it.pressed } >= 2) {
+                                    val factor = event.calculateZoom()
+                                    val centroid = event.calculateCentroid(useCurrent = true)
+                                    if (factor != 1f && centroid != Offset.Unspecified) zoom(factor, centroid.x)
+                                    event.changes.forEach { it.consume() }
+                                }
+                            } while (event.changes.any { it.pressed })
+                        }
+                    }
+                    .semantics { contentDescription = "Timeline. Pinch with two fingers to zoom, or use the zoom buttons." }
                     .horizontalScroll(scroll),
             ) {
                 Column(modifier = Modifier.width(with(density) { contentPx.toDp() })) {
-                    Ruler(totalUs, pps, leadPx, onSeek)
+                    Ruler(totalUs, pps, leadPx, fps, scroll, viewportPx, onSeek)
                     Spacer(Modifier.height(Spacing.xs))
                     // Video lane
                     Box(
@@ -208,13 +281,23 @@ internal fun MultiTrackTimeline(
         }
     }
 }
+}
 
 @Composable
-private fun Ruler(totalUs: Long, pps: Float, leadPx: Float, onSeek: (Long) -> Unit) {
+private fun Ruler(
+    totalUs: Long,
+    pps: Float,
+    leadPx: Float,
+    fps: Int,
+    scroll: androidx.compose.foundation.ScrollState,
+    viewportPx: Float,
+    onSeek: (Long) -> Unit,
+) {
     val c = CineMind.colors
     val measurer = rememberTextMeasurer()
     val density = LocalDensity.current
-    val interval = TimelineLayout.tickIntervalUs(pps, with(density) { 56.dp.toPx() })
+    // Seconds/minutes when zoomed out, down to single frames (at the project's frame rate) when zoomed in.
+    val step = TimelineLayout.rulerStep(pps, with(density) { 56.dp.toPx() }, fps)
     val labelStyle = TextStyle(fontSize = 10.sp, color = c.textTertiary)
     Canvas(
         modifier = Modifier
@@ -225,14 +308,21 @@ private fun Ruler(totalUs: Long, pps: Float, leadPx: Float, onSeek: (Long) -> Un
                 detectTapGestures { offset -> onSeek(TimelineLayout.usForX(offset.x - leadPx, pps).coerceAtMost(totalUs)) }
             },
     ) {
-        TimelineLayout.ticks(totalUs, interval).forEach { t ->
+        // Only the visible part is drawn (scroll is read here, in the draw phase: no recomposition).
+        val margin = 80.dp.toPx()
+        val fromUs = TimelineLayout.usForX(scroll.value - leadPx - margin, pps)
+        val toUs = TimelineLayout.usForX(scroll.value + viewportPx - leadPx + margin, pps)
+        TimelineLayout.ticksIn(step, fps, fromUs, toUs, totalUs).forEach { t ->
             val x = leadPx + TimelineLayout.xForUs(t, pps)
             drawLine(c.hairline.copy(alpha = 0.9f), Offset(x, size.height * 0.55f), Offset(x, size.height), strokeWidth = 1.dp.toPx())
-            drawText(measurer, TimelineLayout.label(t), Offset(x + 3.dp.toPx(), 0f), labelStyle)
-            // Minor tick halfway.
-            val mid = x + TimelineLayout.xForUs(interval / 2, pps)
-            if (t + interval / 2 <= totalUs) {
-                drawLine(c.hairline, Offset(mid, size.height * 0.78f), Offset(mid, size.height), strokeWidth = 1.dp.toPx())
+            val text = if (step.isFrames) TimelineLayout.frameLabel(t, fps) else TimelineLayout.label(t)
+            drawText(measurer, text, Offset(x + 3.dp.toPx(), 0f), labelStyle)
+            if (!step.isFrames) {
+                // Minor tick halfway.
+                val mid = x + TimelineLayout.xForUs(step.us / 2, pps)
+                if (t + step.us / 2 <= totalUs) {
+                    drawLine(c.hairline, Offset(mid, size.height * 0.78f), Offset(mid, size.height), strokeWidth = 1.dp.toPx())
+                }
             }
         }
     }
