@@ -75,3 +75,7 @@ object TimelineEditing {
         return relayout(clips.filterNot { it.id == clipId })
     }
 }
+
+/** Adds clips to the end of a track. */
+fun TimelineEditing.append(clips: List<Clip>, newClips: List<Clip>): List<Clip> =
+    if (newClips.isEmpty()) clips else relayout(clips + newClips)

@@ -1,6 +1,9 @@
 package com.cinemind.feature.editor.timeline.ui
 
-import android.graphics.Color as AndroidColor
+import android.view.LayoutInflater
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.OptIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -41,6 +44,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
@@ -52,10 +57,12 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
+import com.cinemind.core.domain.editing.FrameLook
+import com.cinemind.core.domain.editing.TransitionMath
 import com.cinemind.core.domain.model.Project
+import com.cinemind.feature.editor.timeline.R
 import com.cinemind.core.ui.theme.TrackVideoColor
 import com.cinemind.core.ui.theme.formatTimecode
 import com.cinemind.feature.editor.timeline.preview.PreviewClip
@@ -65,6 +72,7 @@ import com.cinemind.feature.editor.timeline.preview.PreviewState
 fun TimelineScreen(
     projectId: String,
     onOpenBrief: () -> Unit,
+    onExport: () -> Unit,
     viewModel: TimelineViewModel = hiltViewModel(),
 ) {
     LaunchedEffect(projectId) { viewModel.loadProject(projectId) }
@@ -85,14 +93,30 @@ fun TimelineScreen(
     }
 
     val fps = project?.frameRate ?: 30
+    var showTransitions by remember { mutableStateOf(false) }
+    val addMediaPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickMultipleVisualMedia(maxItems = 50),
+    ) { uris -> viewModel.addMedia(uris) }
 
     Column(modifier = Modifier.fillMaxSize()) {
         ProjectHeader(project = project, clipCount = clips.size)
+
+        val animations = remember(clips) { TransitionMath.animations(clips.map { it.clip }) }
+        val look = clips.getOrNull(preview.currentIndex)?.let { current ->
+            val clip = current.clip
+            val anim = animations.getOrNull(preview.currentIndex) ?: return@let null
+            TransitionMath.lookAt(
+                preview.positionUs - clip.timelineInUs,
+                clip.timelineOutUs - clip.timelineInUs,
+                anim,
+            )
+        } ?: FrameLook.IDENTITY
 
         PreviewArea(
             player = viewModel.player,
             project = project,
             currentClip = clips.getOrNull(preview.currentIndex),
+            look = look,
             error = preview.error,
             modifier = Modifier
                 .fillMaxWidth()
@@ -136,22 +160,27 @@ fun TimelineScreen(
                 onMove = viewModel::moveSelected,
                 onDelete = viewModel::deleteSelected,
                 onClose = viewModel::clearSelection,
+                onTransition = viewModel::setTransitionSelected,
             )
         }
 
-        BottomAppBar(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                TextButton(onClick = onOpenBrief) {
-                    Icon(Icons.Default.AutoAwesome, contentDescription = null)
-                    Text("AI brief", modifier = Modifier.padding(start = 6.dp))
-                }
-                // Export arrives with the Media3 Transformer task; disabled rather than a dead button.
-                TextButton(onClick = {}, enabled = false) { Text("Export (soon)") }
-            }
-        }
+        EditorToolsBar(
+            hasClips = clips.isNotEmpty(),
+            onSmartEdit = onOpenBrief,
+            onAddMedia = {
+                addMediaPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
+            },
+            onTransitions = { showTransitions = true },
+            onExport = onExport,
+        )
+    }
+
+    if (showTransitions) {
+        TransitionsDialog(
+            onDismiss = { showTransitions = false },
+            onApplyAll = viewModel::applyTransitionToAll,
+            onOpeningEnding = viewModel::setOpeningAndEnding,
+        )
     }
 }
 
@@ -178,6 +207,7 @@ private fun PreviewArea(
     player: Player,
     project: Project?,
     currentClip: PreviewClip?,
+    look: FrameLook,
     error: String?,
     modifier: Modifier = Modifier,
 ) {
@@ -187,32 +217,52 @@ private fun PreviewArea(
         modifier = modifier.background(Color.Black),
     ) {
         // The frame shows the project's output shape; clips are fitted inside it.
-        Box(modifier = Modifier.aspectRatio(ratio, matchHeightConstraintsFirst = true)) {
-            AndroidView(
-                factory = { ctx ->
-                    PlayerView(ctx).apply {
-                        useController = false
-                        resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
-                        setShutterBackgroundColor(AndroidColor.BLACK)
-                        setKeepContentOnPlayerReset(true)
-                        this.player = player
-                    }
-                },
-                update = { it.player = player },
-                onRelease = { it.player = null },
-                modifier = Modifier.fillMaxSize(),
-            )
+        Box(
+            modifier = Modifier
+                .aspectRatio(ratio, matchHeightConstraintsFirst = true)
+                .clipToBounds()
+                .background(Color.Black),
+        ) {
+            // Picture (video or photo) moves as one layer, like the exported frame does.
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        scaleX = look.scale
+                        scaleY = look.scale
+                        translationX = look.translateX * size.width
+                        translationY = look.translateY * size.height
+                    },
+            ) {
+                AndroidView(
+                    factory = { ctx ->
+                        (LayoutInflater.from(ctx).inflate(R.layout.preview_player_view, null) as PlayerView)
+                            .apply { this.player = player }
+                    },
+                    update = { it.player = player },
+                    onRelease = { it.player = null },
+                    modifier = Modifier.fillMaxSize(),
+                )
 
-            val asset = currentClip?.asset
-            when {
-                currentClip != null && asset == null -> CenterLabel("Missing media")
-                asset != null && asset.isImage -> AsyncImage(
-                    model = asset.uri,
-                    contentDescription = asset.displayName.ifEmpty { null },
-                    contentScale = ContentScale.Fit,
+                val asset = currentClip?.asset
+                when {
+                    currentClip != null && asset == null -> CenterLabel("Missing media")
+                    asset != null && asset.isImage -> AsyncImage(
+                        model = asset.uri,
+                        contentDescription = asset.displayName.ifEmpty { null },
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Black),
+                    )
+                }
+            }
+            // Fades dip through black.
+            if (look.brightness < 1f) {
+                Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(Color.Black),
+                        .background(Color.Black.copy(alpha = (1f - look.brightness).coerceIn(0f, 1f))),
                 )
             }
         }

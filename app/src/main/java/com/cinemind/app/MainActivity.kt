@@ -26,6 +26,7 @@ import androidx.navigation.compose.rememberNavController
 import com.cinemind.core.ui.theme.CineMindTheme
 import com.cinemind.feature.ai.generation.ui.EditBriefScreen
 import com.cinemind.feature.editor.timeline.ui.TimelineScreen
+import com.cinemind.feature.export.ui.ExportScreen
 import com.cinemind.feature.media.ui.MediaLibraryScreen
 import com.cinemind.feature.project.ui.ProjectListScreen
 import dagger.hilt.android.AndroidEntryPoint
@@ -35,8 +36,10 @@ private object Routes {
     const val MEDIA_LIBRARY = "media_library"
     const val EDITOR = "editor/{projectId}"
     const val BRIEF = "brief/{projectId}"
+    const val EXPORT = "export/{projectId}"
     fun editor(projectId: String) = "editor/$projectId"
     fun brief(projectId: String) = "brief/$projectId"
+    fun export(projectId: String) = "export/$projectId"
 }
 
 @AndroidEntryPoint
@@ -55,6 +58,7 @@ class MainActivity : ComponentActivity() {
                     Routes.MEDIA_LIBRARY -> "Import media"
                     Routes.EDITOR -> "Editor"
                     Routes.BRIEF -> "AI brief"
+                    Routes.EXPORT -> "Export"
                     else -> "CineMind AI"
                 }
 
@@ -113,10 +117,14 @@ fun CineMindNavHost(
             TimelineScreen(
                 projectId = projectId,
                 onOpenBrief = { navController.navigate(Routes.brief(projectId)) },
+                onExport = { navController.navigate(Routes.export(projectId)) },
             )
         }
         composable(Routes.BRIEF) { backStackEntry ->
             EditBriefScreen(projectId = backStackEntry.arguments?.getString("projectId").orEmpty())
+        }
+        composable(Routes.EXPORT) { backStackEntry ->
+            ExportScreen(projectId = backStackEntry.arguments?.getString("projectId").orEmpty())
         }
     }
 }

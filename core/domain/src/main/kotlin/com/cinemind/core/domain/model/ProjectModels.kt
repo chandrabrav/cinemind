@@ -97,8 +97,12 @@ data class Clip(
     val scale: Float = 1.0f,
     val rotation: Float = 0.0f,
     val opacity: Float = 1.0f,
+    /** Transition into this clip from the previous one (for the first clip: the opening). */
     val transitionInMs: Long = 0,
-    val transitionOutMs: Long = 0
+    /** Only used on the last clip: length of the closing fade to black. */
+    val transitionOutMs: Long = 0,
+    /** Name of a [com.cinemind.core.domain.editing.ClipTransition]; added in schema v4. */
+    @ColumnInfo(defaultValue = "'CUT'") val transitionInType: String = "CUT",
 )
 
 /**
