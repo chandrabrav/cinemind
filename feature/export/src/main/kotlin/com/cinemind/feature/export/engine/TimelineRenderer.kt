@@ -121,13 +121,14 @@ class TimelineRenderer(private val context: Context) {
                     .build()
             }
         }
+        // Declaring the audio track type makes Media3 fill photos and silent clips with silence, so
+        // the output audio track stays continuous (replaces experimentalSetForceAudioTrack).
+        val mainTracks = if (hasAudio) setOf(C.TRACK_TYPE_AUDIO, C.TRACK_TYPE_VIDEO) else setOf(C.TRACK_TYPE_VIDEO)
         val sequences = buildList {
-            add(EditedMediaItemSequence(items))
-            if (musicItems.isNotEmpty()) add(EditedMediaItemSequence(musicItems))
+            add(EditedMediaItemSequence.Builder(mainTracks).addItems(items).build())
+            if (musicItems.isNotEmpty()) add(EditedMediaItemSequence.Builder(setOf(C.TRACK_TYPE_AUDIO)).addItems(musicItems).build())
         }
         return Composition.Builder(sequences)
-            // Photos and silent clips get silence so the audio track stays continuous.
-            .experimentalSetForceAudioTrack(hasAudio)
             .setHdrMode(Composition.HDR_MODE_TONE_MAP_HDR_TO_SDR_USING_OPEN_GL)
             .build()
     }
