@@ -2,7 +2,6 @@ package com.cinemind.feature.project.ui
 
 import android.text.format.DateUtils
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,25 +11,25 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.outlined.VideoLibrary
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -38,7 +37,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -51,6 +49,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -59,7 +59,15 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.cinemind.core.domain.model.ProjectNames
 import com.cinemind.core.domain.model.ProjectSummary
+import com.cinemind.core.ui.components.EmptyState
+import com.cinemind.core.ui.components.GlassCard
+import com.cinemind.core.ui.components.GradientButton
+import com.cinemind.core.ui.components.ScreenHeader
+import com.cinemind.core.ui.components.StatusPill
 import com.cinemind.core.ui.format.formatDuration
+import com.cinemind.core.ui.theme.CineMind
+import com.cinemind.core.ui.theme.Radius
+import com.cinemind.core.ui.theme.Spacing
 
 @Composable
 fun ProjectListScreen(
@@ -77,18 +85,10 @@ fun ProjectListScreen(
     }
 
     Scaffold(
-        // The app-level Scaffold already handles system-bar insets.
+        // The app-level Scaffold handles system-bar insets and draws the backdrop.
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        containerColor = Color.Transparent,
         snackbarHost = { SnackbarHost(snackbar) },
-        floatingActionButton = {
-            if (!state.projects.isNullOrEmpty()) {
-                ExtendedFloatingActionButton(
-                    onClick = onNewProject,
-                    icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                    text = { Text("New project") },
-                )
-            }
-        },
     ) { padding ->
         val projects = state.projects
         Box(
@@ -97,21 +97,30 @@ fun ProjectListScreen(
                 .padding(padding),
         ) {
             when {
-                projects == null -> CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
-                projects.isEmpty() -> EmptyProjects(onNewProject)
+                projects == null -> CircularProgressIndicator(
+                    color = CineMind.colors.accent,
+                    modifier = Modifier.align(Alignment.Center),
+                )
+                projects.isEmpty() -> EmptyState(
+                    icon = Icons.Outlined.VideoLibrary,
+                    title = "Your first story starts here",
+                    body = "Import videos and photos, describe the reel you want, and CineMind builds an editable project.",
+                ) {
+                    GradientButton("New project", onClick = onNewProject, icon = Icons.Default.Add)
+                }
                 else -> LazyColumn(
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 96.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    contentPadding = PaddingValues(bottom = Spacing.xxl),
+                    verticalArrangement = Arrangement.spacedBy(Spacing.m),
                 ) {
                     item {
-                        Text(
-                            "Your projects",
-                            style = MaterialTheme.typography.titleMedium,
-                            modifier = Modifier.padding(vertical = 4.dp),
+                        ScreenHeader(
+                            title = "Your stories",
+                            subtitle = "${projects.size} project${if (projects.size == 1) "" else "s"}",
                         )
                     }
+                    item { NewProjectCard(onNewProject) }
                     items(projects, key = { it.project.id }) { summary ->
-                        ProjectRow(
+                        ProjectCard(
                             summary = summary,
                             onOpen = { onOpenProject(summary.project.id) },
                             onRename = { renaming = summary },
@@ -138,84 +147,82 @@ fun ProjectListScreen(
     deleting?.let { target ->
         AlertDialog(
             onDismissRequest = { deleting = null },
+            containerColor = CineMind.colors.surfaceRaised,
             title = { Text("Delete project?") },
             text = {
                 Text(
                     "“${target.project.name}” and its edits will be removed. " +
                         "Your original videos and photos are not deleted.",
+                    color = CineMind.colors.textSecondary,
                 )
             },
             confirmButton = {
                 TextButton(onClick = {
                     viewModel.delete(target)
                     deleting = null
-                }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+                }) { Text("Delete", color = CineMind.colors.danger) }
             },
             dismissButton = { TextButton(onClick = { deleting = null }) { Text("Cancel") } },
         )
     }
 }
 
+/** Prominent entry point for a new edit, styled with the accent gradient. */
 @Composable
-private fun EmptyProjects(onNewProject: () -> Unit) {
-    Column(
+private fun NewProjectCard(onClick: () -> Unit) {
+    val c = CineMind.colors
+    GlassCard(
+        onClick = onClick,
         modifier = Modifier
-            .fillMaxSize()
-            .padding(32.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
+            .fillMaxWidth()
+            .padding(horizontal = Spacing.gutter),
     ) {
-        Icon(
-            Icons.Default.Movie,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(56.dp),
-        )
-        Spacer(Modifier.height(16.dp))
-        Text("No projects yet", style = MaterialTheme.typography.titleLarge)
-        Spacer(Modifier.height(8.dp))
-        Text(
-            "Import your footage, pick the clips you want, and CineMind builds an editable project.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.height(24.dp))
-        Button(onClick = onNewProject) {
-            Icon(Icons.Default.Add, contentDescription = null)
-            Spacer(Modifier.size(8.dp))
-            Text("New project")
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .size(52.dp)
+                    .clip(RoundedCornerShape(Radius.m))
+                    .background(Brush.linearGradient(listOf(c.accentGradientStart, c.accentGradientEnd))),
+            ) {
+                Icon(Icons.Default.Add, contentDescription = null, tint = c.onAccentGradient)
+            }
+            Spacer(Modifier.width(Spacing.m))
+            Column(modifier = Modifier.weight(1f)) {
+                Text("New project", style = MaterialTheme.typography.titleMedium, color = c.textPrimary)
+                Text("Import footage, then edit by hand or with Smart edit", style = MaterialTheme.typography.bodySmall, color = c.textTertiary)
+            }
+            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = c.textTertiary)
         }
     }
 }
 
 @Composable
-private fun ProjectRow(
+private fun ProjectCard(
     summary: ProjectSummary,
     onOpen: () -> Unit,
     onRename: () -> Unit,
     onDuplicate: () -> Unit,
     onDelete: () -> Unit,
 ) {
+    val c = CineMind.colors
     val project = summary.project
     var menuOpen by remember { mutableStateOf(false) }
 
-    Surface(
-        shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surfaceContainer,
+    GlassCard(
+        onClick = onOpen,
+        contentPadding = PaddingValues(Spacing.s),
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onOpen),
+            .padding(horizontal = Spacing.gutter),
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(10.dp),
-        ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
-                    .size(72.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                    .size(84.dp)
+                    .clip(RoundedCornerShape(Radius.m))
+                    .background(c.surfaceSunken),
             ) {
                 if (summary.coverUri != null) {
                     AsyncImage(
@@ -225,42 +232,50 @@ private fun ProjectRow(
                         modifier = Modifier.fillMaxSize(),
                     )
                 } else {
-                    Icon(Icons.Default.Movie, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Icon(Icons.Default.Movie, contentDescription = null, tint = c.textTertiary)
                 }
             }
 
             Column(
                 modifier = Modifier
                     .weight(1f)
-                    .padding(horizontal = 12.dp),
+                    .padding(horizontal = Spacing.m),
+                verticalArrangement = Arrangement.spacedBy(Spacing.xxs),
             ) {
                 Text(
                     project.name,
                     style = MaterialTheme.typography.titleMedium,
+                    color = c.textPrimary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    "${summary.clipCount} clips · ${formatDuration(project.durationUs)} · ${project.aspectRatio}",
+                    "${summary.clipCount} clips · ${formatDuration(project.durationUs)}",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = c.textSecondary,
                 )
-                Text(
-                    "Edited " + DateUtils.getRelativeTimeSpanString(
-                        project.updatedAt,
-                        System.currentTimeMillis(),
-                        DateUtils.MINUTE_IN_MILLIS,
-                    ),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    StatusPill(project.aspectRatio)
+                    Spacer(Modifier.width(Spacing.s))
+                    Text(
+                        "Edited " + DateUtils.getRelativeTimeSpanString(project.updatedAt, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = c.textTertiary,
+                        maxLines = 1,
+                    )
+                }
             }
 
             Box {
                 IconButton(onClick = { menuOpen = true }) {
-                    Icon(Icons.Default.MoreVert, contentDescription = "Project options")
+                    Icon(Icons.Default.MoreVert, contentDescription = "Project options", tint = c.textSecondary)
                 }
-                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                DropdownMenu(
+                    expanded = menuOpen,
+                    onDismissRequest = { menuOpen = false },
+                    containerColor = c.surfaceRaised,
+                    shape = RoundedCornerShape(Radius.m),
+                ) {
                     DropdownMenuItem(
                         text = { Text("Rename") },
                         leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
@@ -272,10 +287,8 @@ private fun ProjectRow(
                         onClick = { menuOpen = false; onDuplicate() },
                     )
                     DropdownMenuItem(
-                        text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
-                        leadingIcon = {
-                            Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error)
-                        },
+                        text = { Text("Delete", color = c.danger) },
+                        leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = c.danger) },
                         onClick = { menuOpen = false; onDelete() },
                     )
                 }
@@ -290,6 +303,7 @@ private fun RenameDialog(initial: String, onDismiss: () -> Unit, onConfirm: (Str
     val valid = ProjectNames.sanitize(text) != null
     AlertDialog(
         onDismissRequest = onDismiss,
+        containerColor = CineMind.colors.surfaceRaised,
         title = { Text("Rename project") },
         text = {
             OutlinedTextField(
@@ -297,6 +311,7 @@ private fun RenameDialog(initial: String, onDismiss: () -> Unit, onConfirm: (Str
                 onValueChange = { if (it.length <= ProjectNames.MAX_LENGTH) text = it },
                 singleLine = true,
                 isError = !valid,
+                shape = RoundedCornerShape(Radius.m),
                 supportingText = { if (!valid) Text("Enter a name") },
             )
         },

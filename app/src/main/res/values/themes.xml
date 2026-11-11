@@ -1,10 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Window-level theme only; all UI styling lives in the Compose design system (core:ui). -->
-    <style name="Theme.CineMind" parent="android:Theme.Material.NoActionBar">
-        <item name="android:windowBackground">@color/surface</item>
+    <!-- Window-level theme only (shown before Compose draws). Light; values-night has the dark twin.
+         On Android 12+ the in-app Light/Dark/System choice selects between them via UiModeManager. -->
+    <style name="Theme.CineMind" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/window_background</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
-        <item name="android:navigationBarColor">@color/surface</item>
-        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
     </style>
 </resources>
