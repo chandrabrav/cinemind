@@ -96,12 +96,17 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
+      - name: Install ffmpeg (static build, no apt)
+        uses: FedericoCarboni/setup-ffmpeg@v3
+        with:
+          ffmpeg-version: release
+
       - name: Generate test media (ffmpeg)
         timeout-minutes: 10
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
-          command -v ffmpeg >/dev/null || (sudo -E apt-get update -q && sudo -E apt-get install -y -q --no-install-recommends ffmpeg)
+
           d=feature/export/src/androidTest/assets
           mkdir -p "$d"
           ffmpeg -nostdin -loglevel error -y -f lavfi -i testsrc2=size=720x1280:rate=30 -f lavfi -i sine=frequency=440:sample_rate=44100 \

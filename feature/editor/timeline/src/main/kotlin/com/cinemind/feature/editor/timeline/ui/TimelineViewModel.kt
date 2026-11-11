@@ -236,7 +236,7 @@ class TimelineViewModel @Inject constructor(
         val id = projectId.value ?: return
         viewModelScope.launch {
             val asset = runCatching { importer.import(uri) }.getOrNull()
-            if (asset == null || !asset.isAudio) {
+            if (asset == null || !asset.isAudioFile) {
                 Toast.makeText(appContext, "That file can't be used as music", Toast.LENGTH_SHORT).show()
                 return@launch
             }
