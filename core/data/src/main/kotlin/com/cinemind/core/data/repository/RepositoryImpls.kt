@@ -9,6 +9,8 @@ import androidx.room.withTransaction
 import com.cinemind.core.domain.model.Clip
 import com.cinemind.core.domain.model.MediaAsset
 import com.cinemind.core.domain.model.Project
+import com.cinemind.core.domain.model.ProjectCopier
+import com.cinemind.core.domain.model.ProjectSummary
 import com.cinemind.core.domain.model.ProjectTimeline
 import com.cinemind.core.domain.model.Track
 import com.cinemind.core.domain.repository.ClipRepository
@@ -39,6 +41,35 @@ class ProjectRepositoryImpl(
     override suspend fun getProject(id: String): Project? = projectDao.getProject(id)
 
     override fun getAllProjects(): Flow<List<Project>> = projectDao.getAllProjects()
+
+    override fun getProjectSummaries(): Flow<List<ProjectSummary>> = projectDao.getProjectSummaries()
+
+    override suspend fun getProjectTimeline(id: String): ProjectTimeline? =
+        database.withTransaction { readTimeline(id) }
+
+    private suspend fun readTimeline(id: String): ProjectTimeline? {
+        val project = projectDao.getProject(id) ?: return null
+        val tracks = database.trackDao().getTracksForProjectOnce(id)
+        val clips = if (tracks.isEmpty()) {
+            emptyList()
+        } else {
+            database.clipDao().getClipsForTracksOnce(tracks.map { it.id })
+        }
+        return ProjectTimeline(project, tracks, clips)
+    }
+
+    override suspend fun renameProject(id: String, name: String) =
+        projectDao.rename(id, name, System.currentTimeMillis())
+
+    override suspend fun duplicateProject(id: String, newName: String): String? =
+        database.withTransaction {
+            val source = readTimeline(id) ?: return@withTransaction null
+            val copy = ProjectCopier.duplicate(source, newName)
+            projectDao.insert(copy.project)
+            copy.tracks.forEach { database.trackDao().insert(it) }
+            copy.clips.forEach { database.clipDao().insert(it) }
+            copy.project.id
+        }
 
     override suspend fun updateProject(project: Project) = projectDao.update(project)
 

@@ -23,6 +23,7 @@ include(":core:domain")
 include(":core:ui")
 include(":feature:media")
 include(":feature:editor:timeline")
+include(":feature:project")
 include(":feature:ai:analysis")
 include(":feature:ai:llm")
 include(":feature:ai:generation")
@@ -33,4 +34,4 @@ include(":feature:settings")
 // Scaffolded but empty (build files only, no sources). Re-include each one when
 // it gets real code so CI stays green and fast:
 //   :feature:editor:preview, :feature:editor:effects, :feature:editor:color,
-//   :feature:editor:audio, :feature:project, :media3, :benchmark
+//   :feature:editor:audio, :media3, :benchmark

@@ -5,22 +5,36 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.cinemind.core.ui.theme.CineMindTheme
 import com.cinemind.feature.editor.timeline.ui.TimelineScreen
 import com.cinemind.feature.media.ui.MediaLibraryScreen
+import com.cinemind.feature.project.ui.ProjectListScreen
 import dagger.hilt.android.AndroidEntryPoint
+
+private object Routes {
+    const val HOME = "home"
+    const val MEDIA_LIBRARY = "media_library"
+    const val EDITOR = "editor/{projectId}"
+    fun editor(projectId: String) = "editor/$projectId"
+}
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -31,17 +45,33 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             CineMindTheme {
+                val navController = rememberNavController()
+                val backStackEntry by navController.currentBackStackEntryAsState()
+                val route = backStackEntry?.destination?.route
+                val title = when (route) {
+                    Routes.MEDIA_LIBRARY -> "Import media"
+                    Routes.EDITOR -> "Editor"
+                    else -> "CineMind AI"
+                }
+
                 Scaffold(
                     topBar = {
                         TopAppBar(
-                            title = { Text(text = "CineMind AI") },
+                            title = { Text(text = title) },
+                            navigationIcon = {
+                                if (route != null && route != Routes.HOME) {
+                                    IconButton(onClick = { navController.navigateUp() }) {
+                                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                                    }
+                                }
+                            },
                             colors = TopAppBarDefaults.topAppBarColors(
                                 containerColor = MaterialTheme.colorScheme.surface,
                             ),
                         )
                     },
                 ) { paddingValues ->
-                    CineMindNavHost(modifier = Modifier.padding(paddingValues))
+                    CineMindNavHost(navController = navController, modifier = Modifier.padding(paddingValues))
                 }
             }
         }
@@ -50,22 +80,31 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun CineMindNavHost(
+    navController: NavHostController,
     modifier: Modifier = Modifier,
-    navController: NavHostController = rememberNavController(),
 ) {
     NavHost(
         navController = navController,
-        startDestination = "media_library",
+        startDestination = Routes.HOME,
         modifier = modifier,
     ) {
-        composable("media_library") {
+        composable(Routes.HOME) {
+            ProjectListScreen(
+                onNewProject = { navController.navigate(Routes.MEDIA_LIBRARY) },
+                onOpenProject = { id -> navController.navigate(Routes.editor(id)) },
+            )
+        }
+        composable(Routes.MEDIA_LIBRARY) {
             MediaLibraryScreen(
                 onProjectCreated = { projectId ->
-                    navController.navigate("editor/$projectId")
+                    // Replace the import screen so Back from the editor returns to the project list.
+                    navController.navigate(Routes.editor(projectId)) {
+                        popUpTo(Routes.HOME)
+                    }
                 },
             )
         }
-        composable("editor/{projectId}") { backStackEntry ->
+        composable(Routes.EDITOR) { backStackEntry ->
             val projectId = backStackEntry.arguments?.getString("projectId").orEmpty()
             TimelineScreen(projectId = projectId)
         }
