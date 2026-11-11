@@ -24,7 +24,7 @@ android {
 
 dependencies {
     api(project(":core:domain"))
-    implementation(libs.room.runtime)
+    api(libs.room.runtime)
     implementation(libs.room.ktx)
     ksp(libs.room.compiler)
     testImplementation(libs.junit)
