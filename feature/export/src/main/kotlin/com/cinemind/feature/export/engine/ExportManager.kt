@@ -132,6 +132,14 @@ class ExportManager @Inject constructor(
             }
         }
 
+        // Recorded narration (voiceover track): volume, mute and music ducking live in the track's fields.
+        val voiceTrack = timeline.tracks.firstOrNull { it.type == TrackType.VOICEOVER }
+        val voiceover = voiceTrack?.let { t ->
+            val recordings = timeline.clips.filter { it.trackId == t.id }.mapNotNull { c ->
+                assetRepository.getAsset(c.assetId)?.let { a -> RenderVoiceClip(c, a.uri, a.durationUs) }
+            }
+            RenderVoiceover(recordings, com.cinemind.core.domain.audio.VoiceoverSettings(t.volume, t.opacity, muted = !t.isEnabled))
+        }
         val sourceInfo = withContext(Dispatchers.IO) { SourceProbe.describe(context, assets.filterNotNull()) }
         Diagnostics.journalStage(context, "loading media", mapOf("clips" to clips.size.toString(), "sources" to sourceInfo))
         val project = timeline.project
@@ -161,7 +169,7 @@ class ExportManager @Inject constructor(
         val captionList = captionRepository.getCaptions(projectId)
         val captions = if (captionList.isEmpty()) null else RenderCaptions(captionList, captionRepository.getStyle(projectId))
         Diagnostics.journalStage(context, "building composition", mapOf("output" to "${size.width}x${size.height}", "bitrate" to bitrate.toString(), "overlays" to overlays.sumOf { it.size }.toString(), "captions" to captionList.size.toString(), "music" to (music != null).toString()))
-        val composition = renderer.buildComposition(pairs, size, settings.frameRate, music, audio.originalVolume, captions, overlays)
+        val composition = renderer.buildComposition(pairs, size, settings.frameRate, music, audio.originalVolume, captions, overlays, voiceover)
         _state.value = ExportState.Running(projectId, 0f)
         startForegroundService()
 

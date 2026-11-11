@@ -8,6 +8,9 @@ import androidx.lifecycle.viewModelScope
 import androidx.media3.common.Player
 import com.cinemind.core.common.CineMindLogger
 import com.cinemind.core.domain.audio.MusicSettings
+import com.cinemind.core.domain.audio.VoiceoverSettings
+import com.cinemind.feature.editor.timeline.voiceover.VoiceTake
+import com.cinemind.feature.editor.timeline.voiceover.VoiceoverRecorder
 import com.cinemind.core.domain.audio.ProjectAudio
 import com.cinemind.core.domain.editing.ClipLimits
 import com.cinemind.core.domain.editing.EditHistory
@@ -60,7 +63,24 @@ data class EditorState(
     /** Clips on the overlay (picture-in-picture) track. */
     val overlays: List<PreviewClip> = emptyList(),
     val selectedOverlayId: String? = null,
+    /** Recordings on the voiceover track. */
+    val voiceClips: List<PreviewClip> = emptyList(),
+    val selectedVoiceId: String? = null,
+    val voiceSettings: VoiceoverSettings = VoiceoverSettings(),
 )
+
+/** The voiceover recorder as shown in its sheet. */
+data class RecordingUi(
+    val phase: Phase = Phase.IDLE,
+    val startUs: Long = 0,
+    val elapsedMs: Long = 0,
+    /** Recent input levels 0..1, oldest first (live waveform). */
+    val levels: List<Float> = emptyList(),
+    val listening: Boolean = false,
+    val error: String? = null,
+) {
+    enum class Phase { IDLE, RECORDING, PAUSED, REVIEW }
+}
 
 /** The project's background music as shown in the editor. */
 data class MusicUi(val name: String, val durationUs: Long, val settings: MusicSettings)
@@ -134,6 +154,11 @@ class TimelineViewModel @Inject constructor(
             overlayClips.map { it.assetId }.distinct().forEach { assetId -> assets[assetId] = assetRepository.getAsset(assetId) }
             overlayTrackId = overlayTrack?.id
             overlayHistory = EditHistory(overlayClips)
+            val voice = timeline?.tracks?.firstOrNull { it.type == TrackType.VOICEOVER }
+            val voiceClips = timeline?.clips.orEmpty().filter { it.trackId == voice?.id }.sortedBy { it.timelineInUs }
+            voiceClips.map { it.assetId }.distinct().forEach { assetId -> assets[assetId] = assetRepository.getAsset(assetId) }
+            voiceTrack = voice
+            voiceHistory = EditHistory(voiceClips)
             undoKinds.clear()
             redoKinds.clear()
             loadAudio(id)
@@ -343,25 +368,255 @@ class TimelineViewModel @Inject constructor(
         }
     }
 
-    // Main track and overlay track keep their own histories; this records which one each step
-    // changed, so undo/redo walk all edits in the order they were made.
-    private val undoKinds = ArrayDeque<Boolean>() // true = overlay track
-    private val redoKinds = ArrayDeque<Boolean>()
+    // Each track keeps its own history; this records which one each step changed, so undo/redo
+    // walk all edits in the order they were made.
+    private enum class Layer { MAIN, OVERLAY, VOICE }
+    private val undoKinds = ArrayDeque<Layer>()
+    private val redoKinds = ArrayDeque<Layer>()
+
+    private fun historyOf(layer: Layer): EditHistory<List<Clip>>? = when (layer) {
+        Layer.MAIN -> history
+        Layer.OVERLAY -> overlayHistory
+        Layer.VOICE -> voiceHistory
+    }
+
+    private fun afterChange(layer: Layer) = when (layer) {
+        Layer.MAIN -> afterHistoryChange()
+        Layer.OVERLAY -> afterOverlayChange()
+        Layer.VOICE -> afterVoiceChange()
+    }
 
     fun undo() {
-        val overlay = undoKinds.removeLastOrNull() ?: return
-        val ok = if (overlay) overlayHistory.undo() else history?.undo() == true
-        if (!ok) return
-        redoKinds.addLast(overlay)
-        if (overlay) afterOverlayChange() else afterHistoryChange()
+        val layer = undoKinds.removeLastOrNull() ?: return
+        if (historyOf(layer)?.undo() != true) return
+        redoKinds.addLast(layer)
+        afterChange(layer)
     }
 
     fun redo() {
-        val overlay = redoKinds.removeLastOrNull() ?: return
-        val ok = if (overlay) overlayHistory.redo() else history?.redo() == true
-        if (!ok) return
-        undoKinds.addLast(overlay)
-        if (overlay) afterOverlayChange() else afterHistoryChange()
+        val layer = redoKinds.removeLastOrNull() ?: return
+        if (historyOf(layer)?.redo() != true) return
+        undoKinds.addLast(layer)
+        afterChange(layer)
+    }
+
+    // ---- Voiceover track (recorded narration) ------------------------------------------------
+
+    private var voiceHistory = EditHistory<List<Clip>>(emptyList())
+    private var voiceTrack: com.cinemind.core.domain.model.Track? = null
+    private val recorder = VoiceoverRecorder(appContext)
+    private val _recording = MutableStateFlow(RecordingUi())
+    val recording: StateFlow<RecordingUi> = _recording.asStateFlow()
+    private var recordStartUs = 0L
+    private var pendingTake: VoiceTake? = null
+    private var recordingJob: kotlinx.coroutines.Job? = null
+    private var listenPlayer: android.media.MediaPlayer? = null
+
+    private fun voiceSettings(): VoiceoverSettings = voiceTrack?.let { VoiceoverSettings(it.volume, it.opacity, muted = !it.isEnabled) } ?: VoiceoverSettings()
+
+    /** Starts recording at the playhead while the video plays silently. Returns false if the mic is unavailable. */
+    fun startRecording(): Boolean {
+        if (recorder.isRecording) return true
+        discardTake()
+        preview.pause()
+        recordStartUs = preview.currentPositionUs()
+        if (!recorder.start()) {
+            _recording.value = RecordingUi(error = "The microphone isn't available (another app may be using it).")
+            return false
+        }
+        // The video plays muted so the microphone doesn't pick up the speaker.
+        preview.setMuted(true)
+        preview.play()
+        _recording.value = RecordingUi(phase = RecordingUi.Phase.RECORDING, startUs = recordStartUs)
+        recordingJob = viewModelScope.launch {
+            val levels = ArrayDeque<Float>()
+            while (isActive && recorder.isRecording) {
+                levels.addLast(recorder.level())
+                while (levels.size > 90) levels.removeFirst()
+                _recording.value = _recording.value.copy(elapsedMs = recorder.elapsedMs(), levels = levels.toList())
+                delay(60)
+            }
+        }
+        return true
+    }
+
+    fun pauseRecording() {
+        recorder.pause()
+        preview.pause()
+        _recording.value = _recording.value.copy(phase = RecordingUi.Phase.PAUSED)
+    }
+
+    fun resumeRecording() {
+        recorder.resume()
+        preview.play()
+        _recording.value = _recording.value.copy(phase = RecordingUi.Phase.RECORDING)
+    }
+
+    fun stopRecording() {
+        recordingJob?.cancel()
+        val take = recorder.stop()
+        preview.pause()
+        preview.setMuted(false)
+        preview.seekToUs(recordStartUs)
+        refreshPreview()
+        pendingTake = take
+        _recording.value = if (take == null) {
+            RecordingUi(error = "Nothing was recorded (keep recording for at least half a second).")
+        } else {
+            RecordingUi(phase = RecordingUi.Phase.REVIEW, startUs = recordStartUs, elapsedMs = take.durationUs / 1_000, levels = _recording.value.levels)
+        }
+    }
+
+    /** Plays the take on its own before deciding. */
+    fun listenTake() {
+        val take = pendingTake ?: return
+        stopListening()
+        listenPlayer = runCatching {
+            android.media.MediaPlayer().apply {
+                setDataSource(take.file.absolutePath)
+                setOnCompletionListener { stopListening() }
+                prepare()
+                start()
+            }
+        }.getOrNull()
+        _recording.value = _recording.value.copy(listening = listenPlayer != null)
+    }
+
+    fun stopListening() {
+        runCatching { listenPlayer?.stop() }
+        runCatching { listenPlayer?.release() }
+        listenPlayer = null
+        _recording.value = _recording.value.copy(listening = false)
+    }
+
+    /** Puts the take on the voiceover track where recording started (one undo step). */
+    fun acceptTake() {
+        val take = pendingTake ?: return
+        val project = projectId.value ?: return
+        stopListening()
+        pendingTake = null
+        viewModelScope.launch {
+            val count = voiceHistory.present.size + 1
+            val asset = MediaAsset(
+                uri = Uri.fromFile(take.file).toString(),
+                mimeType = "audio/mp4",
+                width = 0,
+                height = 0,
+                durationUs = take.durationUs,
+                hasAudio = true,
+                displayName = "Voiceover $count",
+                sizeBytes = take.file.length(),
+            )
+            assetRepository.createAsset(asset)
+            assets[asset.id] = asset
+            val track = voiceTrack ?: projectRepository.ensureVoiceoverTrack(project).also { voiceTrack = it }
+            val base = Clip(trackId = track.id, assetId = asset.id, timelineInUs = 0, timelineOutUs = 0, sourceInUs = 0, sourceOutUs = take.durationUs)
+            // Placed where recording began; if that spot is taken (or it runs past the end), it is shortened to fit.
+            val placed = OverlayEditing.place(voiceHistory.present, base, recordStartUs, take.durationUs, mainLengthUs())
+            if (placed == null) {
+                Toast.makeText(appContext, "There's already a voiceover at that spot. Move the playhead to an empty place and record again.", Toast.LENGTH_LONG).show()
+                take.file.delete()
+                _recording.value = RecordingUi()
+                return@launch
+            }
+            _recording.value = RecordingUi()
+            commitVoice(placed, select = base.id)
+        }
+    }
+
+    fun discardTake() {
+        stopListening()
+        pendingTake?.file?.delete()
+        pendingTake = null
+        if (_recording.value.phase == RecordingUi.Phase.REVIEW || _recording.value.error != null) _recording.value = RecordingUi()
+    }
+
+    /** Closes the recorder without keeping anything. */
+    fun cancelRecording() {
+        recordingJob?.cancel()
+        if (recorder.isRecording) {
+            recorder.cancel()
+            preview.pause()
+            preview.setMuted(false)
+        }
+        discardTake()
+        _recording.value = RecordingUi()
+    }
+
+    fun onVoiceTapped(id: String) {
+        val current = _editor.value.selectedVoiceId
+        _editor.value = _editor.value.copy(selectedVoiceId = if (current == id) null else id, selectedClipId = null, selectedOverlayId = null)
+        voiceHistory.present.firstOrNull { it.id == id }?.let { preview.seekToUs(it.timelineInUs) }
+        refreshPreview()
+    }
+
+    fun clearVoiceSelection() {
+        _editor.value = _editor.value.copy(selectedVoiceId = null)
+    }
+
+    fun moveVoice(deltaUs: Long) = editVoice { clips, c -> OverlayEditing.move(clips, c.id, c.timelineInUs + deltaUs, mainLengthUs()) }
+
+    fun trimVoice(startDeltaUs: Long, endDeltaUs: Long) = editVoice { clips, c ->
+        OverlayEditing.trim(clips, c.id, c.timelineInUs + startDeltaUs, c.timelineOutUs + endDeltaUs, assets[c.assetId]?.durationUs, mainLengthUs())
+    }
+
+    fun setVoiceFades(fadeInMs: Long, fadeOutMs: Long) = editVoice { clips, c ->
+        clips.map { if (it.id == c.id) it.copy(transitionInMs = fadeInMs.coerceAtLeast(0), transitionOutMs = fadeOutMs.coerceAtLeast(0)) else it }
+    }
+
+    fun deleteVoice() {
+        val id = _editor.value.selectedVoiceId ?: return
+        commitVoice(voiceHistory.present.filterNot { it.id == id }, select = null)
+    }
+
+    /** Narration volume, music ducking and mute for the whole voiceover track. */
+    fun setVoiceSettings(settings: VoiceoverSettings) {
+        val t = voiceTrack ?: return
+        val updated = t.copy(volume = settings.volume.coerceIn(0f, 2f), opacity = settings.duckMusic.coerceIn(0f, 1f), isEnabled = !settings.muted)
+        voiceTrack = updated
+        _editor.value = _editor.value.copy(voiceSettings = settings)
+        publishVoice()
+        viewModelScope.launch(NonCancellable) { runCatching { projectRepository.updateTrack(updated) } }
+    }
+
+    private fun editVoice(op: (List<Clip>, Clip) -> List<Clip>) {
+        val clips = voiceHistory.present
+        val c = clips.firstOrNull { it.id == _editor.value.selectedVoiceId } ?: return
+        commitVoice(op(clips, c), select = c.id)
+    }
+
+    private fun commitVoice(next: List<Clip>, select: String?) {
+        if (!voiceHistory.push(next)) return
+        undoKinds.addLast(Layer.VOICE)
+        redoKinds.clear()
+        _editor.value = _editor.value.copy(selectedVoiceId = select)
+        afterVoiceChange()
+    }
+
+    private fun afterVoiceChange() {
+        if (voiceHistory.present.none { it.id == _editor.value.selectedVoiceId }) {
+            _editor.value = _editor.value.copy(selectedVoiceId = null)
+        }
+        publishVoice()
+        val project = projectId.value ?: return
+        val track = voiceTrack?.id ?: return
+        viewModelScope.launch(NonCancellable) {
+            writeLock.withLock {
+                runCatching { projectRepository.saveTrackClips(project, track, voiceHistory.present) }
+                    .onFailure { CineMindLogger.e(it, "Saving voiceover failed") }
+            }
+        }
+    }
+
+    private fun publishVoice() {
+        val voice = voiceHistory.present.map { PreviewClip(it, assets[it.assetId]) }
+        _editor.value = _editor.value.copy(
+            voiceClips = voice,
+            voiceSettings = voiceSettings(),
+            canUndo = undoKinds.isNotEmpty(),
+            canRedo = redoKinds.isNotEmpty(),
+        )
+        preview.setVoiceover(voice, voiceSettings())
     }
 
     // ---- Overlay track (picture-in-picture) ------------------------------------------------
@@ -431,7 +686,7 @@ class TimelineViewModel @Inject constructor(
 
     private fun commitOverlay(next: List<Clip>, select: String?) {
         if (!overlayHistory.push(next)) return
-        undoKinds.addLast(true)
+        undoKinds.addLast(Layer.OVERLAY)
         redoKinds.clear()
         _editor.value = _editor.value.copy(selectedOverlayId = select, selectedClipId = if (select != null) null else _editor.value.selectedClipId)
         afterOverlayChange()
@@ -468,7 +723,7 @@ class TimelineViewModel @Inject constructor(
     private fun commit(next: List<Clip>, selectAfter: String?) {
         val h = history ?: return
         if (!h.push(next)) return
-        undoKinds.addLast(false)
+        undoKinds.addLast(Layer.MAIN)
         redoKinds.clear()
         _editor.value = _editor.value.copy(selectedClipId = selectAfter)
         afterHistoryChange()
@@ -495,6 +750,7 @@ class TimelineViewModel @Inject constructor(
         )
         preview.setClips(clips)
         publishOverlays()
+        publishVoice()
         refreshMusicPlayback()
         if (seekToSelection) {
             val index = h.present.indexOfFirst { it.id == _editor.value.selectedClipId }
@@ -521,6 +777,9 @@ class TimelineViewModel @Inject constructor(
     }
 
     override fun onCleared() {
+        recordingJob?.cancel()
+        recorder.release()
+        stopListening()
         preview.release()
         super.onCleared()
     }

@@ -138,6 +138,24 @@ fun TimelineScreen(
     }
     val pickOverlay = { overlayPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)) }
     val selectedOverlay = editor.overlays.firstOrNull { it.clip.id == editor.selectedOverlayId }
+    val selectedVoice = editor.voiceClips.firstOrNull { it.clip.id == editor.selectedVoiceId }
+    val recording by viewModel.recording.collectAsStateWithLifecycle()
+    var showVoice by remember { mutableStateOf(false) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    // The microphone permission is asked only when the user wants to record.
+    val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) showVoice = true
+        else android.widget.Toast.makeText(context, "Allow the microphone in Settings to record a voiceover", android.widget.Toast.LENGTH_LONG).show()
+    }
+    val openVoice = {
+        if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            showVoice = true
+        } else {
+            micPermission.launch(android.Manifest.permission.RECORD_AUDIO)
+        }
+    }
 
     // Transitions are rendered inside the preview video by the export's own effects
     // (CompositionPlayer), so Compose no longer imitates them.
@@ -218,6 +236,10 @@ fun TimelineScreen(
             selectedOverlayId = editor.selectedOverlayId,
             onOverlayTap = viewModel::onOverlayTapped,
             onAddOverlay = pickOverlay,
+            voiceClips = editor.voiceClips,
+            selectedVoiceId = editor.selectedVoiceId,
+            onVoiceTap = viewModel::onVoiceTapped,
+            onAddVoice = openVoice,
         )
 
         AnimatedVisibility(
@@ -238,6 +260,24 @@ fun TimelineScreen(
                 onSplit = viewModel::splitSelectedAtPlayhead,
                 onClose = viewModel::clearSelection,
                 onTransition = viewModel::setTransitionSelected,
+            )
+        }
+
+        AnimatedVisibility(
+            visible = selectedVoice != null,
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically(),
+        ) {
+            val item = selectedVoice ?: return@AnimatedVisibility
+            VoiceInspector(
+                item = item,
+                settings = editor.voiceSettings,
+                onMove = viewModel::moveVoice,
+                onTrim = viewModel::trimVoice,
+                onFades = viewModel::setVoiceFades,
+                onSettings = viewModel::setVoiceSettings,
+                onDelete = viewModel::deleteVoice,
+                onClose = viewModel::clearVoiceSelection,
             )
         }
 
@@ -268,6 +308,29 @@ fun TimelineScreen(
             onExport = onExport,
             onCaptions = { showCaptions = true },
             onOverlay = pickOverlay,
+            onVoice = openVoice,
+        )
+    }
+
+    if (showVoice) {
+        VoiceoverSheet(
+            state = recording,
+            onStart = { viewModel.startRecording() },
+            onPause = viewModel::pauseRecording,
+            onResume = viewModel::resumeRecording,
+            onStop = viewModel::stopRecording,
+            onListen = viewModel::listenTake,
+            onStopListening = viewModel::stopListening,
+            onAccept = {
+                viewModel.acceptTake()
+                showVoice = false
+            },
+            onDiscard = viewModel::discardTake,
+            onDismiss = {
+                // Closing the sheet never keeps a half-done recording.
+                viewModel.cancelRecording()
+                showVoice = false
+            },
         )
     }
 

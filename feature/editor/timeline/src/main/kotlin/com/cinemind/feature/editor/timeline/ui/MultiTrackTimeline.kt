@@ -39,6 +39,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Animation
 import androidx.compose.material.icons.filled.ClosedCaption
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PictureInPicture
 import androidx.compose.material.icons.filled.Remove
@@ -91,6 +92,7 @@ private val VIDEO_LANE = 64.dp
 private val MUSIC_LANE = 34.dp
 private val CAPTION_LANE = 30.dp
 private val OVERLAY_LANE = 34.dp
+private val VOICE_LANE = 30.dp
 private val RULER = 24.dp
 private val LANE_GAP = 6.dp
 private val MIN_CLIP = 28.dp
@@ -122,6 +124,10 @@ internal fun MultiTrackTimeline(
     selectedOverlayId: String? = null,
     onOverlayTap: (String) -> Unit = {},
     onAddOverlay: () -> Unit = {},
+    voiceClips: List<PreviewClip> = emptyList(),
+    selectedVoiceId: String? = null,
+    onVoiceTap: (String) -> Unit = {},
+    onAddVoice: () -> Unit = {},
 ) {
     val c = CineMind.colors
     val density = LocalDensity.current
@@ -281,6 +287,28 @@ internal fun MultiTrackTimeline(
                             widthPx = if (music != null) TimelineLayout.xForUs(totalUs, pps) else viewportPx - leadPx * 2,
                             onTap = onMusicTap,
                         )
+                    }
+                    Spacer(Modifier.height(LANE_GAP))
+                    // Voiceover lane: recorded narration at its timeline times.
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(VOICE_LANE)
+                            .background(c.timelineLane),
+                    ) {
+                        if (voiceClips.isEmpty()) {
+                            VoiceBlock(null, leadPx, viewportPx - leadPx * 2, selected = false, onTap = onAddVoice)
+                        } else {
+                            voiceClips.forEach { v ->
+                                VoiceBlock(
+                                    item = v,
+                                    xPx = leadPx + TimelineLayout.xForUs(v.clip.timelineInUs, pps),
+                                    widthPx = TimelineLayout.xForUs(v.clip.timelineOutUs - v.clip.timelineInUs, pps),
+                                    selected = v.clip.id == selectedVoiceId,
+                                    onTap = { onVoiceTap(v.clip.id) },
+                                )
+                            }
+                        }
                     }
                     Spacer(Modifier.height(LANE_GAP))
                     // Caption lane: one block per caption, at its timeline time.
@@ -529,6 +557,41 @@ private fun MusicBlock(music: MusicUi?, xPx: Float, widthPx: Float, onTap: () ->
     }
 }
 
+/** A recording on the voiceover lane (or, with null, the "Record voiceover" hint). */
+@Composable
+private fun VoiceBlock(item: PreviewClip?, xPx: Float, widthPx: Float, selected: Boolean, onTap: () -> Unit) {
+    val c = CineMind.colors
+    val density = LocalDensity.current
+    val shape = RoundedCornerShape(Radius.xs)
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .offset { IntOffset(xPx.roundToInt(), 0) }
+            .width(with(density) { widthPx.coerceAtLeast(10.dp.toPx()).toDp() })
+            .fillMaxHeight()
+            .padding(vertical = Spacing.xxs, horizontal = 1.dp)
+            .clip(shape)
+            .then(if (item != null) Modifier.background(c.trackMusic) else Modifier.border(1.dp, c.textTertiary.copy(alpha = 0.6f), shape))
+            .then(if (selected) Modifier.border(2.dp, c.selection, shape) else Modifier)
+            .semantics {
+                contentDescription = if (item == null) "Record a voiceover"
+                else "Voiceover, ${formatDuration(item.clip.timelineOutUs - item.clip.timelineInUs)}" + if (selected) ", selected" else ""
+            }
+            .clickable(onClick = hapticClick(onClick = onTap))
+            .padding(horizontal = Spacing.xs),
+    ) {
+        Icon(Icons.Default.Mic, contentDescription = null, tint = if (item != null) c.clipLabel else c.textTertiary, modifier = Modifier.size(14.dp))
+        Spacer(Modifier.width(Spacing.xs))
+        Text(
+            text = if (item == null) "Record voiceover" else (item.asset?.displayName?.ifEmpty { null } ?: "Voiceover"),
+            color = if (item != null) c.clipLabel else c.textTertiary,
+            style = MaterialTheme.typography.labelSmall,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
 /** An overlay clip on the overlay lane (or, with null, the "Add overlay" hint). */
 @Composable
 private fun OverlayBlock(item: PreviewClip?, xPx: Float, widthPx: Float, selected: Boolean, onTap: () -> Unit) {
@@ -611,7 +674,7 @@ private fun Playhead(xPx: Float) {
         modifier = Modifier
             .offset { IntOffset((xPx - with(density) { (knob / 2).toPx() }).roundToInt(), 0) }
             .width(knob)
-            .height(RULER + Spacing.xs + VIDEO_LANE + LANE_GAP + OVERLAY_LANE + LANE_GAP + MUSIC_LANE + LANE_GAP + CAPTION_LANE),
+            .height(RULER + Spacing.xs + VIDEO_LANE + LANE_GAP + OVERLAY_LANE + LANE_GAP + MUSIC_LANE + LANE_GAP + VOICE_LANE + LANE_GAP + CAPTION_LANE),
     ) {
         Box(
             Modifier

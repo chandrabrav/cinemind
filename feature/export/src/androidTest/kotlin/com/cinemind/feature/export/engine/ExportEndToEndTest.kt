@@ -273,6 +273,34 @@ class ExportEndToEndTest {
         }
     }
 
+    /** A voiceover recording placed mid-video is mixed into the export (audio present, length kept). */
+    @Test
+    fun mixesVoiceoverIntoExport() = runBlocking {
+        val black = asset("black.mp4")
+        val voiceFile = asset("music.m4a") // stands in for a microphone recording (AAC in MP4)
+        val main = TimelineEditing.relayout(listOf(clip("b", 0, 2_000_000)))
+        val sources = listOf(RenderSource(Uri.fromFile(black).toString(), isVideo = true, hasAudio = false, frameRate = 30f, durationUs = 2_000_000))
+        val voiceClip = Clip(id = "vo", trackId = "voice", assetId = "vo", timelineInUs = 500_000, timelineOutUs = 1_500_000, sourceInUs = 0, sourceOutUs = 1_000_000, transitionInMs = 100, transitionOutMs = 100)
+        val voiceover = RenderVoiceover(listOf(RenderVoiceClip(voiceClip, Uri.fromFile(voiceFile).toString(), 3_000_000)), com.cinemind.core.domain.audio.VoiceoverSettings())
+        val out = File(context.cacheDir, "e2e-voice.mp4").apply { delete() }
+        val progressScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+        withContext(Dispatchers.Main) {
+            val renderer = TimelineRenderer(context)
+            val composition = renderer.buildComposition(main.zip(sources), OutputSize(720, 1280), fps = 30, voiceover = voiceover)
+            renderer.render(composition, out, videoBitrateBps = 2_000_000, progressScope = progressScope)
+        }
+        progressScope.cancel()
+        val r = MediaMetadataRetriever()
+        try {
+            r.setDataSource(out.absolutePath)
+            assertEquals("yes", r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_AUDIO))
+            val durationMs = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)!!.toLong()
+            assertTrue("video length unchanged (~2 s, was $durationMs ms)", durationMs in 1_800..2_300)
+        } finally {
+            r.release()
+        }
+    }
+
     /** Mean luma (0..1) of the horizontal band between [y0] and [y1] (fractions of the height). */
     private fun bandLuma(raw: Bitmap, y0: Float, y1: Float): Float {
         // Media3 may store portrait as landscape + rotation flag; measure the upright picture.

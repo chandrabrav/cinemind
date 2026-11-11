@@ -25,6 +25,8 @@ import androidx.media3.transformer.ProgressHolder
 import androidx.media3.transformer.Transformer
 import androidx.media3.transformer.VideoEncoderSettings
 import com.cinemind.core.domain.audio.MusicLayout
+import com.cinemind.core.domain.audio.VoiceMix
+import com.cinemind.core.domain.audio.VoiceoverSettings
 import com.cinemind.core.domain.editing.ClipAnimation
 import com.cinemind.core.domain.editing.OverlayEditing
 import com.cinemind.core.domain.editing.TransitionMath
@@ -80,12 +82,17 @@ class TimelineRenderer(private val context: Context) {
         captions: RenderCaptions? = null,
         /** Overlay tracks, bottom to top; each a list of clips on that track. */
         overlays: List<List<RenderOverlay>> = emptyList(),
+        /** Recorded narration (one track), mixed under the video; can duck the music. */
+        voiceover: RenderVoiceover? = null,
     ): Composition {
         val fit = Presentation.createForWidthAndHeight(size.width, size.height, Presentation.LAYOUT_SCALE_TO_FIT)
         val animations = TransitionMath.animations(clips.map { it.first })
         val totalUs = clips.maxOfOrNull { it.first.timelineOutUs } ?: 0L
-        val musicItems = music?.let { buildMusicItems(it, totalUs) }.orEmpty()
-        val hasAudio = clips.any { (_, s) -> s.isVideo && s.hasAudio } || musicItems.isNotEmpty()
+        val voiceClips = voiceover?.clips?.map { it.clip }.orEmpty()
+        val voiceSettings = voiceover?.settings ?: VoiceoverSettings()
+        val musicItems = music?.let { buildMusicItems(it, totalUs, voiceClips, voiceSettings) }.orEmpty()
+        val voiceSequence = voiceover?.takeIf { it.clips.isNotEmpty() && !it.settings.muted }?.let { buildVoiceSequence(it, totalUs) }
+        val hasAudio = voiceSequence != null || clips.any { (_, s) -> s.isVideo && s.hasAudio } || musicItems.isNotEmpty()
         val clipAudio = if (originalVolume < 0.999f) listOf(GainAudioProcessor { originalVolume.coerceIn(0f, 1f) }) else emptyList()
 
         val items = clips.mapIndexed { i, (clip, source) ->
@@ -141,6 +148,7 @@ class TimelineRenderer(private val context: Context) {
             addAll(overlaySequences)
             add(EditedMediaItemSequence.Builder(mainTracks).addItems(items).build())
             if (musicItems.isNotEmpty()) add(EditedMediaItemSequence.Builder(setOf(C.TRACK_TYPE_AUDIO)).addItems(musicItems).build())
+            if (voiceSequence != null) add(voiceSequence)
         }
         val builder = Composition.Builder(sequences)
             .setHdrMode(Composition.HDR_MODE_TONE_MAP_HDR_TO_SDR_USING_OPEN_GL)
@@ -211,7 +219,43 @@ class TimelineRenderer(private val context: Context) {
     private fun knownDurationUs(sourceDurationUs: Long, clipEndUs: Long): Long =
         maxOf(sourceDurationUs, clipEndUs, 1L)
 
-    private fun buildMusicItems(music: RenderMusic, totalUs: Long): List<EditedMediaItem> =
+    /**
+     * Narration as an audio-only sequence: recordings at their timeline times with silent gaps in
+     * between, each with its volume and fades ([VoiceMix.voiceGain]).
+     */
+    private fun buildVoiceSequence(voice: RenderVoiceover, totalUs: Long): EditedMediaItemSequence {
+        val byId = voice.clips.associateBy { it.clip.id }
+        val builder = EditedMediaItemSequence.Builder(setOf(C.TRACK_TYPE_AUDIO))
+        for (piece in OverlayEditing.pieces(voice.clips.map { it.clip }, totalUs)) {
+            when (piece) {
+                is OverlayEditing.Piece.Gap -> builder.addGap(piece.durationUs)
+                is OverlayEditing.Piece.Item -> {
+                    val c = piece.clip
+                    val src = byId.getValue(c.id)
+                    val mediaItem = MediaItem.Builder()
+                        .setUri(src.uri)
+                        .setClippingConfiguration(
+                            MediaItem.ClippingConfiguration.Builder()
+                                .setStartPositionMs(c.sourceInUs / 1_000)
+                                .setEndPositionMs(c.sourceOutUs / 1_000)
+                                .build(),
+                        )
+                        .build()
+                    val gain = GainAudioProcessor { localUs -> VoiceMix.voiceGain(c, localUs, voice.settings) }
+                    builder.addItem(
+                        EditedMediaItem.Builder(mediaItem)
+                            .setDurationUs(knownDurationUs(src.durationUs, c.sourceOutUs))
+                            .setRemoveVideo(true)
+                            .setEffects(Effects(listOf(gain), emptyList()))
+                            .build(),
+                    )
+                }
+            }
+        }
+        return builder.build()
+    }
+
+    private fun buildMusicItems(music: RenderMusic, totalUs: Long, voice: List<Clip>, voiceSettings: VoiceoverSettings): List<EditedMediaItem> =
         MusicLayout.segments(music.durationUs, music.startOffsetUs, totalUs).map { seg ->
             val mediaItem = MediaItem.Builder()
                 .setUri(music.uri)
@@ -223,7 +267,8 @@ class TimelineRenderer(private val context: Context) {
                 )
                 .build()
             val gain = GainAudioProcessor { localUs ->
-                MusicLayout.gainAt(seg.timelineStartUs + localUs, totalUs, music.volume, music.fadeInUs, music.fadeOutUs)
+                val t = seg.timelineStartUs + localUs
+                MusicLayout.gainAt(t, totalUs, music.volume, music.fadeInUs, music.fadeOutUs) * VoiceMix.musicDuck(t, voice, voiceSettings)
             }
             EditedMediaItem.Builder(mediaItem)
                 .setDurationUs(knownDurationUs(music.durationUs, seg.sourceOutUs))
