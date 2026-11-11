@@ -14,6 +14,20 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.outlined.Speed
+import androidx.compose.material3.Icon
+import com.cinemind.core.ui.components.GlassCard
+import com.cinemind.core.ui.components.GradientButton
+import com.cinemind.core.ui.components.ScreenHeader
+import com.cinemind.core.ui.components.SectionHeader
+import com.cinemind.core.ui.components.SettingRow
+import com.cinemind.core.ui.components.StatusPill
+import com.cinemind.core.ui.components.Tone
+import com.cinemind.core.ui.theme.CineMind
+import com.cinemind.core.ui.theme.Spacing
 import androidx.compose.material3.Button
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -123,21 +137,25 @@ fun AiModelsScreen(viewModel: AiModelsViewModel = hiltViewModel()) {
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val bench by viewModel.bench.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val c = CineMind.colors
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+            .padding(bottom = Spacing.xxl),
+        verticalArrangement = Arrangement.spacedBy(Spacing.m),
     ) {
-        Text("On-device AI", style = MaterialTheme.typography.headlineSmall)
+        ScreenHeader(
+            title = "On-device AI",
+            subtitle = "Runs entirely on this phone · ${DownloadMath.formatBytes(settings.freeBytes)} free",
+        )
         Text(
-            "Models run entirely on this phone; your videos never leave it. A model is downloaded once " +
-                "from its publisher (Hugging Face) and checked for corruption before use. " +
-                "Free storage: ${DownloadMath.formatBytes(settings.freeBytes)}.",
+            "Models are downloaded once from their publisher (Hugging Face) and checked for corruption before use. " +
+                "Your videos never leave the phone.",
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = c.textTertiary,
+            modifier = Modifier.padding(horizontal = Spacing.gutter),
         )
 
         ModelCatalog.ALL.forEach { spec ->
@@ -153,37 +171,40 @@ fun AiModelsScreen(viewModel: AiModelsViewModel = hiltViewModel()) {
             )
         }
 
-        SwitchRow("Use AI in Smart edit", "Describes your shots and reads your brief with the model.", settings.useAi, viewModel::setUseAi)
-        SwitchRow("Download on Wi-Fi only", "Models are 2.6–3.7 GB.", settings.wifiOnly, viewModel::setWifiOnly)
-        SwitchRow("Use the GPU", "Faster; turn off if the app crashes while analysing.", settings.preferGpu, viewModel::setPreferGpu)
+        SectionHeader("Options")
+        GlassCard(modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.gutter)) {
+            SettingRow("Use AI in Smart edit", subtitle = "Reads your brief and describes your shots") {
+                Switch(checked = settings.useAi, onCheckedChange = viewModel::setUseAi)
+            }
+            SettingRow("Download on Wi-Fi only", subtitle = "Models are 2.6–3.7 GB") {
+                Switch(checked = settings.wifiOnly, onCheckedChange = viewModel::setWifiOnly)
+            }
+            SettingRow("Use the GPU", subtitle = "Faster; turn off if the app crashes while analysing") {
+                Switch(checked = settings.preferGpu, onCheckedChange = viewModel::setPreferGpu)
+            }
+        }
 
-        Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, shape = MaterialTheme.shapes.large) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text("Benchmark this phone", style = MaterialTheme.typography.titleMedium)
-                Text(
-                    "Loads the selected model and times a text answer and one image analysis. Send the report back so the model choice is based on your phone's real numbers.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(8.dp))
-                when (val b = bench) {
-                    BenchmarkUi.Running -> {
-                        Text("Running… (the first load can take up to a minute)")
-                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                    }
-                    is BenchmarkUi.Done -> {
-                        Text(b.result.report(), style = MaterialTheme.typography.bodySmall)
-                        Row {
-                            TextButton(onClick = { copy(context, b.result.report()) }) { Text("Copy report") }
-                            TextButton(onClick = viewModel::runBenchmark) { Text("Run again") }
-                        }
-                    }
-                    is BenchmarkUi.Failed -> {
-                        Text(b.message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                        Button(onClick = viewModel::runBenchmark) { Text("Try again") }
-                    }
-                    BenchmarkUi.Idle -> Button(onClick = viewModel::runBenchmark) { Text("Run benchmark") }
+        SectionHeader("Benchmark this phone", hint = "Times loading, a text answer and one image analysis. Send the report back.")
+        GlassCard(modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.gutter)) {
+            when (val b = bench) {
+                BenchmarkUi.Running -> {
+                    Text("Running… the first load can take up to a minute", style = MaterialTheme.typography.bodyMedium, color = c.textPrimary)
+                    Spacer(Modifier.height(Spacing.s))
+                    LinearProgressIndicator(color = c.accent, trackColor = c.surfaceSunken, modifier = Modifier.fillMaxWidth())
                 }
+                is BenchmarkUi.Done -> {
+                    Text(b.result.report(), style = MaterialTheme.typography.bodySmall, color = c.textPrimary)
+                    Row {
+                        TextButton(onClick = { copy(context, b.result.report()) }) { Text("Copy report", color = c.accent) }
+                        TextButton(onClick = viewModel::runBenchmark) { Text("Run again", color = c.textSecondary) }
+                    }
+                }
+                is BenchmarkUi.Failed -> {
+                    Text(b.message, color = c.danger, style = MaterialTheme.typography.bodySmall)
+                    Spacer(Modifier.height(Spacing.s))
+                    GradientButton("Try again", onClick = viewModel::runBenchmark, icon = Icons.Outlined.Speed)
+                }
+                BenchmarkUi.Idle -> GradientButton("Run benchmark", onClick = viewModel::runBenchmark, icon = Icons.Outlined.Speed)
             }
         }
     }
@@ -199,54 +220,66 @@ private fun ModelCard(
     onPause: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = MaterialTheme.shapes.large) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                RadioButton(selected = selected, onClick = onSelect)
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(spec.name, style = MaterialTheme.typography.titleSmall)
-                    Text("${DownloadMath.formatBytes(spec.sizeBytes)} · ${spec.license}", style = MaterialTheme.typography.labelSmall)
-                }
+    val c = CineMind.colors
+    GlassCard(modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.gutter)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            RadioButton(selected = selected, onClick = onSelect)
+            Column(modifier = Modifier.weight(1f)) {
+                Text(spec.name, style = MaterialTheme.typography.titleMedium, color = c.textPrimary)
+                Text("${DownloadMath.formatBytes(spec.sizeBytes)} · ${spec.license}", style = MaterialTheme.typography.labelSmall, color = c.textTertiary)
             }
-            Text(spec.summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.height(8.dp))
             when (state) {
-                ModelState.NotInstalled -> Button(onClick = onDownload) { Text("Download") }
-                is ModelState.Downloading -> {
-                    Text("Downloading ${DownloadMath.formatBytes(state.bytes)} of ${DownloadMath.formatBytes(state.total)}")
-                    LinearProgressIndicator(progress = { state.fraction }, modifier = Modifier.fillMaxWidth())
-                    OutlinedButton(onClick = onPause) { Text("Pause") }
-                }
-                is ModelState.Paused -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("Paused at ${(DownloadMath.fraction(state.bytes, state.total) * 100).toInt()}%", modifier = Modifier.weight(1f))
-                    Button(onClick = onDownload) { Text("Resume") }
-                    TextButton(onClick = onDelete) { Text("Discard") }
-                }
-                ModelState.Verifying -> {
-                    Text("Checking the file…")
-                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                }
-                ModelState.Installed -> Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Installed", color = MaterialTheme.colorScheme.primary, modifier = Modifier.weight(1f))
-                    TextButton(onClick = onDelete) { Text("Delete") }
-                }
-                is ModelState.Failed -> Column {
-                    Text(state.message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                    Button(onClick = onDownload) { Text(if (state.bytes > 0) "Resume" else "Try again") }
-                }
+                ModelState.Installed -> StatusPill("Installed", Tone.Success)
+                is ModelState.Downloading, ModelState.Verifying -> StatusPill("Downloading", Tone.Accent)
+                is ModelState.Paused -> StatusPill("Paused", Tone.Warning)
+                is ModelState.Failed -> StatusPill("Problem", Tone.Danger)
+                ModelState.NotInstalled -> Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = c.textTertiary)
             }
         }
-    }
-}
-
-@Composable
-private fun SwitchRow(title: String, subtitle: String, checked: Boolean, onChange: (Boolean) -> Unit) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.bodyLarge)
-            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(spec.summary, style = MaterialTheme.typography.bodySmall, color = c.textSecondary, modifier = Modifier.padding(top = Spacing.xs))
+        Spacer(Modifier.height(Spacing.m))
+        when (state) {
+            ModelState.NotInstalled -> GradientButton("Download", onClick = onDownload, icon = Icons.Default.CloudDownload)
+            is ModelState.Downloading -> {
+                Text(
+                    "${DownloadMath.formatBytes(state.bytes)} of ${DownloadMath.formatBytes(state.total)} · ${(state.fraction * 100).toInt()}%",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = c.textSecondary,
+                )
+                Spacer(Modifier.height(Spacing.xs))
+                LinearProgressIndicator(progress = { state.fraction }, color = c.accent, trackColor = c.surfaceSunken, modifier = Modifier.fillMaxWidth())
+                OutlinedButton(onClick = onPause, modifier = Modifier.padding(top = Spacing.s)) { Text("Pause", color = c.textSecondary) }
+            }
+            is ModelState.Paused -> Row(horizontalArrangement = Arrangement.spacedBy(Spacing.s), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "${(DownloadMath.fraction(state.bytes, state.total) * 100).toInt()}% downloaded",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = c.textSecondary,
+                    modifier = Modifier.weight(1f),
+                )
+                GradientButton("Resume", onClick = onDownload)
+                TextButton(onClick = onDelete) { Text("Discard", color = c.danger) }
+            }
+            ModelState.Verifying -> {
+                Text("Checking the file…", style = MaterialTheme.typography.labelMedium, color = c.textSecondary)
+                Spacer(Modifier.height(Spacing.xs))
+                LinearProgressIndicator(color = c.accent, trackColor = c.surfaceSunken, modifier = Modifier.fillMaxWidth())
+            }
+            ModelState.Installed -> Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    if (selected) "In use for Smart edit" else "Ready",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = c.textSecondary,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = onDelete) { Text("Delete", color = c.danger) }
+            }
+            is ModelState.Failed -> Column {
+                Text(state.message, color = c.danger, style = MaterialTheme.typography.bodySmall)
+                Spacer(Modifier.height(Spacing.s))
+                GradientButton(if (state.bytes > 0) "Resume" else "Try again", onClick = onDownload)
+            }
         }
-        Switch(checked = checked, onCheckedChange = onChange)
     }
 }
 

@@ -3,9 +3,15 @@ package com.cinemind.feature.media.ui
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,9 +22,9 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -28,15 +34,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Movie
-import androidx.compose.material3.Button
-import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material.icons.outlined.AddPhotoAlternate
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -47,8 +51,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -58,7 +67,15 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import coil.request.videoFrameMillis
 import com.cinemind.core.domain.model.MediaAsset
+import com.cinemind.core.ui.components.EmptyState
+import com.cinemind.core.ui.components.GradientButton
+import com.cinemind.core.ui.components.ScreenHeader
+import com.cinemind.core.ui.components.hapticClick
+import com.cinemind.core.ui.components.pressScale
 import com.cinemind.core.ui.format.formatDuration
+import com.cinemind.core.ui.theme.CineMind
+import com.cinemind.core.ui.theme.Radius
+import com.cinemind.core.ui.theme.Spacing
 
 private const val MAX_PICK = 50
 
@@ -88,20 +105,16 @@ fun MediaLibraryScreen(
     }
 
     Scaffold(
-        // The app-level Scaffold already handles system-bar insets.
+        // The app-level Scaffold handles system-bar insets and draws the backdrop.
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        containerColor = Color.Transparent,
         snackbarHost = { SnackbarHost(snackbar) },
-        floatingActionButton = {
-            if (state.selection.isEmpty() && state.assets.isNotEmpty()) {
-                ExtendedFloatingActionButton(
-                    onClick = launchPicker,
-                    icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                    text = { Text("Import") },
-                )
-            }
-        },
         bottomBar = {
-            if (state.selection.isNotEmpty()) {
+            AnimatedVisibility(
+                visible = state.selection.isNotEmpty(),
+                enter = fadeIn() + slideInVertically { it / 2 },
+                exit = fadeOut() + slideOutVertically { it / 2 },
+            ) {
                 SelectionBar(
                     count = state.selection.size,
                     busy = state.creatingProject,
@@ -117,22 +130,36 @@ fun MediaLibraryScreen(
                 .padding(padding),
         ) {
             if (state.importing) {
-                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                LinearProgressIndicator(
+                    color = CineMind.colors.accent,
+                    trackColor = CineMind.colors.surfaceSunken,
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
             if (state.assets.isEmpty()) {
-                EmptyLibrary(onImport = launchPicker, importing = state.importing)
+                EmptyState(
+                    icon = Icons.Outlined.AddPhotoAlternate,
+                    title = "Start with your footage",
+                    body = "Pick videos and photos from your gallery. Originals are never moved or changed.",
+                ) {
+                    GradientButton("Import media", onClick = launchPicker, icon = Icons.Default.Add, enabled = !state.importing)
+                }
             } else {
-                Text(
-                    text = "Tap clips in the order you want them, then create a project.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                )
+                ScreenHeader(
+                    title = "Choose clips",
+                    subtitle = "Tap them in the order you want them",
+                ) {
+                    TextButton(onClick = launchPicker, enabled = !state.importing) {
+                        Icon(Icons.Default.Add, contentDescription = null, tint = CineMind.colors.accent)
+                        Spacer(Modifier.width(Spacing.xs))
+                        Text("Import", color = CineMind.colors.accent)
+                    }
+                }
                 LazyVerticalGrid(
                     columns = GridCells.Adaptive(minSize = 108.dp),
-                    contentPadding = PaddingValues(12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(start = Spacing.m, end = Spacing.m, bottom = Spacing.xl),
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.s),
+                    verticalArrangement = Arrangement.spacedBy(Spacing.s),
                     modifier = Modifier.fillMaxSize(),
                 ) {
                     items(state.assets, key = { it.id }) { asset ->
@@ -150,77 +177,52 @@ fun MediaLibraryScreen(
 }
 
 @Composable
-private fun EmptyLibrary(onImport: () -> Unit, importing: Boolean) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(32.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Icon(
-            imageVector = Icons.Default.Movie,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(56.dp),
-        )
-        Spacer(Modifier.height(16.dp))
-        Text("Start with your footage", style = MaterialTheme.typography.titleLarge)
-        Spacer(Modifier.height(8.dp))
-        Text(
-            "Pick videos and photos from your gallery. Originals are never moved or changed.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.height(24.dp))
-        Button(onClick = onImport, enabled = !importing) {
-            Icon(Icons.Default.Add, contentDescription = null)
-            Spacer(Modifier.size(8.dp))
-            Text("Import media")
-        }
-    }
-}
-
-@Composable
 private fun AssetTile(
     asset: MediaAsset,
     selectionNumber: Int?,
     onClick: () -> Unit,
 ) {
+    val c = CineMind.colors
     val selected = selectionNumber != null
-    val shape = RoundedCornerShape(12.dp)
+    val shape = RoundedCornerShape(Radius.m)
+    val interaction = remember { MutableInteractionSource() }
+    val click = hapticClick(onClick = onClick)
     Box(
         modifier = Modifier
             .aspectRatio(1f)
+            .pressScale(interaction, 0.95f)
             .clip(shape)
-            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-            .then(
-                if (selected) Modifier.border(3.dp, MaterialTheme.colorScheme.primary, shape) else Modifier,
-            )
-            .clickable(onClick = onClick),
+            .background(c.surfaceSunken)
+            .then(if (selected) Modifier.border(3.dp, c.accent, shape) else Modifier.border(1.dp, c.hairline, shape))
+            .semantics {
+                this.selected = selected
+                contentDescription = (if (asset.isVideo) "Video " + formatDuration(asset.durationUs) else "Photo") +
+                    (selectionNumber?.let { ", selected number $it" } ?: "")
+            }
+            .clickable(interactionSource = interaction, indication = null, role = Role.Checkbox, onClick = click),
     ) {
         AsyncImage(
             model = ImageRequest.Builder(LocalContext.current)
                 .data(asset.uri)
                 .videoFrameMillis(1_000)
                 .build(),
-            contentDescription = asset.displayName.ifEmpty { null },
+            contentDescription = null,
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize(),
         )
 
-        Badge(
+        MediaBadge(
             text = if (asset.isVideo) formatDuration(asset.durationUs) else "Photo",
             icon = if (asset.isVideo) Icons.Default.Movie else Icons.Default.Image,
             modifier = Modifier
                 .align(Alignment.BottomStart)
-                .padding(6.dp),
+                .padding(Spacing.xs + 2.dp),
         )
-        Badge(
+        MediaBadge(
             text = qualityLabel(asset.width, asset.height),
             modifier = Modifier
                 .align(Alignment.TopStart)
-                .padding(6.dp),
+                .padding(Spacing.xs + 2.dp),
         )
 
         if (selectionNumber != null) {
@@ -228,14 +230,14 @@ private fun AssetTile(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(6.dp)
+                    .padding(Spacing.xs + 2.dp)
                     .size(26.dp)
                     .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary),
+                    .background(c.accent),
             ) {
                 Text(
                     text = selectionNumber.toString(),
-                    color = MaterialTheme.colorScheme.onPrimary,
+                    color = c.onAccent,
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Bold,
                 )
@@ -244,47 +246,50 @@ private fun AssetTile(
     }
 }
 
+/** Label drawn over media; uses the stage tokens so it reads on any picture in any theme. */
 @Composable
-private fun Badge(
+private fun MediaBadge(
     text: String,
     modifier: Modifier = Modifier,
-    icon: androidx.compose.ui.graphics.vector.ImageVector? = null,
+    icon: ImageVector? = null,
 ) {
+    val c = CineMind.colors
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = modifier
-            .clip(RoundedCornerShape(6.dp))
-            .background(Color.Black.copy(alpha = 0.6f))
-            .padding(horizontal = 6.dp, vertical = 2.dp),
+            .clip(RoundedCornerShape(Radius.xs))
+            .background(c.stageControl)
+            .padding(horizontal = Spacing.xs + 2.dp, vertical = Spacing.xxs),
     ) {
         if (icon != null) {
-            Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(12.dp))
-            Spacer(Modifier.size(4.dp))
+            Icon(icon, contentDescription = null, tint = c.onStage, modifier = Modifier.size(12.dp))
+            Spacer(Modifier.size(Spacing.xs))
         }
-        Text(
-            text = text,
-            color = Color.White,
-            style = MaterialTheme.typography.labelSmall,
-            maxLines = 1,
-            overflow = TextOverflow.Clip,
-        )
+        Text(text = text, color = c.onStage, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Clip)
     }
 }
 
+/** Floating glass bar for the current selection. */
 @Composable
 private fun SelectionBar(count: Int, busy: Boolean, onClear: () -> Unit, onCreate: () -> Unit) {
-    Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, tonalElevation = 3.dp) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-        ) {
-            Text("$count selected", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-            TextButton(onClick = onClear, enabled = !busy) { Text("Clear") }
-            Spacer(Modifier.size(8.dp))
-            Button(onClick = onCreate, enabled = !busy) { Text(if (busy) "Creating…" else "Create project") }
+    val c = CineMind.colors
+    val shape = RoundedCornerShape(Radius.xl)
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(Spacing.m)
+            .clip(shape)
+            .background(c.surfaceGlass)
+            .border(1.dp, c.hairline, shape)
+            .padding(start = Spacing.l, end = Spacing.s, top = Spacing.s, bottom = Spacing.s),
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text("$count selected", style = MaterialTheme.typography.titleMedium, color = c.textPrimary)
+            Text("In this order", style = MaterialTheme.typography.labelSmall, color = c.textTertiary)
         }
+        TextButton(onClick = onClear, enabled = !busy) { Text("Clear", color = c.textSecondary) }
+        GradientButton(if (busy) "Creating…" else "Create project", onClick = onCreate, enabled = !busy)
     }
 }
 

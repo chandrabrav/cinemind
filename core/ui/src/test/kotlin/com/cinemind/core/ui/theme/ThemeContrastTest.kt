@@ -32,12 +32,21 @@ class ThemeContrastTest {
         return (maxOf(la, lb) + 0.05) / (minOf(la, lb) + 0.05)
     }
 
+    private val failures = mutableListOf<String>()
+
+    /** Records (rather than throws) so one run lists every failing pair. */
     private fun assertAA(name: String, text: Color, background: Color, min: Double = 4.5) {
         val r = ratio(text, background)
-        assertTrue("$name contrast %.2f < %.1f".format(r, min), r >= min)
+        if (r < min) failures += "$name contrast %.2f < %.1f".format(r, min)
     }
 
     private fun check(c: CineMindColors) {
+        failures.clear()
+        collect(c)
+        assertTrue(failures.joinToString("\n"), failures.isEmpty())
+    }
+
+    private fun collect(c: CineMindColors) {
         val theme = if (c.isDark) "dark" else "light"
         val glassTop = over(c.surfaceGlass, c.backdropTop)
         val glassBottom = over(c.surfaceGlass, c.backdropBottom)
