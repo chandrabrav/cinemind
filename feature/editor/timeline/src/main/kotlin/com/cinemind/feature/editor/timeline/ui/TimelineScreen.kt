@@ -97,6 +97,12 @@ fun TimelineScreen(
         viewModel.loadProject(projectId)
         captionsViewModel.load(projectId)
     }
+    // Leaving the editor (export, Smart edit, AI models…) frees the preview's decoders and GPU
+    // pipeline; coming back restores them at the same position.
+    DisposableEffect(viewModel) {
+        viewModel.onEditorShown()
+        onDispose { viewModel.onEditorHidden() }
+    }
     val captionsUi by captionsViewModel.ui.collectAsStateWithLifecycle()
     var showCaptions by remember { mutableStateOf(false) }
     val project by viewModel.project.collectAsStateWithLifecycle()

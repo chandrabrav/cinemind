@@ -9,6 +9,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.transformer.ExportException
 import androidx.media3.transformer.Transformer
 import com.cinemind.core.common.CineMindLogger
+import com.cinemind.core.common.Diagnostics
 import com.cinemind.core.domain.model.TrackType
 import com.cinemind.core.domain.repository.MediaAssetRepository
 import com.cinemind.core.domain.repository.ProjectRepository
@@ -57,6 +58,15 @@ class ExportManager @Inject constructor(
     fun start(projectId: String, settings: ExportSettings) {
         if (_state.value.isActive) return
         _state.value = ExportState.Preparing(projectId)
+        Diagnostics.journalStart(
+            context,
+            mapOf(
+                "projectId" to projectId,
+                "resolution" to settings.resolution.label,
+                "fps" to settings.frameRate.toString(),
+                "quality" to settings.quality.label,
+            ),
+        )
         job = scope.launch {
             try {
                 run(projectId, settings)
@@ -70,7 +80,18 @@ class ExportManager @Inject constructor(
             } catch (e: Exception) {
                 CineMindLogger.e(e, "Export failed")
                 _state.value = ExportState.Failed(projectId, e.message ?: "Export failed")
+            } catch (e: OutOfMemoryError) {
+                // An Error, not an Exception: without this the whole app would close.
+                CineMindLogger.e(e, "Export ran out of memory")
+                _state.value = ExportState.Failed(projectId, "The phone ran out of memory while exporting. Try a lower resolution, or close other apps.")
             } finally {
+                val outcome = when (val s = _state.value) {
+                    is ExportState.Success -> "success"
+                    is ExportState.Failed -> "failed: ${s.message}"
+                    is ExportState.Cancelled -> "cancelled"
+                    else -> "stopped"
+                }
+                Diagnostics.journalEnd(context, outcome)
                 transformer = null
                 cleanupTemp()
             }
@@ -111,6 +132,8 @@ class ExportManager @Inject constructor(
             }
         }
 
+        val sourceInfo = withContext(Dispatchers.IO) { SourceProbe.describe(context, assets.filterNotNull()) }
+        Diagnostics.journalStage(context, "loading media", mapOf("clips" to clips.size.toString(), "sources" to sourceInfo))
         val project = timeline.project
         val size = ExportPlanner.outputSize(project.resolutionWidth, project.resolutionHeight, settings.resolution)
         val bitrate = ExportPlanner.videoBitrateBps(size, settings.frameRate, settings.quality)
@@ -137,10 +160,12 @@ class ExportManager @Inject constructor(
 
         val captionList = captionRepository.getCaptions(projectId)
         val captions = if (captionList.isEmpty()) null else RenderCaptions(captionList, captionRepository.getStyle(projectId))
+        Diagnostics.journalStage(context, "building composition", mapOf("output" to "${size.width}x${size.height}", "bitrate" to bitrate.toString(), "overlays" to overlays.sumOf { it.size }.toString(), "captions" to captionList.size.toString(), "music" to (music != null).toString()))
         val composition = renderer.buildComposition(pairs, size, settings.frameRate, music, audio.originalVolume, captions, overlays)
         _state.value = ExportState.Running(projectId, 0f)
         startForegroundService()
 
+        Diagnostics.journalStage(context, "rendering (decode, effects, encode)")
         renderer.render(
             composition = composition,
             outFile = outFile,
@@ -151,8 +176,10 @@ class ExportManager @Inject constructor(
         )
 
         _state.value = ExportState.Saving(projectId)
+        Diagnostics.journalStage(context, "verifying output", mapOf("outputBytes" to outFile.length().toString()))
         val actualDurationMs = verify(outFile)
         val name = ExportPlanner.fileName(project.name)
+        Diagnostics.journalStage(context, "saving to Movies/CineMind")
         val uri = withContext(Dispatchers.IO) { MediaStoreSaver.save(context, outFile, name) }
         _state.value = ExportState.Success(projectId, uri, name, outFile.length(), actualDurationMs)
     }

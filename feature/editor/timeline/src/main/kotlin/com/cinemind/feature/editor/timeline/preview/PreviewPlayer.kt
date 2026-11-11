@@ -232,6 +232,22 @@ class PreviewPlayer(context: Context) {
         )
     }
 
+    /**
+     * Frees the preview's decoders and GPU pipeline while the editor isn't on screen (e.g. during
+     * export, which needs its own decoders/encoder; phones have a limited number of hardware codecs).
+     */
+    fun releaseDecoders() {
+        main.removeCallbacksAndMessages(null)
+        rebuildPending = false
+        if (player.playbackState != Player.STATE_IDLE) player.stop()
+        builtKey = null
+    }
+
+    /** Rebuilds the preview after [releaseDecoders] (same timeline, same position). */
+    fun restore() {
+        scheduleRebuild()
+    }
+
     fun release() {
         main.removeCallbacksAndMessages(null)
         player.release()

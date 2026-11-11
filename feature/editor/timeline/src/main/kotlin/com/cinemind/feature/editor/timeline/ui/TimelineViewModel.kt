@@ -153,6 +153,17 @@ class TimelineViewModel @Inject constructor(
         refreshPreview()
     }
 
+    /** The editor left the screen (e.g. export opened): free decoders so export has them. */
+    fun onEditorHidden() {
+        preview.pause()
+        preview.releaseDecoders()
+    }
+
+    /** The editor is back on screen: rebuild the preview where it was. */
+    fun onEditorShown() {
+        preview.restore()
+    }
+
     /** Called continuously while the user drags the scrubber. */
     fun scrubTo(positionUs: Long) {
         preview.seekToUs(positionUs, fast = true)

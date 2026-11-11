@@ -104,6 +104,18 @@ fun ExportScreen(
             subtitle = "${p.name} · ${formatDuration(p.durationUs)} · ${p.aspectRatio}",
         )
 
+        val interrupted by viewModel.interrupted.collectAsStateWithLifecycle()
+        interrupted?.let { stage ->
+            MessageCard(
+                title = "The last export didn't finish",
+                text = "CineMind closed while it was at: $stage. Nothing was saved. Please open Settings → Diagnostics, " +
+                    "tap Copy report and send it, so the cause can be fixed. You can try again, for example at a lower resolution.",
+                isError = true,
+                actionLabel = "Dismiss",
+                onAction = viewModel::dismissInterrupted,
+            )
+        }
+
         when (mine) {
             is ExportState.Preparing, is ExportState.Running, is ExportState.Saving ->
                 ProgressCard(mine, onCancel = viewModel::cancel)
