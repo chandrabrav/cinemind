@@ -26,8 +26,9 @@ class TimelineLayoutTest {
         assertEquals(500_000L, TimelineLayout.tickIntervalUs(300f, minTickPx = 120f))
         // Zoomed out (20 px/s): need 10 s to reach 150 px.
         assertEquals(10_000_000L, TimelineLayout.tickIntervalUs(20f, minTickPx = 150f))
-        // Extremely zoomed out falls back to a minute.
-        assertEquals(60_000_000L, TimelineLayout.tickIntervalUs(0.1f, minTickPx = 150f))
+        // Extremely zoomed out falls back to the largest step (10 minutes).
+        assertEquals(600_000_000L, TimelineLayout.tickIntervalUs(0.01f, minTickPx = 150f))
+        assertEquals(60_000_000L, TimelineLayout.tickIntervalUs(3f, minTickPx = 150f))
     }
 
     @Test
@@ -58,8 +59,8 @@ class TimelineLayoutTest {
         val newScroll = TimelineLayout.scrollAfterZoom(500f, 300f, 40f, 100f, 250f)
         val timeAfter = (newScroll + 300f - 40f) / 250f
         assertEquals(7.6f, timeAfter, 0.0001f)
-        // Never scrolls before the start.
-        assertEquals(0f, TimelineLayout.scrollAfterZoom(0f, 10f, 40f, 100f, 10f), 0.0001f)
+        // Zooming far out with the fingers at 2.6 s would need a negative scroll: clamped to 0.
+        assertEquals(0f, TimelineLayout.scrollAfterZoom(0f, 300f, 40f, 100f, 10f), 0.0001f)
     }
 
     @Test
