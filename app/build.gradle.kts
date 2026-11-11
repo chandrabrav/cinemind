@@ -20,6 +20,10 @@ android {
         versionCode = (System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1)
         versionName = "0.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        // Phones are 64-bit ARM; x86_64 is for the CI emulator. Drops unused native code (LiteRT-LM).
+        ndk {
+            abiFilters += listOf("arm64-v8a", "x86_64")
+        }
         vectorDrawables {
             useSupportLibrary = true
         }
