@@ -237,6 +237,42 @@ class ExportEndToEndTest {
         }
     }
 
+    /**
+     * Phones record HDR (10-bit HEVC, PQ/HLG) by default; export tone-maps it to SDR H.264 on the
+     * GPU. Reproduction attempt for the on-device export crash. Skipped (not passed) when this
+     * emulator has no 10-bit HEVC decoder.
+     */
+    @Test
+    fun exportsHdrHevcSourceToSdr() = runBlocking {
+        val hasMain10 = android.media.MediaCodecList(android.media.MediaCodecList.ALL_CODECS).codecInfos.any { info ->
+            !info.isEncoder && info.supportedTypes.contains("video/hevc") &&
+                info.getCapabilitiesForType("video/hevc").profileLevels.any { it.profile == android.media.MediaCodecInfo.CodecProfileLevel.HEVCProfileMain10 }
+        }
+        org.junit.Assume.assumeTrue("no 10-bit HEVC decoder on this emulator", hasMain10)
+        val mediaPresent = runCatching { instrumentation.context.assets.open("hdr_hevc.mp4").close() }.isSuccess
+        org.junit.Assume.assumeTrue("HDR test media not generated (ffmpeg without libx265)", mediaPresent)
+        val hdr = asset("hdr_hevc.mp4")
+        val clips = TimelineEditing.relayout(listOf(clip("h", 0, 2_000_000), clip("h2", 0, 2_000_000, ClipTransition.FADE, 400)))
+        val src = RenderSource(Uri.fromFile(hdr).toString(), isVideo = true, hasAudio = true, frameRate = 30f, durationUs = 2_000_000)
+        val out = File(context.cacheDir, "e2e-hdr.mp4").apply { delete() }
+        val progressScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+        withContext(Dispatchers.Main) {
+            val renderer = TimelineRenderer(context)
+            val composition = renderer.buildComposition(clips.zip(listOf(src, src)), OutputSize(720, 1280), fps = 30)
+            renderer.render(composition, out, videoBitrateBps = 4_000_000, progressScope = progressScope)
+        }
+        progressScope.cancel()
+        val r = MediaMetadataRetriever()
+        try {
+            r.setDataSource(out.absolutePath)
+            val durationMs = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)!!.toLong()
+            assertTrue("duration ~4 s, was $durationMs ms", durationMs in 3_700..4_300)
+            assertTrue("picture visible after tone mapping", luma(r, 1_000_000) > 0.05f)
+        } finally {
+            r.release()
+        }
+    }
+
     /** Mean luma (0..1) of the horizontal band between [y0] and [y1] (fractions of the height). */
     private fun bandLuma(raw: Bitmap, y0: Float, y1: Float): Float {
         // Media3 may store portrait as landscape + rotation flag; measure the upright picture.

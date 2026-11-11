@@ -142,6 +142,10 @@ jobs:
           ffmpeg -nostdin -loglevel error -y -f lavfi -i testsrc2=size=1200x900 -frames:v 1 "$d/photo.jpg"
           ffmpeg -nostdin -loglevel error -y -f lavfi -i sine=frequency=660:sample_rate=44100 -t 3 -c:a aac "$d/music.m4a"
           ffmpeg -nostdin -loglevel error -y -f lavfi -i color=c=black:size=720x1280:rate=30 -t 2 -c:v libx264 -pix_fmt yuv420p "$d/black.mp4"
+          # 10-bit HDR10 (PQ, BT.2020) HEVC like phone cameras record; skipped if libx265 is missing.
+          ffmpeg -nostdin -loglevel error -y -f lavfi -i testsrc2=size=1280x720:rate=30 -f lavfi -i sine=frequency=500:sample_rate=48000 -t 2 \
+            -c:v libx265 -pix_fmt yuv420p10le -tag:v hvc1 -x265-params "colorprim=bt2020:transfer=smpte2084:colormatrix=bt2020nc:log-level=error" \
+            -color_primaries bt2020 -color_trc smpte2084 -colorspace bt2020nc -c:a aac -shortest "$d/hdr_hevc.mp4" || echo "no libx265: HDR test will be skipped"
           ls -la "$d"
           # The editor preview test plays the same video and photo.
           e=feature/editor/timeline/src/androidTest/assets
