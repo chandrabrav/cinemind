@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Android 12+: same window theme plus the system splash with the CineMind AI artwork on its
+         own deep navy (identical in light and dark, like the icon). -->
+    <style name="Theme.CineMind" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/window_background</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+        <item name="android:windowSplashScreenBackground">@color/splash_background</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_launcher_art</item>
+    </style>
+</resources>

@@ -184,6 +184,7 @@ fun TimelineScreen(
             modifier = Modifier.fillMaxWidth(),
             captions = captionsUi.captions,
             onCaptionsTap = { showCaptions = true },
+            fps = fps,
         )
 
         AnimatedVisibility(

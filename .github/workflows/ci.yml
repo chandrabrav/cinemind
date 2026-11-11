@@ -135,7 +135,7 @@ jobs:
           disk-size: 3000M
           emulator-options: -no-window -no-snapshot-save -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           disable-animations: true
-          script: gradle --continue :feature:export:connectedDebugAndroidTest :feature:captions:connectedDebugAndroidTest :core:ui:connectedDebugAndroidTest :feature:editor:timeline:connectedDebugAndroidTest --stacktrace
+          script: gradle --continue :feature:export:connectedDebugAndroidTest :feature:captions:connectedDebugAndroidTest :feature:settings:connectedDebugAndroidTest :core:ui:connectedDebugAndroidTest :feature:editor:timeline:connectedDebugAndroidTest --stacktrace
 
       - name: Upload instrumented test reports
         if: always()

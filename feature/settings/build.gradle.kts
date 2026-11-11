@@ -12,6 +12,7 @@ android {
 
     defaultConfig {
         minSdk = libs.versions.minSdk.get().toInt()
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     compileOptions {
@@ -34,6 +35,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.hilt.navigation.compose)
     implementation(libs.datastore.preferences)
+    implementation(libs.androidx.core.ktx)
     implementation(libs.kotlinx.coroutines.android)
     implementation(platform(libs.compose.bom))
     debugImplementation(libs.compose.ui.tooling)
@@ -41,6 +43,11 @@ dependencies {
     ksp(libs.hilt.compiler)
     ksp(libs.kotlin.metadata.jvm)
     testImplementation(libs.junit)
+    androidTestImplementation(platform(libs.compose.bom))
+    androidTestImplementation(libs.compose.ui.test.junit4)
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.test.ext.junit)
+    debugImplementation(libs.compose.ui.test.manifest)
 }
 
 kotlin {

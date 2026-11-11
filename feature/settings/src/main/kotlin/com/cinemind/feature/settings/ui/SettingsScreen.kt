@@ -79,6 +79,7 @@ class SettingsViewModel @Inject constructor(
 @Composable
 fun SettingsScreen(
     onOpenAiModels: () -> Unit,
+    onOpenAbout: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val mode by viewModel.themeMode.collectAsStateWithLifecycle()
@@ -136,6 +137,7 @@ fun SettingsScreen(
 
         SectionHeader("About", modifier = Modifier.padding(top = Spacing.l))
         GlassCard(
+            onClick = onOpenAbout,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = Spacing.gutter),
@@ -143,14 +145,15 @@ fun SettingsScreen(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Outlined.Info, contentDescription = null, tint = CineMind.colors.textSecondary)
                 Spacer(Modifier.width(Spacing.m))
-                Column {
-                    Text("CineMind AI $version", style = MaterialTheme.typography.titleSmall, color = CineMind.colors.textPrimary)
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("About ${Branding.APP_NAME}", style = MaterialTheme.typography.titleSmall, color = CineMind.colors.textPrimary)
                     Text(
-                        "Your footage stays on this phone. Exports go to Movies/CineMind.",
+                        "Version $version · ${Branding.DEVELOPER_CREDIT}",
                         style = MaterialTheme.typography.bodySmall,
                         color = CineMind.colors.textTertiary,
                     )
                 }
+                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = CineMind.colors.textTertiary)
             }
         }
     }

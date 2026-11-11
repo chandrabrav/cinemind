@@ -14,10 +14,12 @@ _Last updated: 2026-11-11_
 | **Last completed milestone** | Smart edit + transitions + music + split (2026-11-11): the brief creates a real edit (on-device frame analysis + planner → new editable project); 7 clip transitions in preview and export; background music (offset, loop, volume, fades) + original-sound level; split at playhead; editor tools bar (Smart edit, Add clips, Transitions, Music, Export); emulator end-to-end export tests green in CI. |
 | **Owner feedback (device test of build #30)** | App installs and imports. Complaints: only two bottom options; no AI editing; no transitions; "AI brief not working" (its button was intentionally disabled). Addressed in this milestone. |
 | **UI redesign (new, 2026-11-11)** | Whole app moved onto a central design system (light + dark tokens, contrast-tested), persistent Light / Dark / System theme in a new Settings screen, every screen redesigned, editor rebuilt around a time-scaled multitrack timeline with drag-to-trim. See "UI redesign & design system". |
-| **Current task** | Owner installs build #73: checks the redesign in both themes, then runs the AI benchmark (✦ on the home screen) and sends the report; then tries Smart edit with AI. |
-| **Branch** | `dev-main` (redesign done on `redesign`, fast-forwarded) |
-| **Latest verified build** | CI run 43061916979 (#73), commit `82f97fa`: build + 131 unit tests + 6 instrumented tests (2 export end-to-end, 4 screenshot tests: design system + editor × light/dark) — https://github.com/chandrabrav/cinemind/actions/runs/43061916979 |
-| **Latest verified APK** | Artifact `cinemind-debug-73` (43.7 MB zipped). Screenshots: artifact `ui-screenshots-73`. Not yet device-tested. |
+| **Captions & speech (new, 2026-11-11)** | Editable caption layer (timeline lane, preview overlay, burned into export by the same painter), 7 style presets + full styling, sentence/phrase/word modes, karaoke highlight, animations; on-device speech-to-text with Gemma 4's audio encoder: Hinglish / Roman / native script / English translation as separate operations; Devanagari→Roman transliterator. See "Captions & speech-to-text". **Speech recognition itself is not yet run on a phone.** |
+| **Branding (new)** | "CineMind AI" on launch (wordmark after the system splash), home title and Settings → About CineMind AI (logo, version + build, "Developed by Gautam", description, privacy facts, open-source licences). |
+| **Current task** | Owner tests build #82 on the Vivo (captions by hand, export with captions, About; speech-to-text with Gemma 4 E2B installed) and sends the AI benchmark report. Next milestone: see "Audit for the professional-editor brief". |
+| **Branch** | `captions` (from `dev-main` = `main` at `110e809`; PR #16 merged dev-main → main and fixed main's red CI) |
+| **Latest verified build** | CI run 43071502601 (#82), commit `baa29f9`: **all green** — 164 unit tests + 12 instrumented (export e2e ×3 incl. caption burn-in, speech audio ×3, screenshots ×6) — https://github.com/chandrabrav/cinemind/actions/runs/43071502601 — artifact `cinemind-debug-82` |
+| **Previous fully verified build** | CI run 43061916979 (#73), commit `82f97fa`: build + 131 unit + 6 instrumented tests. |
 
 ## Build environment (hard rule)
 
@@ -48,7 +50,7 @@ _Last updated: 2026-11-11_
   - Next toolchain step when needed: AGP 9 (built-in Kotlin, new DSL) would allow Hilt ≥2.59; not required now.
 - UI: Jetpack Compose + Material 3 (BOM 2024.12.01), Navigation Compose. Dark-first theme in `core/ui`.
 - DI: Hilt (KSP). Storage: Room, DataStore Preferences.
-- Room schema is **v4** (v2–v4 JSON committed): `MIGRATION_1_2` (`media_assets.displayName`, `sizeBytes`), `MIGRATION_2_3` (`edit_briefs`), `MIGRATION_3_4` (`clips.transitionInType`). **No destructive migration.** Exported schema JSON is committed in `core/data/schemas/` — after any schema change, fetch the new JSON from the `room-schemas-<run>` artifact, compare its `createSql` with the hand-written migration, and commit it.
+- Room schema is **v5**: `MIGRATION_1_2` (`media_assets.displayName`, `sizeBytes`), `MIGRATION_2_3` (`edit_briefs`), `MIGRATION_3_4` (`clips.transitionInType`), `MIGRATION_4_5` (`captions`, `caption_styles`). v5 JSON: fetch from `room-schemas-<run>` and commit. **No destructive migration.** Exported schema JSON is committed in `core/data/schemas/` — after any schema change, fetch the new JSON from the `room-schemas-<run>` artifact, compare its `createSql` with the hand-written migration, and commit it.
 - Media: system Photo Picker for import; `MediaMetadataRetriever` + `MediaExtractor` for metadata; Coil 2.7 + `coil-video` for thumbnails.
 - **Transitions** (`core/domain/editing/Transitions.kt`): `ClipTransition` = CUT, FADE (dip to black), ZOOM_IN, ZOOM_OUT, SLIDE_LEFT/RIGHT/UP; stored per clip as `transitionInType` + `transitionInMs` (opening on the first clip) and `transitionOutMs` on the last clip (ending fade). There are no overlapping clips yet, so each transition is split: the outgoing clip animates out over half, the incoming clip animates in over half. `TransitionMath.animations()` + `lookAt()` produce a `FrameLook` (scale, translate, brightness) — the **single source of truth** for both preview and export. True cross-dissolves need multi-track compositing (Stage 3).
 - Preview: Media3 1.5.1 ExoPlayer; `PlayerView` inflated from `preview_player_view.xml` with **`surface_type="texture_view"`** so Compose can scale/slide it (`graphicsLayer`) and darken it (black overlay) from `FrameLook`. `PreviewPlayer` maps each clip to one playlist item (`ClippingConfiguration`; photos/missing media use `SilenceMediaSource` with the image drawn on top).
@@ -89,8 +91,11 @@ Scaffolded but **excluded** until they get code: `:feature:editor:{preview,effec
 | Smart edit ("AI brief") | **Working, rule-based**: on-device analysis + planner → new editable project with decisions summary. Unit tests: `FrameMetricsTest` (5), `BriefInterpreterTest` (6), `SmartEditPlannerTest` (7). Not device-verified. No scene understanding, no beat sync |
 | Trim / reorder / delete / undo | Implemented; unit-tested |
 | Export | Implemented (720p–4K, 24–60 fps, H.264/AAC SDR); end-to-end emulator test |
-| AI with models (VLM/LLM), cloud AI | Not started (Stage 4–6) |
-| Captions / STT / Hindi-Hinglish / graphics | Not started; needs the updated spec |
+| AI with models (VLM/LLM) | On-device Gemma 4 via LiteRT-LM: Smart edit (brief + key frames) and speech-to-text. Not run on a phone yet |
+| Cloud AI | Not started (module has data classes only) |
+| Captions | **Implemented**: caption layer (Room v5), manual add/edit/retime/split/delete, undo/redo, autosave, styles + 7 presets, preview overlay, export burn-in. Unit-tested; export burn-in emulator test added |
+| Speech-to-text / Hindi-Hinglish | **Implemented, not device-tested**: audio decode + speech detection (emulator-tested), Gemma 4 audio transcription, language tag, 4 output modes, transliteration fallback, translation as a separate step. Word timings are estimated |
+| Contextual graphics / text layers | Not started |
 | Music | Implemented: one background song (start point, loop, volume, fades) + original-sound level; preview + export; emulator-tested mixing. No beat detection, no multiple audio tracks, no voice-over yet |
 | Split clip | Implemented (split at playhead), unit-tested |
 | Beat sync, color/LUTs, speed, multi-track, cross-dissolves | Not started (Stage 3) |
@@ -138,6 +143,9 @@ Scaffolded but **excluded** until they get code: `:feature:editor:{preview,effec
 | 43055014562 | `6661629` | all green | Full redesign + editor timeline; 129 unit + 2 emulator |
 | 43057669226 | `92b2c59` | e2e ✗ | Dark screenshot capture timed out on the CPU-rendered emulator → retrying capture, `--continue` |
 | **43061916979 (#73)** | `82f97fa` | **all green** | Screenshot-review fixes; 131 unit + 6 instrumented (export ×2, screenshots ×4) |
+| 43057701381 | `3e628b1` (main) | e2e ✗ | main had the pre-fix screenshot test; fixed by PR #16 (dev-main → main, `110e809`) |
+| 43070384841 | `d705d99` | unit ✗ | Captions: class-init cycle `CaptionStyle` default ↔ `CaptionPresets` (NPE) → literal default id |
+| **43071502601 (#82)** | `baa29f9` | **all green** | Captions + branding: 164 unit tests; emulator: export ×3 (incl. caption burn-in, frame reviewed), speech audio ×3, screenshots ×6 (design system, editor with caption lane, About; light + dark) |
 
 ## Music & audio (as built)
 
@@ -171,6 +179,53 @@ Owner request: OriginOS-7-inspired redesign of the whole app + persistent Light/
 
 **Not verified / not done:** full screens with live data were not rendered in tests (they need Hilt + database); nothing has been checked on the Vivo yet; no real backdrop blur; 120 Hz is supported by keeping animations GPU-only (scale/alpha/translation) but frame timing was not measured; the timeline has two lanes (video + music) — more video/overlay lanes and cross-dissolves need the Stage 3 multi-track engine; pinch-to-zoom not implemented (buttons instead); landscape/tablet layouts are usable but not specially tuned; `launch(NonCancellable)` usages now warn under coroutines 1.11 (behaviour unchanged; refactor pending).
 
+## Captions & speech-to-text (2026-11-11, branch `captions`)
+
+- **Model (`core/domain/captions`)**: `Caption` (timeline start/end, text, per-word times, language, script, source SPEECH/MANUAL/TRANSLATION, `uncertain`) and `CaptionStyle` (one per project: preset, font, size as fraction of the short side, weight, caps, text/highlight colours, outline, shadow, box colour/opacity, position inside the 8–92 % safe area, alignment, mode, karaoke, animation). `CaptionPresets`: Reels & Shorts, Travel, Cinematic, Education, Podcast & interview, Vlog, Music video. `CaptionLayout.frameAt()` decides what is on screen at any time (sentence / phrase ≤4 words, breaks at punctuation and pauses / word-by-word, karaoke word, fade/pop/slide/typewriter) — **one source of truth for preview and export**. `CaptionEditing`: retime (clamped, no overlap, rescales word times), edit text, insert at playhead, split. `WordTimes`: storage + length-weighted estimate.
+- **Transliteration** (`Transliterator`): Devanagari → Latin letters with Hindi schwa deletion (करना → karna, जगह → jagah, ज़िंदगी → zindagi) and common chat spellings (में → mein, है → hai). Never translates.
+- **Speech-to-text** (`feature/captions/speech`): `AudioExtractor` (MediaCodec decode of only the trimmed range → 16 kHz mono via `StreamingResampler`) → `SpeechSegmenter` (loudness with adaptive noise floor; gives each caption real start/end; splits >12 s) → each stretch as WAV to **Gemma 4 E2B/E4B's audio encoder** (`OnDeviceLlm.ask(audioFile=…)`; the audio encoder loads only when needed) with `SpeechPrompts.transcribe(language, script)` → `parse()` (LANG + TEXT, `[?]` → uncertain, NO_SPEECH, loop collapse, Devanagari → Roman fallback when Roman was asked) → optional **separate** English translation → captions at timeline time.
+  - Output modes: original script, Roman, Hinglish (keeps "Bhai, yeh jagah sach mein bahut beautiful hai!" as spoken), English translation. Languages offered: auto, English, Hindi, Hinglish, Punjabi, Bengali, Tamil, Telugu, Urdu, Marathi.
+  - **Evaluation status:** Gemma 4 is used because its audio encoder already ships in the downloaded model (no extra download). Its accuracy for Hindi/Hinglish, the other languages and lyrics is **unmeasured**; word timings are estimated, not recognised; no speaker diarization. Dedicated ASR alternatives to benchmark next: Whisper (whisper.cpp, small/medium multilingual; needs NDK build in CI) and IndicConformer-class models for Indic languages. Lyrics/heavy music are flagged as unreliable in the UI.
+- **Editor**: Captions tool (and caption lane tap) opens a sheet: speech-to-text (language, script, progress, cancel, summary), add at playhead, edit text, ±0.1 s start/end, split, delete, translate all, clear, undo/redo; Style tab with live animated sample and safe-area guides. Captions draw over the preview with `CaptionPainter` (`core/ui`). Export is also in the editor header; the tools bar scrolls when 6 tools don't fit.
+- **Export**: `CaptionBitmapOverlay` (Media3 `BitmapOverlay`, lazily allocated frame-sized bitmap, redrawn only when the frame changes) added last to each clip's effects.
+- **Tests**: `TransliteratorTest`, `WordTimesTest`, `CaptionLayoutTest`, `CaptionEditingTest` (domain); `PcmTest`, `SpeechSegmenterTest`, `SpeechPromptsTest` (captions); emulator: `SpeechAudioTest` (real AAC decode, trimmed range, burst timing, unreadable file) and `ExportEndToEndTest.burnsInCaptionsAtTheirTimes` (pixels in the caption band only while the caption is on; frame saved as `export_caption_frame.png`).
+
+## Branding
+
+- Text exactly: **CineMind AI** / **Developed by Gautam** (`feature/settings/ui/AboutScreen.kt` → `Branding`). About screen: launcher logo, name, version + build number (CI run number), credit (smaller than the brand), description, factual privacy notes (no invented policy, contacts or company), open-source licences of the actual dependencies. Launch: system splash (icon) then a 1 s wordmark with the credit, tap to skip, cold start only. `AboutScreenshotTest` (light + dark).
+
+## Audit for the professional-editor brief (2026-11-11)
+
+Labels: **T** implemented and tested · **I** implemented, not fully tested · **P** partial · **D** data field only (stored, not used) · **N** not implemented.
+
+| Area | State | Notes |
+|---|---|---|
+| Import, projects, autosave, duplicate, safe delete | T (emulator/unit), import confirmed on Vivo | No missing-media relink (N), no snapshots (N) |
+| Timeline model | P | Tables support many tracks (`TrackType` VIDEO/AUDIO/EFFECT/OVERLAY) but the editor uses **one video track + one music clip**; ripple-only, no overlap, no gaps |
+| Clip speed / position / scale / rotation / opacity | **D** | `Clip.speed`, `transformX/Y`, `scale`, `rotation`, `opacity` exist in the DB but neither preview nor export applies them |
+| Manual edit: trim, split, delete, reorder, undo/redo | T | Duplicate, ripple-delete toggle, replace, freeze, crop, flip, detach audio: N |
+| Timeline zoom | P | 8 button levels; no pinch, no frame-level ruler |
+| Preview | I | ExoPlayer playlist of clipped items + Compose transition approximation. **Cuts can stutter**: each clipped item is a separate media period (decoder flush/seek at every boundary). Preview ≠ export pipeline |
+| Transitions | T (7 types) | No overlap → no true dissolve/crossfade |
+| Speed / ramps / reverse / freeze | N | Media3 1.5.1 only has experimental speed effects; ramps need a time-remapping model |
+| Colour / LUT | N | |
+| Text layers | N | Captions exist (T/I); free text titles not yet |
+| Audio | P | One music track + original volume, fades; no multiple tracks, voiceover, waveforms |
+| Beat detection | N | |
+| Cutout / masks / chroma | N | |
+| Smart edit | I | Single prompt (1,000-char limit), creates a new project; not conversational |
+| Model manager | T/I | Resume, Wi-Fi only, SHA-256, storage check, delete exist; versioning info minimal |
+| Export | T | 720p–4K, 24–60 fps, **H.264 only**, SDR; captions burn-in |
+| Spotify / cloud AI | N | |
+
+**Architectural limits:** (1) one-video-track ripple model can't express overlaps, B-roll, PiP, text layers or dissolves; (2) preview and export are different pipelines, so every new effect must be written twice; (3) Media3 1.5.1 lacks the mature `CompositionPlayer`, multi-sequence video compositing and speed APIs that newer Media3 releases have.
+
+**Proposed order (adjusted from the brief, with reasons):**
+1. **M2 timeline interaction first (low risk, UI-only):** pinch-to-zoom anchored at the fingers, continuous zoom, adaptive ruler down to frames, zoom-to-fit/selection, jump to start/end. Doesn't touch the data model, so it can ship while M1 is designed.
+2. **M1 core architecture:** upgrade Media3 (1.5.1 → current stable) in its own PR with the export e2e tests as the safety net; new versioned timeline model (multiple tracks, items with start/in/out, lanes, z-order, hidden/locked/muted, per-item transform + keyframes + speed map) with a migration from v5; **preview moved to Media3 `CompositionPlayer`** so preview and export share one renderer (fixes cut stutter and doubles as the consistency guarantee).
+3. M3 transforms + speed (constant, ramps, reverse, freeze) on the new model; M4 transitions library with overlap; M5 multi-audio + beat detection; M6 colour/LUT + text layers; M7 overlays/PiP/masks/cutout; M8 conversational assistant + AI planning on the new model; M9–M10 advanced + release.
+Acceptance for each: unit tests for the maths, emulator export test that inspects the rendered MP4, screenshot test in both themes, PROJECT_STATUS update.
+
 ## On-device AI (Stage 4, as built)
 
 - **Runtime:** Google **LiteRT-LM** `litertlm-android` 0.19.1 (MediaPipe LLM Inference is in maintenance mode). `OnDeviceLlm` (`feature/ai/llm/ondevice`): one `Engine` kept loaded until `unload()`, GPU backend with automatic CPU fallback (user can force CPU), vision backend for image input, `maxNumImages = 1`, near-greedy sampling, a fresh `Conversation` per request, one request at a time (mutex). Manifest declares optional `libOpenCL.so` / `libvndksupport.so`.
@@ -190,6 +245,8 @@ Owner request: OriginOS-7-inspired redesign of the whole app + persistent Light/
 
 ## Next recommended task
 
+0. **Owner:** test build #82 (captions, About, speech-to-text with Gemma 4 E2B) and send the AI benchmark report.
+0. **Dev:** M2 timeline interaction (pinch zoom, adaptive frame ruler, zoom-to-fit/selection), then M1 (Media3 upgrade → CompositionPlayer preview → multi-track model). See "Audit for the professional-editor brief".
 1. **Owner runs the AI benchmark on the Vivo X200 Pro** (✦ on the home screen → download Gemma 4 E2B on Wi-Fi → Run benchmark → Copy report) and sends the report. Decide E2B vs E4B and GPU vs CPU from it.
 2. Owner tries Smart edit with the model installed (named "… · AI edit"); report quality, time and heat.
 3. Tune from real numbers: frames per source, image size (768 px), prompt wording; consider keeping the engine warm between runs if load time is high.
