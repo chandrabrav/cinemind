@@ -10,12 +10,12 @@ _Last updated: 2026-11-11_
 | | |
 |---|---|
 | **Stage** | Stage 1 foundation built; first Stage 3 (transitions) and Stage 5 (rule-based smart edit) features added after the owner's first device test |
-| **Last completed milestone** | Smart edit + transitions (2026-11-11): the brief now creates a real edit (on-device frame analysis + planner → new editable project); 7 clip transitions in preview and export; editor tools bar (Smart edit, Add clips, Transitions, Export); emulator end-to-end export test in CI. |
+| **Last completed milestone** | Smart edit + transitions + music + split (2026-11-11): the brief creates a real edit (on-device frame analysis + planner → new editable project); 7 clip transitions in preview and export; background music (offset, loop, volume, fades) + original-sound level; split at playhead; editor tools bar (Smart edit, Add clips, Transitions, Music, Export); emulator end-to-end export tests green in CI. |
 | **Owner feedback (device test of build #30)** | App installs and imports. Complaints: only two bottom options; no AI editing; no transitions; "AI brief not working" (its button was intentionally disabled). Addressed in this milestone. |
-| **Current task** | Owner re-tests the new APK on the Vivo X200 Pro (smart edit, transitions, add clips, export). |
-| **Branch** | `smart-edit` → fast-forwarded into `dev-main` when CI is green |
-| **Latest verified build** | _see "Build log" below_ |
-| **Latest verified APK** | _see "Build log" below_ |
+| **Current task** | Owner re-tests build #49 on the Vivo X200 Pro (smart edit, transitions, music, split, add clips, export). Pending owner decision: on-device vs cloud AI model route for Stage 4. |
+| **Branch** | `dev-main` (work done on `smart-edit`, fast-forwarded) |
+| **Latest verified build** | CI run 43041216232 (#49), commit `7bd69c6`: build + 101/101 unit tests + 2/2 emulator export tests — https://github.com/chandrabrav/cinemind/actions/runs/43041216232 |
+| **Latest verified APK** | Artifact `cinemind-debug-49` (19.9 MB zipped, expires 2026-12-11). Not yet device-tested. |
 
 ## Build environment (hard rule)
 
@@ -45,7 +45,7 @@ _Last updated: 2026-11-11_
 - Kotlin 2.1.0, AGP 8.7.3, compileSdk/targetSdk 35, minSdk 30, Java 17.
 - UI: Jetpack Compose + Material 3 (BOM 2024.12.01), Navigation Compose. Dark-first theme in `core/ui`.
 - DI: Hilt 2.54 (KSP). Storage: Room 2.6.1, DataStore Preferences.
-- Room schema is **v4**: `MIGRATION_1_2` (`media_assets.displayName`, `sizeBytes`), `MIGRATION_2_3` (`edit_briefs`), `MIGRATION_3_4` (`clips.transitionInType`). **No destructive migration.** Exported schema JSON is committed in `core/data/schemas/` — after any schema change, fetch the new JSON from the `room-schemas-<run>` artifact, compare its `createSql` with the hand-written migration, and commit it.
+- Room schema is **v4** (v2–v4 JSON committed): `MIGRATION_1_2` (`media_assets.displayName`, `sizeBytes`), `MIGRATION_2_3` (`edit_briefs`), `MIGRATION_3_4` (`clips.transitionInType`). **No destructive migration.** Exported schema JSON is committed in `core/data/schemas/` — after any schema change, fetch the new JSON from the `room-schemas-<run>` artifact, compare its `createSql` with the hand-written migration, and commit it.
 - Media: system Photo Picker for import; `MediaMetadataRetriever` + `MediaExtractor` for metadata; Coil 2.7 + `coil-video` for thumbnails.
 - **Transitions** (`core/domain/editing/Transitions.kt`): `ClipTransition` = CUT, FADE (dip to black), ZOOM_IN, ZOOM_OUT, SLIDE_LEFT/RIGHT/UP; stored per clip as `transitionInType` + `transitionInMs` (opening on the first clip) and `transitionOutMs` on the last clip (ending fade). There are no overlapping clips yet, so each transition is split: the outgoing clip animates out over half, the incoming clip animates in over half. `TransitionMath.animations()` + `lookAt()` produce a `FrameLook` (scale, translate, brightness) — the **single source of truth** for both preview and export. True cross-dissolves need multi-track compositing (Stage 3).
 - Preview: Media3 1.5.1 ExoPlayer; `PlayerView` inflated from `preview_player_view.xml` with **`surface_type="texture_view"`** so Compose can scale/slide it (`graphicsLayer`) and darken it (black overlay) from `FrameLook`. `PreviewPlayer` maps each clip to one playlist item (`ClippingConfiguration`; photos/missing media use `SilenceMediaSource` with the image drawn on top).
@@ -67,7 +67,7 @@ Modules compiled in CI (`settings.gradle.kts`):
 | `:core:ui` | Theme, colors, typography, `formatTimecode`, `formatDuration` |
 | `:feature:media` | `MediaImporter`, `MediaLibraryViewModel`, library screen |
 | `:feature:project` | Home screen: project list (open, rename, duplicate, delete) |
-| `:feature:editor:timeline` | Editor: `PreviewPlayer` + `TimelineMath`, `TimelineViewModel` (edit session, undo/redo, transitions, add media), `EditPanels` (edit toolbar, clip inspector with trim + transition, transitions dialog, tools bar), clip strip |
+| `:feature:editor:timeline` | Editor: `PreviewPlayer` + `MusicPreview` + `TimelineMath`, `TimelineViewModel` (edit session, undo/redo, transitions, split, add media, music), `EditPanels` (edit toolbar, clip inspector, transitions dialog, music dialog, tools bar), clip strip |
 | `:feature:export` | `ExportPlanner`, `TimelineRenderer`, `ExportManager`, `MediaStoreSaver`, `ExportService`, export screen; `androidTest/ExportEndToEndTest` |
 | `:feature:settings` | Settings DataStore |
 | `:feature:ai:generation` | Brief screen + `EditBriefViewModel` (autosave, Create smart edit); `smartedit/*` engine |
@@ -88,7 +88,9 @@ Scaffolded but **excluded** until they get code: `:feature:editor:{preview,effec
 | Export | Implemented (720p–4K, 24–60 fps, H.264/AAC SDR); end-to-end emulator test |
 | AI with models (VLM/LLM), cloud AI | Not started (Stage 4–6) |
 | Captions / STT / Hindi-Hinglish / graphics | Not started; needs the updated spec |
-| Music, beat sync, audio tracks, color/LUTs, speed, multi-track | Not started (Stage 3) |
+| Music | Implemented: one background song (start point, loop, volume, fades) + original-sound level; preview + export; emulator-tested mixing. No beat detection, no multiple audio tracks, no voice-over yet |
+| Split clip | Implemented (split at playhead), unit-tested |
+| Beat sync, color/LUTs, speed, multi-track, cross-dissolves | Not started (Stage 3) |
 
 ## Architecture decisions
 
@@ -116,7 +118,26 @@ Scaffolded but **excluded** until they get code: `:feature:editor:{preview,effec
 
 ## Build log
 
-_Filled in below as CI results arrive._
+| Run | Commit | Result | Notes |
+|---|---|---|---|
+| 43027521557 (#38) | `88dfd70` | build ✓ | Transitions + tools checkpoint |
+| 43028623813, 43030655568 | `1f4700c`, `3afebaa` | build ✓, e2e ✗ | Emulator never booted: runner had 6.9 GB free, emulator needed 7.4 GB |
+| 43033497285, 43037440813 | `dcdcd74`, `3662adb` | e2e ✗ | `apt-get` couldn't resolve the Ubuntu mirror → ffmpeg install hung; fixed by `FedericoCarboni/setup-ffmpeg` (static build) |
+| 43037440813 | `3662adb` | build ✗ | Room KSP: computed `isAudio` looked like a getter for `hasAudio` → renamed `isAudioFile` |
+| 43039599346 | `883a9ef` | e2e: music ✓, transitions ✗ | Test read raw 1280×720: Media3 stores portrait as landscape + 90° rotation; test now compares displayed size |
+| **43041216232 (#49)** | `7bd69c6` | **all green** | 101 unit + 2 emulator tests; fade-to-black at the cut confirms effects see composition time |
+
+## Music & audio (as built)
+
+- `core/domain/audio/Music.kt`: `MusicSettings` (song asset, start offset, volume, fade in/out), `ProjectAudio` (music + original-sound volume), `MusicLayout.segments()` (cut or loop the song to the video length) and `gainAt()` (fade envelope) — shared by preview and export. `MusicLayoutTest` (5).
+- Storage without schema change: an AUDIO track (volume = music volume) with one clip (assetId = song, sourceInUs = offset, transitionIn/OutMs = fades). The VIDEO track's volume is the clips' own sound. Home-screen counts/covers use video tracks only; audio assets are hidden from the media grid. Duplicate and smart edit carry music over.
+- Preview: `MusicPreview` — a second ExoPlayer following the video timeline (re-seeks on >200 ms drift, volume from `gainAt` every tick).
+- Export: music is a second, audio-only `EditedMediaItemSequence` mixed by Transformer; `GainAudioProcessor` (16-bit PCM) applies the fade envelope and the original-sound volume.
+- Licensing: the dialog reminds users to use music they may publish; Spotify audio can't be exported (Stage 7 Spotify = discovery only).
+
+## Split
+
+- `TimelineEditing.split()` (pure, `SplitTest` 3): splits the selected clip at the playhead into two clips that play identically; the incoming transition stays on the first part, an ending fade moves to the second. Parts shorter than 0.2 s are refused.
 
 ## Next recommended task
 

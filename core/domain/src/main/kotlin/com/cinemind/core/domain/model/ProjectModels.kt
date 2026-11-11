@@ -127,7 +127,8 @@ data class MediaAsset(
 ) {
     val isVideo: Boolean get() = mimeType.startsWith("video/")
     val isImage: Boolean get() = mimeType.startsWith("image/")
-    val isAudio: Boolean get() = mimeType.startsWith("audio/")
+    // Not "isAudio": Room would mistake it for a getter of the hasAudio column.
+    val isAudioFile: Boolean get() = mimeType.startsWith("audio/")
 }
 
 /**
