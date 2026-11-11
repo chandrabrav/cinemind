@@ -31,6 +31,12 @@ interface ProjectRepository {
 
     suspend fun renameProject(id: String, name: String)
 
+    /**
+     * Replaces all clips on [trackId] with [clips] (already laid out) and updates the project's
+     * length and last-edited time, in one transaction.
+     */
+    suspend fun saveTrackClips(projectId: String, trackId: String, clips: List<Clip>)
+
     /** Copies a project with all tracks and clips; returns the new id, or null if [id] doesn't exist. */
     suspend fun duplicateProject(id: String, newName: String): String?
     suspend fun updateProject(project: Project)

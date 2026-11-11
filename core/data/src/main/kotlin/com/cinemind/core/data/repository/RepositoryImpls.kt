@@ -82,6 +82,21 @@ class ProjectRepositoryImpl(
     override suspend fun renameProject(id: String, name: String) =
         projectDao.rename(id, name, System.currentTimeMillis())
 
+    override suspend fun saveTrackClips(projectId: String, trackId: String, clips: List<Clip>) {
+        require(clips.all { it.trackId == trackId }) { "All clips must belong to track $trackId" }
+        database.withTransaction {
+            val project = projectDao.getProject(projectId) ?: return@withTransaction
+            database.clipDao().deleteByTrackId(trackId)
+            clips.forEach { database.clipDao().insert(it) }
+            projectDao.update(
+                project.copy(
+                    durationUs = clips.maxOfOrNull { it.timelineOutUs } ?: 0L,
+                    updatedAt = System.currentTimeMillis(),
+                ),
+            )
+        }
+    }
+
     override suspend fun duplicateProject(id: String, newName: String): String? =
         database.withTransaction {
             val source = readTimeline(id) ?: return@withTransaction null
