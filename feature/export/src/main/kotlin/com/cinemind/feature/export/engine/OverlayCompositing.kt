@@ -70,3 +70,9 @@ internal class OverlayCompositorSettings(
             .build()
     }
 }
+
+/** One recording on the voiceover track. */
+data class RenderVoiceClip(val clip: Clip, val uri: String, val durationUs: Long)
+
+/** The voiceover track for a render. */
+data class RenderVoiceover(val clips: List<RenderVoiceClip>, val settings: com.cinemind.core.domain.audio.VoiceoverSettings)

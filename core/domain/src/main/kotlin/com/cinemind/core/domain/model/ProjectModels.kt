@@ -58,7 +58,10 @@ data class Track(
 )
 
 enum class TrackType {
-    VIDEO, AUDIO, EFFECT, OVERLAY
+    VIDEO, AUDIO, EFFECT, OVERLAY,
+
+    /** Recorded narration (added 2026-11-12; stored by name, so no schema change). */
+    VOICEOVER,
 }
 
 /**

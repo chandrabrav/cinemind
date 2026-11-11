@@ -15,6 +15,8 @@ import com.cinemind.core.domain.model.Clip
 import com.cinemind.core.domain.model.MediaAsset
 import com.cinemind.feature.export.engine.RenderMusic
 import com.cinemind.feature.export.engine.RenderOverlay
+import com.cinemind.feature.export.engine.RenderVoiceClip
+import com.cinemind.feature.export.engine.RenderVoiceover
 import com.cinemind.feature.export.engine.RenderSource
 import com.cinemind.feature.export.engine.TimelineRenderer
 import com.cinemind.feature.export.plan.ExportPlanner
@@ -122,6 +124,27 @@ class PreviewPlayer(context: Context) {
         scheduleRebuild()
     }
 
+    private var voiceClips: List<PreviewClip> = emptyList()
+    private var voiceSettings = com.cinemind.core.domain.audio.VoiceoverSettings()
+
+    /** Recorded narration; mixed (and ducking the music) exactly like the export. */
+    fun setVoiceover(clips: List<PreviewClip>, settings: com.cinemind.core.domain.audio.VoiceoverSettings) {
+        if (clips == voiceClips && settings == voiceSettings) return
+        voiceClips = clips
+        voiceSettings = settings
+        scheduleRebuild()
+    }
+
+    /** Silences the preview (while recording a voiceover, so the mic doesn't hear the speaker). */
+    fun setMuted(muted: Boolean) {
+        player.volume = if (muted) 0f else 1f
+    }
+
+    fun play() {
+        if (spans.isEmpty()) return
+        player.play()
+    }
+
     private var overlays: List<PreviewClip> = emptyList()
 
     /** Clips on the overlay (picture-in-picture) track; composited exactly like the export. */
@@ -141,7 +164,7 @@ class PreviewPlayer(context: Context) {
     }
 
     private fun rebuild() {
-        val key = listOf(clips.map { it.clip to it.asset?.uri }, overlays.map { it.clip to it.asset?.uri }, musicPlayback, originalVolume, size, fps)
+        val key = listOf(clips.map { it.clip to it.asset?.uri }, overlays.map { it.clip to it.asset?.uri }, voiceClips.map { it.clip to it.asset?.uri }, voiceSettings, musicPlayback, originalVolume, size, fps)
         if (key == builtKey) return
         builtKey = key
         lastError = null
@@ -157,7 +180,8 @@ class PreviewPlayer(context: Context) {
             RenderOverlay(o.clip, RenderSource(a.uri, a.isVideo, false, a.frameRate, a.durationUs), a.width, a.height)
         }
         val composition = runCatching {
-            renderer.buildComposition(pairs, size, fps, music, originalVolume, overlays = listOf(overlayTrack))
+            val voice = voiceClips.mapNotNull { v -> v.asset?.let { a -> RenderVoiceClip(v.clip, a.uri, a.durationUs) } }
+            renderer.buildComposition(pairs, size, fps, music, originalVolume, overlays = listOf(overlayTrack), voiceover = RenderVoiceover(voice, voiceSettings))
         }
             .getOrElse {
                 lastError = "Can't build the preview: ${it.message}"
