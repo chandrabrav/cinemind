@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.unit.dp
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -51,12 +53,20 @@ fun LaunchBrand() {
                 .background(Brush.verticalGradient(listOf(c.backdropTop, c.backdropBottom)))
                 .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { visible = false },
         ) {
-            Text(
-                Branding.APP_NAME,
-                style = MaterialTheme.typography.displaySmall,
-                fontWeight = FontWeight.SemiBold,
-                color = c.textPrimary,
-            )
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                androidx.compose.foundation.Image(
+                    painter = androidx.compose.ui.res.painterResource(R.drawable.ic_launcher_art),
+                    contentDescription = null,
+                    modifier = Modifier.size(112.dp),
+                )
+                Text(
+                    Branding.APP_NAME,
+                    style = MaterialTheme.typography.displaySmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = c.textPrimary,
+                    modifier = Modifier.padding(top = Spacing.l),
+                )
+            }
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier

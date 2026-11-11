@@ -3,4 +3,6 @@
 <resources>
     <color name="window_background">#FFF3F5F9</color>
     <color name="surface">#FFF3F5F9</color>
+    <!-- Deep navy of the app icon artwork; splash background in both themes. -->
+    <color name="splash_background">#FF0C0A2E</color>
 </resources>
