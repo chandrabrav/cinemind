@@ -124,6 +124,11 @@ fun TimelineScreen(
     val addMediaPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickMultipleVisualMedia(maxItems = 50),
     ) { uris -> viewModel.addMedia(uris) }
+    val overlayPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) viewModel.addOverlay(uri)
+    }
+    val pickOverlay = { overlayPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)) }
+    val selectedOverlay = editor.overlays.firstOrNull { it.clip.id == editor.selectedOverlayId }
 
     // Transitions are rendered inside the preview video by the export's own effects
     // (CompositionPlayer), so Compose no longer imitates them.
@@ -182,6 +187,10 @@ fun TimelineScreen(
             captions = captionsUi.captions,
             onCaptionsTap = { showCaptions = true },
             fps = fps,
+            overlays = editor.overlays,
+            selectedOverlayId = editor.selectedOverlayId,
+            onOverlayTap = viewModel::onOverlayTapped,
+            onAddOverlay = pickOverlay,
         )
 
         AnimatedVisibility(
@@ -205,6 +214,22 @@ fun TimelineScreen(
             )
         }
 
+        AnimatedVisibility(
+            visible = selectedOverlay != null,
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically(),
+        ) {
+            val item = selectedOverlay ?: return@AnimatedVisibility
+            OverlayInspector(
+                item = item,
+                onTransform = viewModel::setOverlayTransform,
+                onMove = viewModel::moveOverlay,
+                onTrim = viewModel::trimOverlay,
+                onDelete = viewModel::deleteOverlay,
+                onClose = viewModel::clearOverlaySelection,
+            )
+        }
+
         EditorToolsBar(
             hasClips = clips.isNotEmpty(),
             onSmartEdit = onOpenBrief,
@@ -215,6 +240,7 @@ fun TimelineScreen(
             onMusic = { showMusic = true },
             onExport = onExport,
             onCaptions = { showCaptions = true },
+            onOverlay = pickOverlay,
         )
     }
 

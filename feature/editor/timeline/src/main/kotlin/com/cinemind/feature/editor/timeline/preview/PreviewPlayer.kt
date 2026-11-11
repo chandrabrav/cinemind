@@ -14,6 +14,7 @@ import androidx.media3.transformer.CompositionPlayer
 import com.cinemind.core.domain.model.Clip
 import com.cinemind.core.domain.model.MediaAsset
 import com.cinemind.feature.export.engine.RenderMusic
+import com.cinemind.feature.export.engine.RenderOverlay
 import com.cinemind.feature.export.engine.RenderSource
 import com.cinemind.feature.export.engine.TimelineRenderer
 import com.cinemind.feature.export.plan.ExportPlanner
@@ -121,6 +122,15 @@ class PreviewPlayer(context: Context) {
         scheduleRebuild()
     }
 
+    private var overlays: List<PreviewClip> = emptyList()
+
+    /** Clips on the overlay (picture-in-picture) track; composited exactly like the export. */
+    fun setOverlays(next: List<PreviewClip>) {
+        if (next == overlays) return
+        overlays = next
+        scheduleRebuild()
+    }
+
     private fun scheduleRebuild() {
         if (rebuildPending) return
         rebuildPending = true
@@ -131,7 +141,7 @@ class PreviewPlayer(context: Context) {
     }
 
     private fun rebuild() {
-        val key = listOf(clips.map { it.clip to it.asset?.uri }, musicPlayback, originalVolume, size, fps)
+        val key = listOf(clips.map { it.clip to it.asset?.uri }, overlays.map { it.clip to it.asset?.uri }, musicPlayback, originalVolume, size, fps)
         if (key == builtKey) return
         builtKey = key
         lastError = null
@@ -142,7 +152,13 @@ class PreviewPlayer(context: Context) {
         val keepMs = (currentPositionUs() / 1_000).coerceAtLeast(0)
         val pairs = clips.map { it.clip to sourceFor(it) }
         val music = musicPlayback?.let { RenderMusic(it.uri, it.durationUs, it.startOffsetUs, it.volume, it.fadeInUs, it.fadeOutUs) }
-        val composition = runCatching { renderer.buildComposition(pairs, size, fps, music, originalVolume) }
+        val overlayTrack = overlays.mapNotNull { o ->
+            val a = o.asset ?: return@mapNotNull null
+            RenderOverlay(o.clip, RenderSource(a.uri, a.isVideo, false, a.frameRate, a.durationUs), a.width, a.height)
+        }
+        val composition = runCatching {
+            renderer.buildComposition(pairs, size, fps, music, originalVolume, overlays = listOf(overlayTrack))
+        }
             .getOrElse {
                 lastError = "Can't build the preview: ${it.message}"
                 return

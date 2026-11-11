@@ -149,14 +149,30 @@ class ProjectRepositoryImpl(
             val project = projectDao.getProject(projectId) ?: return@withTransaction
             database.clipDao().deleteByTrackId(trackId)
             clips.forEach { database.clipDao().insert(it) }
+            // Only the main video track sets the video's length; overlay tracks sit on top of it.
+            val track = database.trackDao().getTracksForProjectOnce(projectId).firstOrNull { it.id == trackId }
+            val isOverlay = track?.type == com.cinemind.core.domain.model.TrackType.OVERLAY
             projectDao.update(
                 project.copy(
-                    durationUs = clips.maxOfOrNull { it.timelineOutUs } ?: 0L,
+                    durationUs = if (isOverlay) project.durationUs else clips.maxOfOrNull { it.timelineOutUs } ?: 0L,
                     updatedAt = System.currentTimeMillis(),
                 ),
             )
         }
     }
+
+    override suspend fun ensureOverlayTrack(projectId: String): com.cinemind.core.domain.model.Track =
+        database.withTransaction {
+            val tracks = database.trackDao().getTracksForProjectOnce(projectId)
+            tracks.firstOrNull { it.type == com.cinemind.core.domain.model.TrackType.OVERLAY }
+                ?: com.cinemind.core.domain.model.Track(
+                    projectId = projectId,
+                    type = com.cinemind.core.domain.model.TrackType.OVERLAY,
+                    index = (tracks.maxOfOrNull { it.index } ?: 0) + 1,
+                    name = "Overlay",
+                    volume = 0f,
+                ).also { database.trackDao().insert(it) }
+        }
 
     override suspend fun duplicateProject(id: String, newName: String): String? =
         database.withTransaction {

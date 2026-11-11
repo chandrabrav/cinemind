@@ -103,6 +103,13 @@ class ExportManager @Inject constructor(
         val pairs = clips.zip(
             assets.map { a -> RenderSource(a!!.uri, a.isVideo, a.hasAudio, a.frameRate, a.durationUs) },
         )
+        // Overlay (picture-in-picture) tracks, bottom to top. Overlays whose media is gone are left out.
+        val overlays = timeline.tracks.filter { it.type == TrackType.OVERLAY && it.isEnabled }.sortedBy { it.index }.map { t ->
+            timeline.clips.filter { it.trackId == t.id }.mapNotNull { c ->
+                val a = assetRepository.getAsset(c.assetId) ?: return@mapNotNull null
+                RenderOverlay(c, RenderSource(a.uri, a.isVideo, false, a.frameRate, a.durationUs), a.width, a.height)
+            }
+        }
 
         val project = timeline.project
         val size = ExportPlanner.outputSize(project.resolutionWidth, project.resolutionHeight, settings.resolution)
@@ -130,7 +137,7 @@ class ExportManager @Inject constructor(
 
         val captionList = captionRepository.getCaptions(projectId)
         val captions = if (captionList.isEmpty()) null else RenderCaptions(captionList, captionRepository.getStyle(projectId))
-        val composition = renderer.buildComposition(pairs, size, settings.frameRate, music, audio.originalVolume, captions)
+        val composition = renderer.buildComposition(pairs, size, settings.frameRate, music, audio.originalVolume, captions, overlays)
         _state.value = ExportState.Running(projectId, 0f)
         startForegroundService()
 

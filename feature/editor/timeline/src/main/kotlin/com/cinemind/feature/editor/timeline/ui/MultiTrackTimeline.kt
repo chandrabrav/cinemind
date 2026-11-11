@@ -40,6 +40,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Animation
 import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.PictureInPicture
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -89,6 +90,7 @@ import kotlin.math.roundToInt
 private val VIDEO_LANE = 64.dp
 private val MUSIC_LANE = 34.dp
 private val CAPTION_LANE = 30.dp
+private val OVERLAY_LANE = 34.dp
 private val RULER = 24.dp
 private val LANE_GAP = 6.dp
 private val MIN_CLIP = 28.dp
@@ -116,6 +118,10 @@ internal fun MultiTrackTimeline(
     captions: List<com.cinemind.core.domain.captions.Caption> = emptyList(),
     onCaptionsTap: () -> Unit = {},
     fps: Int = 30,
+    overlays: List<PreviewClip> = emptyList(),
+    selectedOverlayId: String? = null,
+    onOverlayTap: (String) -> Unit = {},
+    onAddOverlay: () -> Unit = {},
 ) {
     val c = CineMind.colors
     val density = LocalDensity.current
@@ -237,6 +243,28 @@ internal fun MultiTrackTimeline(
                                 onTap = { onClipTap(index) },
                                 onTrim = onTrim,
                             )
+                        }
+                    }
+                    Spacer(Modifier.height(LANE_GAP))
+                    // Overlay lane (picture-in-picture): clips at free times, drawn above the video.
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(OVERLAY_LANE)
+                            .background(c.timelineLane),
+                    ) {
+                        if (overlays.isEmpty()) {
+                            OverlayBlock(null, leadPx, viewportPx - leadPx * 2, selected = false, onTap = onAddOverlay)
+                        } else {
+                            overlays.forEach { o ->
+                                OverlayBlock(
+                                    item = o,
+                                    xPx = leadPx + TimelineLayout.xForUs(o.clip.timelineInUs, pps),
+                                    widthPx = TimelineLayout.xForUs(o.clip.timelineOutUs - o.clip.timelineInUs, pps),
+                                    selected = o.clip.id == selectedOverlayId,
+                                    onTap = { onOverlayTap(o.clip.id) },
+                                )
+                            }
                         }
                     }
                     Spacer(Modifier.height(LANE_GAP))
@@ -501,6 +529,43 @@ private fun MusicBlock(music: MusicUi?, xPx: Float, widthPx: Float, onTap: () ->
     }
 }
 
+/** An overlay clip on the overlay lane (or, with null, the "Add overlay" hint). */
+@Composable
+private fun OverlayBlock(item: PreviewClip?, xPx: Float, widthPx: Float, selected: Boolean, onTap: () -> Unit) {
+    val c = CineMind.colors
+    val density = LocalDensity.current
+    val shape = RoundedCornerShape(Radius.xs)
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .offset { IntOffset(xPx.roundToInt(), 0) }
+            .width(with(density) { widthPx.coerceAtLeast(10.dp.toPx()).toDp() })
+            .fillMaxHeight()
+            .padding(vertical = Spacing.xxs, horizontal = 1.dp)
+            .clip(shape)
+            .then(
+                if (item != null) Modifier.background(c.trackVideo) else Modifier.border(1.dp, c.textTertiary.copy(alpha = 0.6f), shape),
+            )
+            .then(if (selected) Modifier.border(2.dp, c.selection, shape) else Modifier)
+            .semantics {
+                contentDescription = if (item == null) "Add overlay (picture in picture)"
+                else "Overlay, ${formatDuration(item.clip.timelineOutUs - item.clip.timelineInUs)}" + if (selected) ", selected" else ""
+            }
+            .clickable(onClick = hapticClick(onClick = onTap))
+            .padding(horizontal = Spacing.xs),
+    ) {
+        Icon(Icons.Default.PictureInPicture, contentDescription = null, tint = if (item != null) c.clipLabel else c.textTertiary, modifier = Modifier.size(14.dp))
+        Spacer(Modifier.width(Spacing.xs))
+        Text(
+            text = if (item == null) "Add overlay" else (item.asset?.displayName?.ifEmpty { null } ?: "Overlay"),
+            color = if (item != null) c.clipLabel else c.textTertiary,
+            style = MaterialTheme.typography.labelSmall,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
 /** A caption on the caption lane (or, with null, the "Add captions" hint). */
 @Composable
 private fun CaptionBlock(caption: com.cinemind.core.domain.captions.Caption?, xPx: Float, widthPx: Float, onTap: () -> Unit) {
@@ -546,7 +611,7 @@ private fun Playhead(xPx: Float) {
         modifier = Modifier
             .offset { IntOffset((xPx - with(density) { (knob / 2).toPx() }).roundToInt(), 0) }
             .width(knob)
-            .height(RULER + Spacing.xs + VIDEO_LANE + LANE_GAP + MUSIC_LANE + LANE_GAP + CAPTION_LANE),
+            .height(RULER + Spacing.xs + VIDEO_LANE + LANE_GAP + OVERLAY_LANE + LANE_GAP + MUSIC_LANE + LANE_GAP + CAPTION_LANE),
     ) {
         Box(
             Modifier

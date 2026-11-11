@@ -11,6 +11,7 @@ import com.cinemind.core.domain.audio.MusicSettings
 import com.cinemind.core.domain.audio.ProjectAudio
 import com.cinemind.core.domain.editing.ClipLimits
 import com.cinemind.core.domain.editing.EditHistory
+import com.cinemind.core.domain.editing.OverlayEditing
 import com.cinemind.core.domain.editing.ClipTransition
 import com.cinemind.core.domain.editing.TimelineEditing
 import com.cinemind.core.domain.editing.TransitionEditing
@@ -56,6 +57,9 @@ data class EditorState(
     val canRedo: Boolean = false,
     val music: MusicUi? = null,
     val originalVolume: Float = 1f,
+    /** Clips on the overlay (picture-in-picture) track. */
+    val overlays: List<PreviewClip> = emptyList(),
+    val selectedOverlayId: String? = null,
 )
 
 /** The project's background music as shown in the editor. */
@@ -125,6 +129,13 @@ class TimelineViewModel @Inject constructor(
             clips.map { it.assetId }.distinct().forEach { assetId -> assets[assetId] = assetRepository.getAsset(assetId) }
             trackId = track?.id
             history = EditHistory(clips)
+            val overlayTrack = timeline?.tracks?.firstOrNull { it.type == TrackType.OVERLAY }
+            val overlayClips = timeline?.clips.orEmpty().filter { it.trackId == overlayTrack?.id }.sortedBy { it.timelineInUs }
+            overlayClips.map { it.assetId }.distinct().forEach { assetId -> assets[assetId] = assetRepository.getAsset(assetId) }
+            overlayTrackId = overlayTrack?.id
+            overlayHistory = EditHistory(overlayClips)
+            undoKinds.clear()
+            redoKinds.clear()
             loadAudio(id)
             publish(seekToSelection = false)
         }
@@ -160,7 +171,7 @@ class TimelineViewModel @Inject constructor(
     fun onClipTapped(index: Int) {
         val clip = history?.present?.getOrNull(index) ?: return
         val alreadySelected = _editor.value.selectedClipId == clip.id
-        _editor.value = _editor.value.copy(selectedClipId = if (alreadySelected) null else clip.id)
+        _editor.value = _editor.value.copy(selectedClipId = if (alreadySelected) null else clip.id, selectedOverlayId = null)
         preview.seekToClip(index)
         refreshPreview()
     }
@@ -321,14 +332,120 @@ class TimelineViewModel @Inject constructor(
         }
     }
 
+    // Main track and overlay track keep their own histories; this records which one each step
+    // changed, so undo/redo walk all edits in the order they were made.
+    private val undoKinds = ArrayDeque<Boolean>() // true = overlay track
+    private val redoKinds = ArrayDeque<Boolean>()
+
     fun undo() {
-        val h = history ?: return
-        if (h.undo()) afterHistoryChange()
+        val overlay = undoKinds.removeLastOrNull() ?: return
+        val ok = if (overlay) overlayHistory.undo() else history?.undo() == true
+        if (!ok) return
+        redoKinds.addLast(overlay)
+        if (overlay) afterOverlayChange() else afterHistoryChange()
     }
 
     fun redo() {
-        val h = history ?: return
-        if (h.redo()) afterHistoryChange()
+        val overlay = redoKinds.removeLastOrNull() ?: return
+        val ok = if (overlay) overlayHistory.redo() else history?.redo() == true
+        if (!ok) return
+        undoKinds.addLast(overlay)
+        if (overlay) afterOverlayChange() else afterHistoryChange()
+    }
+
+    // ---- Overlay track (picture-in-picture) ------------------------------------------------
+
+    private var overlayHistory = EditHistory<List<Clip>>(emptyList())
+    private var overlayTrackId: String? = null
+
+    private fun mainLengthUs(): Long = TimelineEditing.durationUs(history?.present.orEmpty())
+
+    /** Imports picked media and places it on the overlay track at the playhead (one undo step). */
+    fun addOverlay(uri: Uri) {
+        val project = projectId.value ?: return
+        viewModelScope.launch {
+            val asset = runCatching { importer.import(uri) }.getOrElse {
+                Toast.makeText(appContext, "Couldn't read that file", Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+            assets[asset.id] = asset
+            val track = overlayTrackId ?: projectRepository.ensureOverlayTrack(project).id.also { overlayTrackId = it }
+            val length = if (asset.isVideo && asset.durationUs > 0) asset.durationUs else ProjectFactory.DEFAULT_IMAGE_DURATION_US
+            val base = Clip(
+                trackId = track, assetId = asset.id, timelineInUs = 0, timelineOutUs = 0, sourceInUs = 0, sourceOutUs = length,
+                transformX = 0.5f, transformY = 0.32f, scale = OverlayEditing.DEFAULT_SCALE,
+            )
+            val placed = OverlayEditing.place(overlayHistory.present, base, preview.currentPositionUs(), length, mainLengthUs())
+            if (placed == null) {
+                Toast.makeText(appContext, "No room at the playhead: move the playhead to an empty spot on the overlay track", Toast.LENGTH_LONG).show()
+                return@launch
+            }
+            val added = placed.first { it.id == base.id }
+            commitOverlay(placed, select = added.id)
+        }
+    }
+
+    fun onOverlayTapped(id: String) {
+        val current = _editor.value.selectedOverlayId
+        _editor.value = _editor.value.copy(selectedOverlayId = if (current == id) null else id, selectedClipId = null)
+        overlayHistory.present.firstOrNull { it.id == id }?.let { preview.seekToUs(it.timelineInUs) }
+        refreshPreview()
+    }
+
+    fun clearOverlaySelection() {
+        _editor.value = _editor.value.copy(selectedOverlayId = null)
+    }
+
+    fun moveOverlay(deltaUs: Long) = editOverlay { clips, c -> OverlayEditing.move(clips, c.id, c.timelineInUs + deltaUs, mainLengthUs()) }
+
+    fun trimOverlay(startDeltaUs: Long, endDeltaUs: Long) = editOverlay { clips, c ->
+        val src = assets[c.assetId]?.takeIf { it.isVideo }?.durationUs
+        OverlayEditing.trim(clips, c.id, c.timelineInUs + startDeltaUs, c.timelineOutUs + endDeltaUs, src, mainLengthUs())
+    }
+
+    fun setOverlayTransform(x: Float, y: Float, scale: Float, rotation: Float, opacity: Float) = editOverlay { clips, c ->
+        OverlayEditing.setTransform(clips, c.id, x, y, scale, rotation, opacity)
+    }
+
+    fun deleteOverlay() {
+        val id = _editor.value.selectedOverlayId ?: return
+        commitOverlay(overlayHistory.present.filterNot { it.id == id }, select = null)
+    }
+
+    private fun editOverlay(op: (List<Clip>, Clip) -> List<Clip>) {
+        val clips = overlayHistory.present
+        val c = clips.firstOrNull { it.id == _editor.value.selectedOverlayId } ?: return
+        commitOverlay(op(clips, c), select = c.id)
+    }
+
+    private fun commitOverlay(next: List<Clip>, select: String?) {
+        if (!overlayHistory.push(next)) return
+        undoKinds.addLast(true)
+        redoKinds.clear()
+        _editor.value = _editor.value.copy(selectedOverlayId = select, selectedClipId = if (select != null) null else _editor.value.selectedClipId)
+        afterOverlayChange()
+    }
+
+    private fun afterOverlayChange() {
+        val present = overlayHistory.present
+        if (present.none { it.id == _editor.value.selectedOverlayId }) {
+            _editor.value = _editor.value.copy(selectedOverlayId = null)
+        }
+        publishOverlays()
+        val project = projectId.value ?: return
+        val track = overlayTrackId ?: return
+        viewModelScope.launch(NonCancellable) {
+            writeLock.withLock {
+                runCatching { projectRepository.saveTrackClips(project, track, overlayHistory.present) }
+                    .onFailure { CineMindLogger.e(it, "Saving overlays failed") }
+            }
+        }
+    }
+
+    private fun publishOverlays() {
+        val overlays = overlayHistory.present.map { PreviewClip(it, assets[it.assetId]) }
+        _editor.value = _editor.value.copy(overlays = overlays, canUndo = undoKinds.isNotEmpty(), canRedo = redoKinds.isNotEmpty())
+        preview.setOverlays(overlays)
     }
 
     private fun editSelected(op: (List<Clip>, Clip) -> List<Clip>) {
@@ -340,6 +457,8 @@ class TimelineViewModel @Inject constructor(
     private fun commit(next: List<Clip>, selectAfter: String?) {
         val h = history ?: return
         if (!h.push(next)) return
+        undoKinds.addLast(false)
+        redoKinds.clear()
         _editor.value = _editor.value.copy(selectedClipId = selectAfter)
         afterHistoryChange()
     }
@@ -360,10 +479,11 @@ class TimelineViewModel @Inject constructor(
         _editor.value = _editor.value.copy(
             loaded = true,
             clips = clips,
-            canUndo = h.canUndo,
-            canRedo = h.canRedo,
+            canUndo = undoKinds.isNotEmpty(),
+            canRedo = redoKinds.isNotEmpty(),
         )
         preview.setClips(clips)
+        publishOverlays()
         refreshMusicPlayback()
         if (seekToSelection) {
             val index = h.present.indexOfFirst { it.id == _editor.value.selectedClipId }

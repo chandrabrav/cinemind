@@ -26,6 +26,7 @@ import androidx.media3.transformer.Transformer
 import androidx.media3.transformer.VideoEncoderSettings
 import com.cinemind.core.domain.audio.MusicLayout
 import com.cinemind.core.domain.editing.ClipAnimation
+import com.cinemind.core.domain.editing.OverlayEditing
 import com.cinemind.core.domain.editing.TransitionMath
 import com.cinemind.core.domain.model.Clip
 import com.cinemind.feature.export.plan.OutputSize
@@ -77,6 +78,8 @@ class TimelineRenderer(private val context: Context) {
         music: RenderMusic? = null,
         originalVolume: Float = 1f,
         captions: RenderCaptions? = null,
+        /** Overlay tracks, bottom to top; each a list of clips on that track. */
+        overlays: List<List<RenderOverlay>> = emptyList(),
     ): Composition {
         val fit = Presentation.createForWidthAndHeight(size.width, size.height, Presentation.LAYOUT_SCALE_TO_FIT)
         val animations = TransitionMath.animations(clips.map { it.first })
@@ -124,13 +127,72 @@ class TimelineRenderer(private val context: Context) {
         // Declaring the audio track type makes Media3 fill photos and silent clips with silence, so
         // the output audio track stays continuous (replaces experimentalSetForceAudioTrack).
         val mainTracks = if (hasAudio) setOf(C.TRACK_TYPE_AUDIO, C.TRACK_TYPE_VIDEO) else setOf(C.TRACK_TYPE_VIDEO)
+        // Overlay tracks (picture-in-picture). Media3's compositor draws the FIRST video sequence on
+        // top and takes its timing from it, so: overlay tracks first (top-most first), main track
+        // last; empty time on an overlay track is a transparent still drawn at alpha 0.
+        val overlayTracks = overlays.filter { it.isNotEmpty() }.reversed()
+        val overlaySequences = overlayTracks.map { track -> buildOverlaySequence(track, totalUs, fps) }
+        val mainIndex = overlaySequences.size
         val sequences = buildList {
+            addAll(overlaySequences)
             add(EditedMediaItemSequence.Builder(mainTracks).addItems(items).build())
             if (musicItems.isNotEmpty()) add(EditedMediaItemSequence.Builder(setOf(C.TRACK_TYPE_AUDIO)).addItems(musicItems).build())
         }
-        return Composition.Builder(sequences)
+        val builder = Composition.Builder(sequences)
             .setHdrMode(Composition.HDR_MODE_TONE_MAP_HDR_TO_SDR_USING_OPEN_GL)
-            .build()
+        if (overlayTracks.isNotEmpty()) {
+            builder.setVideoCompositorSettings(OverlayCompositorSettings(overlayTracks, mainIndex, size))
+        }
+        return builder.build()
+    }
+
+    private fun buildOverlaySequence(track: List<RenderOverlay>, totalUs: Long, fps: Int): EditedMediaItemSequence {
+        val byId = track.associateBy { it.clip.id }
+        val items = OverlayEditing.pieces(track.map { it.clip }, totalUs).toMutableList()
+        val covered = items.sumOf { it.durationUs }
+        if (covered < totalUs) items += OverlayEditing.Piece.Gap(totalUs - covered)
+        val out = items.map { piece ->
+            when (piece) {
+                is OverlayEditing.Piece.Gap -> transparentStill(piece.durationUs, fps)
+                is OverlayEditing.Piece.Item -> {
+                    val o = byId.getValue(piece.clip.id)
+                    val c = piece.clip
+                    if (o.source.isVideo) {
+                        val endMs = if (c.sourceOutUs >= o.source.durationUs) C.TIME_END_OF_SOURCE else c.sourceOutUs / 1_000
+                        val mediaItem = MediaItem.Builder()
+                            .setUri(o.source.uri)
+                            .setClippingConfiguration(
+                                MediaItem.ClippingConfiguration.Builder()
+                                    .setStartPositionMs(c.sourceInUs / 1_000)
+                                    .setEndPositionMs(endMs)
+                                    .build(),
+                            )
+                            .build()
+                        val effects = buildList<Effect> {
+                            if (o.source.frameRate > fps + 1) add(FrameDropEffect.createDefaultFrameDropEffect(fps.toFloat()))
+                        }
+                        EditedMediaItem.Builder(mediaItem).setEffects(Effects(emptyList(), effects)).build()
+                    } else {
+                        EditedMediaItem.Builder(MediaItem.Builder().setUri(o.source.uri).setImageDurationMs(piece.durationUs / 1_000).build())
+                            .setFrameRate(fps)
+                            .build()
+                    }
+                }
+            }
+        }
+        return EditedMediaItemSequence.Builder(setOf(C.TRACK_TYPE_VIDEO)).addItems(out).build()
+    }
+
+    private fun transparentStill(durationUs: Long, fps: Int): EditedMediaItem {
+        val f = File(context.cacheDir, "transparent_16.png")
+        if (!f.exists()) {
+            val bmp = android.graphics.Bitmap.createBitmap(16, 16, android.graphics.Bitmap.Config.ARGB_8888)
+            bmp.eraseColor(android.graphics.Color.TRANSPARENT)
+            f.outputStream().use { bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+        }
+        return EditedMediaItem.Builder(
+            MediaItem.Builder().setUri(android.net.Uri.fromFile(f)).setImageDurationMs((durationUs / 1_000).coerceAtLeast(1)).build(),
+        ).setFrameRate(fps).build()
     }
 
     private fun buildMusicItems(music: RenderMusic, totalUs: Long): List<EditedMediaItem> =

@@ -193,6 +193,50 @@ class ExportEndToEndTest {
         }
     }
 
+    /**
+     * Overlay track (picture-in-picture): a photo placed at the top half, 1.0–2.0 s, over a black
+     * video. It must appear only in its place and only during its time, and the main video keeps
+     * the output size and length.
+     */
+    @Test
+    fun compositesOverlayTrackInPlaceAndTime() = runBlocking {
+        val black = asset("black.mp4")
+        val photo = asset("photo.jpg")
+        val main = TimelineEditing.relayout(listOf(clip("b", 0, 2_000_000)))
+        val sources = listOf(RenderSource(Uri.fromFile(black).toString(), isVideo = true, hasAudio = false, frameRate = 30f, durationUs = 2_000_000))
+        val overlayClip = Clip(
+            id = "o", trackId = "ov", assetId = "o", timelineInUs = 1_000_000, timelineOutUs = 2_000_000, sourceInUs = 0, sourceOutUs = 1_000_000,
+            transformX = 0.5f, transformY = 0.25f, scale = 0.8f,
+        )
+        val overlay = RenderOverlay(overlayClip, RenderSource(Uri.fromFile(photo).toString(), isVideo = false, hasAudio = false, frameRate = 0f, durationUs = 0), 1200, 900)
+        val out = File(context.cacheDir, "e2e-overlay.mp4").apply { delete() }
+        val progressScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+        withContext(Dispatchers.Main) {
+            val renderer = TimelineRenderer(context)
+            val composition = renderer.buildComposition(main.zip(sources), OutputSize(720, 1280), fps = 30, overlays = listOf(listOf(overlay)))
+            renderer.render(composition, out, videoBitrateBps = 4_000_000, progressScope = progressScope)
+        }
+        progressScope.cancel()
+
+        val r = MediaMetadataRetriever()
+        try {
+            r.setDataSource(out.absolutePath)
+            val durationMs = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)!!.toLong()
+            assertTrue("main track keeps the length (~2 s, was $durationMs ms)", durationMs in 1_800..2_300)
+            val during = r.getFrameAtTime(1_500_000, MediaMetadataRetriever.OPTION_CLOSEST)!!
+            saveForReview(during, "export_overlay_frame")
+            // 80 % wide 4:3 photo centred at 25 % height: covers roughly 13–37 % of the height.
+            val inPlace = bandLuma(during, 0.18f, 0.32f)
+            val below = bandLuma(during, 0.6f, 0.9f)
+            val before = bandLuma(r.getFrameAtTime(500_000, MediaMetadataRetriever.OPTION_CLOSEST)!!, 0.18f, 0.32f)
+            assertTrue("overlay visible in its place ($inPlace)", inPlace > 0.15f)
+            assertTrue("main video (black) visible below the overlay ($below)", below < 0.06f)
+            assertTrue("no overlay before its start ($before)", before < 0.06f)
+        } finally {
+            r.release()
+        }
+    }
+
     /** Mean luma (0..1) of the horizontal band between [y0] and [y1] (fractions of the height). */
     private fun bandLuma(raw: Bitmap, y0: Float, y1: Float): Float {
         // Media3 may store portrait as landscape + rotation flag; measure the upright picture.
