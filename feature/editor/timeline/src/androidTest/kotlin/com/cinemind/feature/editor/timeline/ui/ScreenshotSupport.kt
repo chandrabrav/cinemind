@@ -14,11 +14,25 @@ import java.io.File
  * (CI uploads it). Falls back to the app's external files dir when run outside Gradle.
  */
 fun ComposeContentTestRule.saveScreenshot(name: String): File {
-    val bitmap = onRoot().captureToImage().asAndroidBitmap()
+    // The CI emulator renders on the CPU; give it time and retry the capture if a frame is slow.
+    var bitmap: Bitmap? = null
+    var lastError: Throwable? = null
+    repeat(4) {
+        if (bitmap == null) {
+            try {
+                waitForIdle()
+                bitmap = onRoot().captureToImage().asAndroidBitmap()
+            } catch (t: Throwable) {
+                lastError = t
+                Thread.sleep(1_500)
+            }
+        }
+    }
+    val shot = bitmap ?: throw AssertionError("Could not capture $name", lastError)
     val instrumentation = InstrumentationRegistry.getInstrumentation()
     val dir = (InstrumentationRegistry.getArguments().getString("additionalTestOutputDir")?.let { File(it) }
         ?: File(instrumentation.targetContext.getExternalFilesDir(null), "screenshots")).apply { mkdirs() }
     val file = File(dir, "$name.png")
-    file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+    file.outputStream().use { shot.compress(Bitmap.CompressFormat.PNG, 100, it) }
     return file
 }

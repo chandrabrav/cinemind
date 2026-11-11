@@ -270,6 +270,9 @@ fun StatusPill(text: String, tone: Tone = Tone.Neutral, modifier: Modifier = Mod
         text = text,
         style = MaterialTheme.typography.labelMedium,
         color = color,
+        maxLines = 1,
+        softWrap = false,
+        overflow = TextOverflow.Ellipsis,
         modifier = modifier
             .clip(RoundedCornerShape(Radius.pill))
             .background(color.copy(alpha = 0.12f))
