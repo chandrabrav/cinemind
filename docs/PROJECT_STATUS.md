@@ -205,6 +205,13 @@ Owner request: OriginOS-7-inspired redesign of the whole app + persistent Light/
 - Tests: `ModelDiskRulesTest` (7).
 - **Not yet verified:** a real older→newer update with the permanent key (needs two builds signed with it; the second CI run after the key exists performs it); a real Gemma model surviving an update on the Vivo.
 
+## Queued: templates, VN import, Instagram music discovery (owner brief §32, 2026-11-12)
+
+Research so far (not yet implemented):
+- **VN `.vnt` templates:** no public documentation of the format. VN's help centre describes `.vnt` as a sharing format that lets creators **control use** (password, export limits) — reading it outside VN would mean getting around those controls, which the brief forbids. VN QR codes point to VN's own service. Plan: inspect a `.vnt` the owner created themselves (no password); if it is encrypted/opaque, VN import is reported as **not supported** rather than reverse-engineered. `.vn` project files are described by third parties as ZIP containers (unverified).
+- **Instagram music:** Meta's official **Instagram Audio API** can search audio and return trending original sounds / Sound Collection music, but only for the *Instagram API with Facebook Login* (business/creator account linked to a Facebook Page, Meta app review) and it is meant for publishing Reels, not for downloading audio. Without that: clearly labelled discovery (genre/mood suggestions, AI recommendations) + official search / open-in-Instagram links. Third-party "trending audio" APIs are scrapers → not used.
+- **Dependencies:** templates need the multi-track model (text/sticker/overlay layers, speed, keyframes; M1/M3/M6) and beat detection (M5). The native template format = the versioned project model + media/text **slots**, so slots are designed into M1 from the start.
+
 ## Branding
 
 - Text exactly: **CineMind AI** / **Developed by Gautam** (`feature/settings/ui/AboutScreen.kt` → `Branding`). About screen: launcher logo, name, version + build number (CI run number), credit (smaller than the brand), description, factual privacy notes (no invented policy, contacts or company), open-source licences of the actual dependencies. Launch: system splash (icon) then a 1 s wordmark with the credit, tap to skip, cold start only. `AboutScreenshotTest` (light + dark).
