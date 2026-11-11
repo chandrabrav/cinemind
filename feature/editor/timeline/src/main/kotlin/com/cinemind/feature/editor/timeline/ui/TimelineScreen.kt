@@ -30,6 +30,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Redo
 import androidx.compose.material.icons.automirrored.filled.Undo
+import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Icon
@@ -44,6 +45,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -105,6 +107,7 @@ fun TimelineScreen(
     }
     val captionsUi by captionsViewModel.ui.collectAsStateWithLifecycle()
     var showCaptions by remember { mutableStateOf(false) }
+    var fullscreen by rememberSaveable { mutableStateOf(false) }
     val project by viewModel.project.collectAsStateWithLifecycle()
     val editor by viewModel.editor.collectAsStateWithLifecycle()
     val clips = editor.clips
@@ -168,7 +171,25 @@ fun TimelineScreen(
                 .fillMaxWidth()
                 .weight(1f)
                 .padding(horizontal = Spacing.gutter),
+            showPlayer = !fullscreen,
+            onFullscreen = { fullscreen = true },
         )
+
+        if (fullscreen) {
+            FullscreenPreview(
+                player = viewModel.player,
+                state = preview,
+                ratio = project?.let { it.resolutionWidth.toFloat() / it.resolutionHeight } ?: (9f / 16f),
+                fps = fps,
+                onTogglePlay = viewModel::togglePlayPause,
+                onScrub = viewModel::scrubTo,
+                onScrubFinished = viewModel::scrubFinished,
+                onExit = { fullscreen = false },
+                captionLayer = {
+                    CaptionOverlay(captionsUi.captions, captionsUi.style, preview.positionUs, Modifier.fillMaxSize())
+                },
+            )
+        }
 
         Scrubber(
             state = preview,
@@ -355,6 +376,9 @@ private fun PreviewStage(
     onTogglePlay: () -> Unit,
     modifier: Modifier = Modifier,
     captionLayer: @Composable () -> Unit = {},
+    /** False while full screen shows the video (one view per player). */
+    showPlayer: Boolean = true,
+    onFullscreen: (() -> Unit)? = null,
 ) {
     val c = CineMind.colors
     val ratio = project?.let { it.resolutionWidth.toFloat() / it.resolutionHeight } ?: (9f / 16f)
@@ -383,15 +407,17 @@ private fun PreviewStage(
                         translationY = look.translateY * size.height
                     },
             ) {
-                AndroidView(
-                    factory = { ctx ->
-                        (LayoutInflater.from(ctx).inflate(R.layout.preview_player_view, null) as PlayerView)
-                            .apply { this.player = player }
-                    },
-                    update = { it.player = player },
-                    onRelease = { it.player = null },
-                    modifier = Modifier.fillMaxSize(),
-                )
+                if (showPlayer) {
+                    AndroidView(
+                        factory = { ctx ->
+                            (LayoutInflater.from(ctx).inflate(R.layout.preview_player_view, null) as PlayerView)
+                                .apply { this.player = player }
+                        },
+                        update = { it.player = player },
+                        onRelease = { it.player = null },
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
                 val asset = currentClip?.asset
                 when {
                     // Photos are rendered by the composition like videos; only a missing file needs a label.
@@ -413,6 +439,19 @@ private fun PreviewStage(
         }
 
         // Glass playback control.
+        if (onFullscreen != null && enabled) {
+            IconButton(
+                onClick = hapticClick(onClick = onFullscreen),
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(Spacing.s)
+                    .clip(CircleShape)
+                    .background(c.stageControl),
+            ) {
+                Icon(Icons.Default.Fullscreen, contentDescription = "Full screen preview", tint = c.onStage)
+            }
+        }
+
         PlayControl(
             isPlaying = state.isPlaying,
             enabled = enabled,
