@@ -1,13 +1,20 @@
 package com.cinemind.feature.editor.timeline.ui
 
 import android.content.Context
+import android.net.Uri
+import android.widget.Toast
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.Player
 import com.cinemind.core.common.CineMindLogger
 import com.cinemind.core.domain.editing.ClipLimits
 import com.cinemind.core.domain.editing.EditHistory
+import com.cinemind.core.domain.editing.ClipTransition
 import com.cinemind.core.domain.editing.TimelineEditing
+import com.cinemind.core.domain.editing.TransitionEditing
+import com.cinemind.core.domain.editing.append
+import com.cinemind.core.domain.model.ProjectFactory
+import com.cinemind.feature.media.importer.MediaImporter
 import com.cinemind.core.domain.model.Clip
 import com.cinemind.core.domain.model.MediaAsset
 import com.cinemind.core.domain.model.Project
@@ -47,12 +54,13 @@ data class EditorState(
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class TimelineViewModel @Inject constructor(
-    @ApplicationContext context: Context,
+    @ApplicationContext private val appContext: Context,
     private val projectRepository: ProjectRepository,
     private val assetRepository: MediaAssetRepository,
+    private val importer: MediaImporter,
 ) : ViewModel() {
 
-    private val preview = PreviewPlayer(context)
+    private val preview = PreviewPlayer(appContext)
 
     /** The player the preview surface attaches to. Owned (and released) by this ViewModel. */
     val player: Player get() = preview.player
@@ -165,6 +173,52 @@ class TimelineViewModel @Inject constructor(
     fun deleteSelected() {
         val id = _editor.value.selectedClipId ?: return
         commit(TimelineEditing.delete(history?.present ?: return, id), selectAfter = null)
+    }
+
+    // ---- Transitions ----------------------------------------------------------------------
+
+    /** Transition into the selected clip (for the first clip: the opening). */
+    fun setTransitionSelected(type: ClipTransition, durationMs: Long) = editSelected { clips, clip ->
+        TransitionEditing.setTransition(clips, clip.id, type, durationMs)
+    }
+
+    fun applyTransitionToAll(type: ClipTransition, durationMs: Long) {
+        val clips = history?.present ?: return
+        commit(TransitionEditing.setAll(clips, type, durationMs), selectAfter = _editor.value.selectedClipId)
+    }
+
+    fun setOpeningAndEnding(openingMs: Long, endingMs: Long) {
+        val clips = history?.present ?: return
+        commit(TransitionEditing.setOpeningAndEnding(clips, openingMs, endingMs), selectAfter = _editor.value.selectedClipId)
+    }
+
+    // ---- Adding media ----------------------------------------------------------------------
+
+    /** Imports picked media and appends it to the end of the track (one undo step). */
+    fun addMedia(uris: List<Uri>) {
+        val track = trackId ?: return
+        if (uris.isEmpty()) return
+        viewModelScope.launch {
+            val added = mutableListOf<Clip>()
+            var failed = 0
+            for (uri in uris) {
+                runCatching { importer.import(uri) }
+                    .onSuccess { asset ->
+                        assets[asset.id] = asset
+                        val length = if (asset.isVideo && asset.durationUs > 0) asset.durationUs else ProjectFactory.DEFAULT_IMAGE_DURATION_US
+                        added += Clip(trackId = track, assetId = asset.id, timelineInUs = 0, timelineOutUs = 0, sourceInUs = 0, sourceOutUs = length)
+                    }
+                    .onFailure { failed++ }
+            }
+            val clips = history?.present ?: return@launch
+            commit(TimelineEditing.append(clips, added), selectAfter = null)
+            val msg = when {
+                added.isEmpty() -> "Couldn't add the selected media"
+                failed > 0 -> "Added ${added.size} clip(s); $failed couldn't be read"
+                else -> "Added ${added.size} clip(s) at the end"
+            }
+            Toast.makeText(appContext, msg, Toast.LENGTH_SHORT).show()
+        }
     }
 
     fun undo() {
