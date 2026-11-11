@@ -13,7 +13,7 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.withFrameNanos
-import androidx.compose.material.icons.automirrored.filled.FirstPage
+import androidx.compose.material.icons.filled.FirstPage
 import androidx.compose.material.icons.automirrored.filled.LastPage
 import androidx.compose.material.icons.filled.CenterFocusStrong
 import androidx.compose.material.icons.filled.FitScreen
@@ -157,7 +157,7 @@ internal fun MultiTrackTimeline(
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = Spacing.gutter, end = Spacing.xs)) {
             Text(formatDuration(totalUs), style = MaterialTheme.typography.labelLarge, color = c.textPrimary, modifier = Modifier.weight(1f))
             IconButton(onClick = hapticClick { onSeek(0); pendingScroll = 0f }) {
-                Icon(Icons.AutoMirrored.Filled.FirstPage, contentDescription = "Go to start", tint = c.textSecondary)
+                Icon(Icons.Default.FirstPage, contentDescription = "Go to start", tint = c.textSecondary)
             }
             IconButton(onClick = hapticClick { onSeek(totalUs); pendingScroll = TimelineLayout.xForUs(totalUs, pps) + leadPx - viewportPx * 0.6f }) {
                 Icon(Icons.AutoMirrored.Filled.LastPage, contentDescription = "Go to end", tint = c.textSecondary)
