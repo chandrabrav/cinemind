@@ -127,7 +127,7 @@ jobs:
           disk-size: 3000M
           emulator-options: -no-window -no-snapshot-save -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           disable-animations: true
-          script: gradle :feature:export:connectedDebugAndroidTest --stacktrace
+          script: gradle :feature:export:connectedDebugAndroidTest :core:ui:connectedDebugAndroidTest :feature:editor:timeline:connectedDebugAndroidTest --stacktrace
 
       - name: Upload instrumented test reports
         if: always()
@@ -137,6 +137,15 @@ jobs:
           path: feature/export/build/reports/androidTests/
           retention-days: 14
           if-no-files-found: ignore
+
+      - name: Upload UI screenshots (both themes)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-screenshots-${{ github.run_number }}
+          path: "**/build/outputs/connected_android_test_additional_output/**/*.png"
+          retention-days: 14
+          if-no-files-found: warn
 
   release:
     name: Signed release APK
