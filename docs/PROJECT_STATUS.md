@@ -190,6 +190,22 @@ Owner request: OriginOS-7-inspired redesign of the whole app + persistent Light/
 - **Export**: `CaptionBitmapOverlay` (Media3 `BitmapOverlay`, lazily allocated frame-sized bitmap, redrawn only when the frame changes) added last to each clip's effects.
 - **Tests**: `TransliteratorTest`, `WordTimesTest`, `CaptionLayoutTest`, `CaptionEditingTest` (domain); `PcmTest`, `SpeechSegmenterTest`, `SpeechPromptsTest` (captions); emulator: `SpeechAudioTest` (real AAC decode, trimmed range, burst timing, unreadable file) and `ExportEndToEndTest.burnsInCaptionsAtTheirTimes` (pixels in the caption band only while the caption is on; frame saved as `export_caption_frame.png`).
 
+## Device test of build #103 and fixes in #105 (2026-11-12, owner's Vivo X200 Pro, Android 17 / API 37, MT6991)
+
+| Owner result (#103) | Root cause | Fix (#105, commit `b707b66`) | Verified |
+|---|---|---|---|
+| Installed over #89 without uninstall | Permanent signing key | — | **Phone ✓** + CI update test ✓ |
+| App closes during export | Diagnostics trace: `InvalidForegroundServiceTypeException: Starting FGS with type none`. `ServiceCompat.startForeground` masks the type with a fixed allow-list that lacks `MEDIA_PROCESSING` (API 35), so it became "none", rejected on Android 15+ | `Service.startForeground(id, notification, MEDIA_PROCESSING)` directly; a foreground-start failure is logged, never fatal | CI ✓ (emulator API 30 can't hit this path) — **needs phone re-test** |
+| Video sits low, timeline cut off; wants controls below | Play control overlaid the video; 5 lanes taller than the space | Playback bar under the preview (play/pause, time, preview mute + volume, full screen); timeline lanes scroll in a bounded area | needs phone check |
+| Back from preview closes the app | Two `PlayerView`s briefly attached to one `CompositionPlayer`; clearing a no-longer-current surface fails `checkArgument` | Views hand over a few frames apart; detaching wrapped so it can't crash | needs phone re-test |
+| "Can't build the preview" after adding a voiceover | `experimentalSetForceAudioTrack` is rejected on sequences that declare track types (same bug as the voiceover export test) | Flag removed (`609c9d5`) | CI ✓ (voiceover export test) |
+| Video doesn't play after adding an overlay | `CompositionPlayer` defaults to a single-input video graph (only logs a warning for more) | `MultipleInputVideoGraph.Factory()` (as Media3's composition demo) | CI ✓ export; preview needs phone re-test |
+| Speech-to-text accuracy **85–95%** | — | — | **Phone ✓** (owner's estimate, Gemma 4 on-device) |
+
+Diagnostics now lists every recorded crash (one earlier crash had 5.9 GB PSS; its trace was not in the 2-crash report) and has a Clear button.
+
+**Build #105** (run 43092067436, branch `voiceover`, `b707b66`): unit tests ✓, emulator ✓ (update test, export ×7 incl. photo/video overlay and voiceover, preview playback, full screen, speech audio, screenshots). Artifact `cinemind-debug-105`.
+
 ## App updates & model persistence (2026-11-11/12, branch `update-safety`)
 
 **Symptom (owner):** installing a new build fails as an update; the old app had to be uninstalled, which also deleted downloaded AI models.
