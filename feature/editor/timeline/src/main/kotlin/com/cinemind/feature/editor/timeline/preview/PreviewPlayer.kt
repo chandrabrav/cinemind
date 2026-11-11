@@ -39,6 +39,14 @@ class PreviewPlayer(context: Context) {
 
     val player: ExoPlayer = ExoPlayer.Builder(context.applicationContext).build()
 
+    /** Background music, kept in step with [player]. */
+    val music = MusicPreview(context)
+
+    /** Volume of the clips' own sound (0..1). */
+    fun setOriginalVolume(volume: Float) {
+        player.volume = volume.coerceIn(0f, 1f)
+    }
+
     private val sourceFactory = DefaultMediaSourceFactory(context.applicationContext)
     private var spans: List<ClipSpan> = emptyList()
     private var loadedKey: List<Any?> = emptyList()
@@ -110,7 +118,10 @@ class PreviewPlayer(context: Context) {
         if (player.playWhenReady) player.pause() else player.play()
     }
 
-    fun pause() = player.pause()
+    fun pause() {
+        player.pause()
+        music.pause()
+    }
 
     /** Seeks to a whole-timeline position. [fast] trades accuracy for speed while scrubbing. */
     fun seekToUs(positionUs: Long, fast: Boolean = false) {
@@ -138,5 +149,8 @@ class PreviewPlayer(context: Context) {
         error = lastError,
     )
 
-    fun release() = player.release()
+    fun release() {
+        player.release()
+        music.release()
+    }
 }

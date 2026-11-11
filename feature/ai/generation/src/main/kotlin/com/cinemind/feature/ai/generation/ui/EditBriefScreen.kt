@@ -1,5 +1,6 @@
 package com.cinemind.feature.ai.generation.ui
 
+import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,6 +23,8 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -35,6 +38,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
@@ -56,11 +60,20 @@ import com.cinemind.core.ui.format.formatDuration
 @Composable
 fun EditBriefScreen(
     projectId: String,
+    onSmartEditCreated: (String) -> Unit,
     viewModel: EditBriefViewModel = hiltViewModel(),
 ) {
     LaunchedEffect(projectId) { viewModel.load(projectId) }
     val state by viewModel.state.collectAsStateWithLifecycle()
     val project by viewModel.project.collectAsStateWithLifecycle()
+    val smartEdit by viewModel.smartEdit.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    LaunchedEffect(viewModel) {
+        viewModel.createdFlow.collect { result ->
+            Toast.makeText(context, "Smart edit ready: " + result.decisions.first(), Toast.LENGTH_LONG).show()
+            onSmartEditCreated(result.projectId)
+        }
+    }
 
     // Save pending edits when leaving the screen or when the app goes to the background.
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -151,7 +164,12 @@ fun EditBriefScreen(
 
         Notices(brief = brief, footageUs = project?.durationUs ?: 0)
 
-        GenerateCard()
+        GenerateCard(
+            state = smartEdit,
+            hasFootage = (project?.durationUs ?: 0) > 0,
+            onCreate = viewModel::createSmartEdit,
+            onCancel = viewModel::cancelSmartEdit,
+        )
     }
 }
 
@@ -230,7 +248,12 @@ private fun Notices(brief: EditBrief, footageUs: Long) {
 }
 
 @Composable
-private fun GenerateCard() {
+private fun GenerateCard(
+    state: SmartEditUi,
+    hasFootage: Boolean,
+    onCreate: () -> Unit,
+    onCancel: () -> Unit,
+) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         shape = MaterialTheme.shapes.large,
@@ -239,15 +262,37 @@ private fun GenerateCard() {
             .padding(16.dp),
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Button(onClick = {}, enabled = false, modifier = Modifier.fillMaxWidth()) {
-                Icon(Icons.Default.AutoAwesome, contentDescription = null)
-                Spacer(Modifier.size(8.dp))
-                Text("Create AI edit")
+            when (state) {
+                is SmartEditUi.Working -> {
+                    Text(state.message, style = MaterialTheme.typography.titleSmall)
+                    Spacer(Modifier.height(8.dp))
+                    val p = state.progress
+                    if (p != null) {
+                        LinearProgressIndicator(progress = { p }, modifier = Modifier.fillMaxWidth())
+                    } else {
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedButton(onClick = onCancel) { Text("Cancel") }
+                }
+                else -> {
+                    Button(onClick = onCreate, enabled = hasFootage, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Default.AutoAwesome, contentDescription = null)
+                        Spacer(Modifier.size(8.dp))
+                        Text("Create smart edit")
+                    }
+                    if (state is SmartEditUi.Failed) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(state.message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                    }
+                }
             }
             Spacer(Modifier.height(8.dp))
             Text(
-                "AI editing isn't available yet. Your brief is saved with this project and will be " +
-                    "used once on-device AI is added. You can keep editing manually meanwhile.",
+                "Analyses every clip on this phone (sharpness, exposure, motion), picks the best moments " +
+                    "to fit your length, orders them and adds transitions in your style. It creates a new, " +
+                    "fully editable project; this one isn't changed. Scene understanding with a large " +
+                    "on-device AI model is a later stage.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

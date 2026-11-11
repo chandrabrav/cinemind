@@ -9,25 +9,29 @@ _Last updated: 2026-11-11_
 
 | | |
 |---|---|
-| **Stage** | Stage 1 — Project foundation: **all foundation features built; awaiting device verification** before Stage 2/3 work |
-| **Last completed milestone** | Export (2026-11-11): Media3 Transformer renders the edited video track to H.264/AAC MP4 in Movies/CineMind, with progress, cancel, foreground service and output verification. Built and unit-tested in CI; **not yet verified on a device**. |
-| **Previous milestones** | Timeline editing (run 43020346309); AI edit brief (run 43019053443); project list (run 43017020090); editor preview (run 43015369603); media import (run 43013511655); foundation repair (run 43011809441). |
-| **Current task** | **Device verification of the full foundation flow** on the Vivo X200 Pro: import → project → preview → brief → trim/reorder → export → play in gallery. Fix what it finds before new features. |
-| **Branch** | `dev-main` |
-| **Latest verified build** | CI run 43023366121 (#30), commit `a37a784`, 65/65 unit tests passed — https://github.com/chandrabrav/cinemind/actions/runs/43023366121 |
-| **Latest verified APK** | Artifact `cinemind-debug-30` (19.8 MB, expires 2026-12-11). Built, not yet device-tested. |
+| **Stage** | Stage 1 foundation built; first Stage 3 (transitions) and Stage 5 (rule-based smart edit) features added after the owner's first device test |
+| **Last completed milestone** | Smart edit + transitions (2026-11-11): the brief now creates a real edit (on-device frame analysis + planner → new editable project); 7 clip transitions in preview and export; editor tools bar (Smart edit, Add clips, Transitions, Export); emulator end-to-end export test in CI. |
+| **Owner feedback (device test of build #30)** | App installs and imports. Complaints: only two bottom options; no AI editing; no transitions; "AI brief not working" (its button was intentionally disabled). Addressed in this milestone. |
+| **Current task** | Owner re-tests the new APK on the Vivo X200 Pro (smart edit, transitions, add clips, export). |
+| **Branch** | `smart-edit` → fast-forwarded into `dev-main` when CI is green |
+| **Latest verified build** | _see "Build log" below_ |
+| **Latest verified APK** | _see "Build log" below_ |
 
 ## Build environment (hard rule)
 
 - All Android builds run in **GitHub Actions** (`.github/workflows/ci.yml`). Nothing Android-related is installed locally (owner's machine is Windows; no Android Studio / SDK / JDK / Gradle).
 - CI provisions **Gradle 8.11.1** via `gradle/actions/setup-gradle` (no wrapper committed yet) and Temurin **JDK 17**.
-- Every push builds: `gradle testDebugUnitTest` then `gradle assembleDebug`. Artifacts: `cinemind-debug-<run>` (APK, 30 days), `test-reports-<run>`, `room-schemas-<run>` (14 days).
-- Release APK: only on `main` and only when repo secrets `CINEMIND_KEYSTORE_BASE64`, `CINEMIND_KEYSTORE_PASSWORD`, `CINEMIND_KEY_ALIAS`, `CINEMIND_KEY_PASSWORD` exist.
-- Free tier for private repos: 2,000 Actions minutes/month; one build ≈ 5–10 min.
-- `gh` is authenticated inside **WSL (Ubuntu-24.04)**, not in Windows. Helper scripts (outside the repo) in `D:\projects\cinemind-local-tools\`:
-  - `ci-watch.sh <branch>` — waits for the latest run on a branch, prints result and compile errors.
-  - `ci-verify.sh <run-id> [schemas-dest]` — per-module test counts, artifact sizes, optionally copies Room schemas.
-  - Run as `wsl -d Ubuntu-24.04 -- bash /mnt/d/projects/cinemind-local-tools/<script> ...`
+- Jobs on every push:
+  - `build`: `gradle testDebugUnitTest` then `gradle assembleDebug`. Artifacts: `cinemind-debug-<run>` (APK, 30 days), `test-reports-<run>`, `room-schemas-<run>`.
+  - `export-e2e`: frees runner disk, boots an **API 30 x86_64 emulator** (KVM, swiftshader GL, 3 GB data disk), generates test media with **ffmpeg** into `feature/export/src/androidTest/assets/` (git-ignored), runs `ExportEndToEndTest`. ~15 min. (The first attempts failed only because the runner lacked disk for the emulator.)
+  - `release`: only on `main` and only when repo secrets `CINEMIND_KEYSTORE_BASE64`, `CINEMIND_KEYSTORE_PASSWORD`, `CINEMIND_KEY_ALIAS`, `CINEMIND_KEY_PASSWORD` exist.
+- Free tier for private repos: 2,000 Actions minutes/month; a push now costs ≈ 20–25 runner minutes (build + emulator).
+- `gh` is authenticated inside **WSL (Ubuntu-24.04)**, not in Windows. Helper scripts (outside the repo) in `D:\projects\cinemind-local-tools\`, run as `wsl -d Ubuntu-24.04 -- bash /mnt/d/projects/cinemind-local-tools/<script> ...`:
+  - `ci-watch.sh <branch>` — latest run on a branch; `ci-run-for.sh <branch> <sha-prefix>` — the run for a commit; `ci-wait.sh <run-id>` — wait + failing lines.
+  - `ci-verify.sh <run-id> [schemas-dest]` — per-module test counts, artifacts, optional Room schema copy.
+  - `ci-emulog.sh <run-id>` — emulator boot log lines from the e2e job.
+  - `get-apk.sh <run-id> <artifact>` — downloads an APK artifact to `apk-<artifact>/`.
+  - PowerShell mangles `$` in inline `bash -c` strings — always use script files.
 
 ## History recovered (2026-11-11 audit)
 
@@ -41,26 +45,32 @@ _Last updated: 2026-11-11_
 - Kotlin 2.1.0, AGP 8.7.3, compileSdk/targetSdk 35, minSdk 30, Java 17.
 - UI: Jetpack Compose + Material 3 (BOM 2024.12.01), Navigation Compose. Dark-first theme in `core/ui`.
 - DI: Hilt 2.54 (KSP). Storage: Room 2.6.1, DataStore Preferences.
-- Room schema is **v3**: `MIGRATION_1_2` adds `media_assets.displayName`, `sizeBytes`; `MIGRATION_2_3` creates `edit_briefs`. **No destructive migration.** Exported schema JSON (v2, v3) is committed in `core/data/schemas/` — after any schema change, fetch the new JSON from the `room-schemas-<run>` artifact (`ci-verify.sh <run> /mnt/d/projects/cinemind/core/data/schemas`), compare its `createSql` with the hand-written migration, and commit it.
-- Media: system Photo Picker for import; `MediaMetadataRetriever` + `MediaExtractor` for metadata; Coil 2.7 + `coil-video` for thumbnails (app-wide `ImageLoader` in `CineMindApplication`).
-- Preview: Media3 1.5.1 ExoPlayer + `PlayerView` (via `AndroidView`). `PreviewPlayer` maps each clip to one playlist item — video clips use `ClippingConfiguration` (source in/out), stills and missing media use `SilenceMediaSource` of the clip duration with the image drawn on top in Compose. `TimelineMath` converts timeline positions ↔ (clip index, offset). Preview is playback only; it does not render effects/transitions or write files.
-- Export: `ExportManager` (app-scoped `@Singleton`, main thread) builds a Media3 Transformer `Composition` from the video track — video clips via `ClippingConfiguration` (+ `FrameDropEffect` when the source fps is above the target), photos via `setImageDurationMs` + `setFrameRate`, every item letterboxed into the project frame with `Presentation` (`LAYOUT_SCALE_TO_FIT`), HDR tone-mapped to SDR, `experimentalSetForceAudioTrack` so photos/silent clips get silence. H.264 + AAC; bitrate = pixels × fps × bits-per-pixel (`ExportPlanner`), encoder fallback enabled. Output goes to cache, is verified with `MediaMetadataRetriever`, then copied into MediaStore `Movies/CineMind` (IS_PENDING) and the temp file deleted. `ExportService` is a foreground service (`dataSync`, `mediaProcessing` on API 35+) that mirrors progress in a notification and stops itself.
+- Room schema is **v4**: `MIGRATION_1_2` (`media_assets.displayName`, `sizeBytes`), `MIGRATION_2_3` (`edit_briefs`), `MIGRATION_3_4` (`clips.transitionInType`). **No destructive migration.** Exported schema JSON is committed in `core/data/schemas/` — after any schema change, fetch the new JSON from the `room-schemas-<run>` artifact, compare its `createSql` with the hand-written migration, and commit it.
+- Media: system Photo Picker for import; `MediaMetadataRetriever` + `MediaExtractor` for metadata; Coil 2.7 + `coil-video` for thumbnails.
+- **Transitions** (`core/domain/editing/Transitions.kt`): `ClipTransition` = CUT, FADE (dip to black), ZOOM_IN, ZOOM_OUT, SLIDE_LEFT/RIGHT/UP; stored per clip as `transitionInType` + `transitionInMs` (opening on the first clip) and `transitionOutMs` on the last clip (ending fade). There are no overlapping clips yet, so each transition is split: the outgoing clip animates out over half, the incoming clip animates in over half. `TransitionMath.animations()` + `lookAt()` produce a `FrameLook` (scale, translate, brightness) — the **single source of truth** for both preview and export. True cross-dissolves need multi-track compositing (Stage 3).
+- Preview: Media3 1.5.1 ExoPlayer; `PlayerView` inflated from `preview_player_view.xml` with **`surface_type="texture_view"`** so Compose can scale/slide it (`graphicsLayer`) and darken it (black overlay) from `FrameLook`. `PreviewPlayer` maps each clip to one playlist item (`ClippingConfiguration`; photos/missing media use `SilenceMediaSource` with the image drawn on top).
+- Export: `ExportManager` (app-scoped, main thread) → `TimelineRenderer` (DI-free, testable) builds a Transformer `Composition`: per clip `FrameDropEffect` (if source fps > target) → `Presentation` letterbox → `TransitionMotion` (`MatrixTransformation`, NDC) + `TransitionBrightness` (`RgbMatrix`) evaluated with `TransitionMath`. Effects assume **frame timestamps are in composition time** (Media3 adds each item's offset before effects) — `ExportEndToEndTest` checks this by requiring a black frame exactly at a fade cut. H.264 + AAC, HDR → SDR tone map, forced silent audio track. Verified with `MediaMetadataRetriever`, saved to MediaStore `Movies/CineMind`. `ExportService` foreground service mirrors progress.
+- **Smart edit** (`feature/ai/generation/smartedit/`), a deterministic on-device stand-in for the Stage 4–5 AI models with the same inputs/outputs:
+  - `FrameAnalyzer` samples each source (video: ~1 frame / 0.7 s, 3–48 frames, 128 px, `getScaledFrameAtTime` CLOSEST_SYNC; photo: one downsampled decode) and measures sharpness (Laplacian variance), brightness and motion (frame difference) — `FrameMetrics`/`MomentScoring` (pure).
+  - `BriefInterpreter` turns the brief into an `EditIntent`: explicit choices win; otherwise keywords in the prompt set style, pace, length ("30 seconds", "1 minute"), strict quality ("skip shaky/blurry", "best moments"), order (story → chronological; gym/hook → best shot first) and transition overrides ("only cuts", "fade", "zoom", "slide"). Each style has a transition palette and opening/ending fades.
+  - `SmartEditPlanner` cuts videos into shot-length windows, scores them, greedily picks the best non-overlapping windows with a repeat penalty per source until the target length (auto: 60 % of footage, 8–45 s), orders them and trims the last shot to land exactly on the target; transitions only where the source changes. Produces human-readable `decisions`.
+  - `SmartEditor` saves the result as a **new project** (“<name> · Smart edit”, same format, brief copied). The source project is never modified.
 
 Modules compiled in CI (`settings.gradle.kts`):
 
 | Module | Contents |
 |---|---|
-| `:app` | Activity, nav host (`media_library` → `editor/{projectId}`), Hilt modules, Coil setup |
+| `:app` | Activity, nav host (`home` → `media_library` → `editor/{id}` → `brief/{id}`, `export/{id}`), Hilt modules, Coil setup |
 | `:core:common` | Logger, constants |
-| `:core:domain` | Room entities (Project/Track/Clip/MediaAsset/EditBrief), `ProjectFactory`, `ProjectFormat`, `EditBriefRules`, `ProjectNames`/`ProjectCopier`, `editing.TimelineEditing` (trim/move/delete, ripple relayout) + `editing.EditHistory` (undo/redo), repository interfaces, AI analysis models |
-| `:core:data` | Room DB + migrations, DAOs, repository implementations (`createProjectWithTimeline` is one transaction) |
-| `:core:ui` | Theme, colors, typography, `formatTimecode` |
-| `:feature:media` | `MediaImporter` (picker URI → `MediaAsset`), `MediaLibraryViewModel`, library screen (grid, ordered multi-select, create project) |
-| `:feature:project` | Home screen: `ProjectListViewModel`, project list (open, rename, duplicate, delete with confirmation) |
-| `:feature:editor:timeline` | Editor screen: `PreviewPlayer` + `TimelineMath` (preview), `TimelineViewModel` (owns the player; holds the edit session/undo history; writes each edit to Room), `EditPanels` (edit toolbar, clip inspector), transport controls, clip strip, "AI brief" entry |
-| `:feature:export` | `ExportPlanner` (size/bitrate/estimate/file name), `ExportManager` (Transformer pipeline), `MediaStoreSaver`, `ExportService` (foreground notification), export screen + `ExportViewModel` |
+| `:core:domain` | Room entities, `ProjectFactory`, `ProjectFormat`, `EditBriefRules`, `ProjectNames`/`ProjectCopier`, `editing.*` (`TimelineEditing` incl. `append`, `EditHistory`, `ClipTransition`, `TransitionMath`, `TransitionEditing`), repository interfaces |
+| `:core:data` | Room DB + migrations (v4), DAOs, repository implementations |
+| `:core:ui` | Theme, colors, typography, `formatTimecode`, `formatDuration` |
+| `:feature:media` | `MediaImporter`, `MediaLibraryViewModel`, library screen |
+| `:feature:project` | Home screen: project list (open, rename, duplicate, delete) |
+| `:feature:editor:timeline` | Editor: `PreviewPlayer` + `TimelineMath`, `TimelineViewModel` (edit session, undo/redo, transitions, add media), `EditPanels` (edit toolbar, clip inspector with trim + transition, transitions dialog, tools bar), clip strip |
+| `:feature:export` | `ExportPlanner`, `TimelineRenderer`, `ExportManager`, `MediaStoreSaver`, `ExportService`, export screen; `androidTest/ExportEndToEndTest` |
 | `:feature:settings` | Settings DataStore |
-| `:feature:ai:generation` | AI edit brief screen + `EditBriefViewModel` (autosave); legacy generation model classes |
+| `:feature:ai:generation` | Brief screen + `EditBriefViewModel` (autosave, Create smart edit); `smartedit/*` engine |
 | `:feature:ai:{analysis,llm,cloud}` | Interfaces / data classes only |
 
 Scaffolded but **excluded** until they get code: `:feature:editor:{preview,effects,color,audio}`, `:media3`, `:benchmark`.
@@ -69,61 +79,48 @@ Scaffolded but **excluded** until they get code: `:feature:editor:{preview,effec
 
 | Feature | Status |
 |---|---|
-| Branding + dark theme | Partial (colors/typography, adaptive launcher icon; no full design system yet) |
-| Media import (Photo Picker, multi-select, thumbnails, metadata) | Implemented; pure logic unit-tested; **not device-verified** |
-| Create project from selection | Implemented; `ProjectFactory` unit-tested; **not device-verified** |
-| Video preview | Implemented (play/pause, scrub, timecode, current-clip highlight, tap clip to jump, pause on background); `TimelineMath` unit-tested; **not device-verified** |
-| Project list (home) | Implemented: cover, clip count, length, aspect, last edited; open / rename / duplicate / delete. `ProjectNames` + `ProjectCopier` unit-tested; **not device-verified** |
-| AI prompt screen | Implemented: prompt (1000 chars, suggestions), style, length, pacing, format; autosave + save on leave; guidance notices. `EditBriefRules`/`ProjectFormat` unit-tested. "Create AI edit" is disabled until Stage 4–5. **Not device-verified** |
-| Editor workspace / timeline | Partial: preview, clip strip with selection, inspector, undo/redo. Single video track only; no zoomable multi-track timeline, playhead on tracks, drag-to-reorder, split or snapping yet |
-| Trim / reorder / delete | Implemented with undo/redo (100 steps, in memory per editor session); ripple edit keeps clips back to back; `TimelineEditing` + `EditHistory` unit-tested (14 tests); **not device-verified** |
-| Export (Media3 Transformer) | Implemented: 720p/1080p/4K, 24/25/30/60 fps, Standard/High quality, size estimate, storage check, progress, cancel, verify, save to Movies/CineMind, Play/Share, background notification. H.264 only, SDR only. `ExportPlanner` unit-tested; **pipeline not device-verified** |
-| Project storage | Partial: Room v3 with migrations; edit brief per project (copied on duplicate, deleted with project); atomic create and duplicate; rename; delete (cascades tracks/clips, keeps media); no autosave, crash recovery or versioned project file |
-| AI (all) | Interfaces only |
-| Tests | 65 unit tests: core/domain 40, core/ui 6, feature/media 7, feature/editor/timeline 7, feature/export 5 (`ExportPlannerTest`). No instrumented/UI, Room DAO, migration or end-to-end export tests yet. |
+| Media import, create project, project list | Implemented; logic unit-tested; import confirmed working on the owner's Vivo (build #30) |
+| Video preview | Implemented incl. transition preview; not yet device-verified with transitions |
+| Editor tools | Tools bar: **Smart edit**, **Add clips** (picker → append, one undo step), **Transitions** (apply one transition to every cut + fade in/out), **Export**. Tap a clip for trim / move / remove / per-clip transition |
+| Transitions | 7 types, 0.3–1.2 s, per clip or for all; preview + export share one model; `TransitionsTest` (10). Export timing verified on emulator by `ExportEndToEndTest` (when green) |
+| Smart edit ("AI brief") | **Working, rule-based**: on-device analysis + planner → new editable project with decisions summary. Unit tests: `FrameMetricsTest` (5), `BriefInterpreterTest` (6), `SmartEditPlannerTest` (7). Not device-verified. No scene understanding, no beat sync |
+| Trim / reorder / delete / undo | Implemented; unit-tested |
+| Export | Implemented (720p–4K, 24–60 fps, H.264/AAC SDR); end-to-end emulator test |
+| AI with models (VLM/LLM), cloud AI | Not started (Stage 4–6) |
+| Captions / STT / Hindi-Hinglish / graphics | Not started; needs the updated spec |
+| Music, beat sync, audio tracks, color/LUTs, speed, multi-track | Not started (Stage 3) |
 
 ## Architecture decisions
 
 1. **Cloud-only builds** via GitHub Actions; no local toolchain, nothing vendored into git.
 2. Keep the existing modular layout but only compile modules that contain code.
-3. Media import uses the **Photo Picker** → no storage permissions; removed CAMERA, MEDIA_PROJECTION, legacy storage, READ_MEDIA_*, RECORD_AUDIO until a feature needs them.
-4. Originals are **referenced by URI, never copied or modified**; a persistable read grant is requested at import. Re-importing the same URI reuses the existing asset.
-5. Clip order = the order the user taps items; images default to 3 s on the timeline. Project orientation/resolution follow the first item (9:16 1080×1920 or 16:9 1920×1080); frame rate snaps to 24/25/30/60 from the first video.
+3. Media import uses the **Photo Picker** → no storage permissions.
+4. Originals are **referenced by URI, never copied or modified**.
+5. Clip order = tap order; images default to 3 s; project format follows the first item.
 6. **API keys never go in DataStore**; Keystore-backed storage arrives with cloud AI (Stage 6).
 7. No destructive Room migrations; every schema change ships a `Migration` and a committed schema JSON.
-8. ktlint/detekt plugins removed for now to get a first green build; configs remain in `config/` to re-enable later.
+8. ktlint/detekt removed for now; configs remain in `config/`.
+9. **Transitions without overlap** (split in/out halves, fade = dip to black) until multi-track compositing exists; one `TransitionMath` drives preview and export.
+10. **Smart edit is honest and non-destructive**: labelled as on-device analysis (not "AI model"), always creates a new project, shows its decisions. The planner's `EditIntent` → shots → timeline contract is what Stage 4–5 models will plug into.
 
 ## Known issues / debt
 
-- Photo EXIF orientation is not applied to stored width/height (thumbnails are still correct). Matters only when a rotated photo is the first item of a project.
-- If a provider refuses a persistable URI grant, that media is readable only until the app restarts (logged as a warning). Missing-media handling is not built yet.
-- Project list query, rename/duplicate/delete are not covered by automated DAO tests (would need Robolectric or instrumented tests); verify on device.
-- Undo history lives in memory: it is lost when you leave the editor (the edits themselves are saved). Trims commit when the finger lifts; the preview does not show the frame under the trim handle while dragging.
-- Reordering uses move-earlier/later buttons, not drag-and-drop. No split yet.
-- Preview: switching between clips goes through ExoPlayer's playlist, so there may be a brief stall at cuts (not gapless-guaranteed). If a clip fails to decode, playback stops with an error label; pressing Play retries. No preview of transitions, speed, color or audio mixing yet.
-- Preview duration per clip comes from stored metadata; if a file's real duration is slightly shorter, the playhead may jump a few ms at that cut.
-- Assets can't be removed from the library yet (clips reference them with `RESTRICT`).
-- No v1 schema JSON exists (v1 was never exported; no device ran it). v2 and v3 JSON exist, so a v2→v3 `MigrationTestHelper` test is now possible but needs instrumented tests (emulator in CI) — not set up yet.
-- The brief does not yet capture caption language or Hindi/Hinglish options: the updated master spec that defines those is still missing.
-- Domain module carries Room annotations (`room-common`) — split entities from domain models when the project format is versioned.
-- No Gradle wrapper committed.
-- CI actions are on deprecated Node 20 majors (`setup-java@v4` etc.); bump soon.
+- Preview of transitions is an approximation drawn in Compose over the player; export uses GPU effects. They share the same math but may differ slightly in easing at the exact cut frame.
+- Smart edit quality is limited to sharpness/exposure/motion: it can't recognise people, scenery or story moments, and it doesn't sync to music. Analysis of long 4K/HEVC footage may take a while (frames decoded at sync points).
+- Undo history is in memory per editor session. Reordering uses buttons, no drag-and-drop. No split.
+- Photo EXIF orientation not applied to stored size; export rotation of photos unverified.
+- If a provider refuses a persistable URI grant, media is readable only until restart. No missing-media relink.
+- No DAO/migration instrumented tests yet (the emulator job now exists, so they can be added).
+- No Gradle wrapper; CI actions on deprecated Node 20 majors.
 - Updated master spec missing (captions / Hindi-Hinglish / STT / graphics requirements unknown).
-- Export risks to check on device: mixed photo + video sequences and forced silent audio rely on Media3 1.5 Transformer behaviour that has not been exercised on the Vivo; photo EXIF rotation in export is unverified; 4K/60 may fall back to a lower encoder setting; no HEVC or HDR export yet; an export interrupted by process death is not resumed (it must be restarted).
+
+## Build log
+
+_Filled in below as CI results arrive._
 
 ## Next recommended task
 
-Foundation milestone, each verified on the Vivo X200 Pro:
-1. ~~Photo Picker multi-select import with metadata + thumbnails~~ (done; needs device check)
-2. ~~Create project from selected clips~~ (done; needs device check)
-3. ~~ExoPlayer preview of the clip sequence~~ (done; needs device check)
-4. ~~Project list on the home screen~~ (done; needs device check)
-5. ~~AI prompt input screen~~ (done; needs device check)
-6. ~~Timeline: trim + reorder with undo~~ (done; needs device check)
-7. ~~Media3 Transformer export to Movies/CineMind~~ (done; needs device check)
-
-**Foundation milestone: code-complete, not device-verified.** Next, in order:
-1. Device verification of the whole flow on the Vivo X200 Pro; fix findings.
-2. Housekeeping: bump CI actions off deprecated Node 20 majors; commit a Gradle wrapper; re-enable ktlint/detekt.
-3. Stage 2 completion: split clip, drag-to-reorder, autosave/crash recovery check, missing-media relink.
-4. Stage 3: multi-track timeline, transitions, speed, audio tracks, color + LUTs.
+1. Owner device test of the new APK: Smart edit from the brief, transitions (preview + exported file), Add clips, export.
+2. Fix findings.
+3. Stage 3: multi-track timeline (enables real cross-dissolves), speed, audio track + music import, beat markers, color/LUTs.
+4. Stage 4: model manager + on-device VLM benchmark on the Vivo; replace `BriefInterpreter`/scoring with model output behind the same `EditIntent`/plan contract.

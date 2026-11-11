@@ -1,5 +1,7 @@
 package com.cinemind.core.domain.repository
 
+import com.cinemind.core.domain.audio.MusicSettings
+import com.cinemind.core.domain.audio.ProjectAudio
 import com.cinemind.core.domain.model.Clip
 import com.cinemind.core.domain.model.EditBrief
 import com.cinemind.core.domain.model.MediaAsset
@@ -36,6 +38,14 @@ interface ProjectRepository {
      * length and last-edited time, in one transaction.
      */
     suspend fun saveTrackClips(projectId: String, trackId: String, clips: List<Clip>)
+
+    /** Background music and the clips' own volume. */
+    suspend fun getProjectAudio(projectId: String): ProjectAudio
+
+    /** Sets (or with null, removes) the project's background music. */
+    suspend fun saveMusic(projectId: String, music: MusicSettings?)
+
+    suspend fun setOriginalAudioVolume(projectId: String, volume: Float)
 
     /** Copies a project with all tracks and clips; returns the new id, or null if [id] doesn't exist. */
     suspend fun duplicateProject(id: String, newName: String): String?

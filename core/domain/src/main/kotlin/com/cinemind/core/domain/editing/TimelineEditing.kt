@@ -79,3 +79,39 @@ object TimelineEditing {
 /** Adds clips to the end of a track. */
 fun TimelineEditing.append(clips: List<Clip>, newClips: List<Clip>): List<Clip> =
     if (newClips.isEmpty()) clips else relayout(clips + newClips)
+
+/** Shortest piece a split may leave on either side. */
+const val MIN_SPLIT_PART_US = 200_000L
+
+/**
+ * Splits clip [clipId] at timeline position [atTimelineUs] into two clips that play back exactly as
+ * before. The first part keeps the incoming transition; the second part starts with a cut and takes
+ * over any ending fade. Returns the input unchanged if either part would be shorter than
+ * [MIN_SPLIT_PART_US] or the position is outside the clip.
+ */
+fun TimelineEditing.split(
+    clips: List<Clip>,
+    clipId: String,
+    atTimelineUs: Long,
+    newId: () -> String = { java.util.UUID.randomUUID().toString() },
+): List<Clip> {
+    val index = clips.indexOfFirst { it.id == clipId }
+    if (index == -1) return clips
+    val clip = clips[index]
+    val offset = atTimelineUs - clip.timelineInUs
+    val length = clip.timelineOutUs - clip.timelineInUs
+    if (offset < MIN_SPLIT_PART_US || length - offset < MIN_SPLIT_PART_US) return clips
+
+    val cutSource = clip.sourceInUs + offset
+    val first = clip.copy(sourceOutUs = cutSource, transitionOutMs = 0)
+    val second = clip.copy(
+        id = newId(),
+        sourceInUs = cutSource,
+        transitionInType = ClipTransition.CUT.name,
+        transitionInMs = 0,
+    )
+    val updated = clips.toMutableList()
+    updated[index] = first
+    updated.add(index + 1, second)
+    return relayout(updated)
+}

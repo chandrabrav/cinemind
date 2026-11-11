@@ -45,10 +45,10 @@ interface ProjectDao {
     @Query(
         """
         SELECT p.*,
-            (SELECT COUNT(*) FROM clips c JOIN tracks t ON c.trackId = t.id
+            (SELECT COUNT(*) FROM clips c JOIN tracks t ON c.trackId = t.id AND t.type = 'VIDEO'
                 WHERE t.projectId = p.id) AS clipCount,
             (SELECT a.uri FROM clips c
-                JOIN tracks t ON c.trackId = t.id
+                JOIN tracks t ON c.trackId = t.id AND t.type = 'VIDEO'
                 JOIN media_assets a ON a.id = c.assetId
                 WHERE t.projectId = p.id
                 ORDER BY t.`index` ASC, c.timelineInUs ASC LIMIT 1) AS coverUri

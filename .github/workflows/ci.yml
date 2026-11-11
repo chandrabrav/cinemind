@@ -66,6 +66,73 @@ jobs:
           retention-days: 14
           if-no-files-found: ignore
 
+  export-e2e:
+    name: Export end-to-end (emulator)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: ${{ env.GRADLE_VERSION }}
+
+      - name: Free disk space for the emulator
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost /usr/local/lib/android/sdk/ndk /usr/local/.ghcup /usr/share/swift || true
+          df -h /
+
+      - name: Enable KVM (hardware-accelerated emulator)
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Generate test media (ffmpeg)
+        timeout-minutes: 10
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          command -v ffmpeg >/dev/null || (sudo -E apt-get update -q && sudo -E apt-get install -y -q --no-install-recommends ffmpeg)
+          d=feature/export/src/androidTest/assets
+          mkdir -p "$d"
+          ffmpeg -nostdin -loglevel error -y -f lavfi -i testsrc2=size=720x1280:rate=30 -f lavfi -i sine=frequency=440:sample_rate=44100 \
+            -t 2 -c:v libx264 -pix_fmt yuv420p -c:a aac -shortest "$d/portrait.mp4"
+          ffmpeg -nostdin -loglevel error -y -f lavfi -i testsrc2=size=1280x720:rate=60 -t 2 -c:v libx264 -pix_fmt yuv420p "$d/landscape_silent.mp4"
+          ffmpeg -nostdin -loglevel error -y -f lavfi -i testsrc2=size=1200x900 -frames:v 1 "$d/photo.jpg"
+          ffmpeg -nostdin -loglevel error -y -f lavfi -i sine=frequency=660:sample_rate=44100 -t 3 -c:a aac "$d/music.m4a"
+          ls -la "$d"
+
+      - name: Run export test on emulator
+        timeout-minutes: 30
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          arch: x86_64
+          target: default
+          emulator-boot-timeout: 900
+          disk-size: 3000M
+          emulator-options: -no-window -no-snapshot-save -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: gradle :feature:export:connectedDebugAndroidTest --stacktrace
+
+      - name: Upload instrumented test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: export-e2e-reports-${{ github.run_number }}
+          path: feature/export/build/reports/androidTests/
+          retention-days: 14
+          if-no-files-found: ignore
+
   release:
     name: Signed release APK
     needs: build

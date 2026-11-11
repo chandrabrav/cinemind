@@ -50,7 +50,9 @@ class MediaLibraryViewModel @Inject constructor(
     val eventFlow: Flow<MediaLibraryEvent> = events.receiveAsFlow()
 
     val uiState: StateFlow<MediaLibraryUiState> =
-        combine(mediaAssetRepository.getAllAssets(), local) { assets, state ->
+        combine(mediaAssetRepository.getAllAssets(), local) { all, state ->
+            // Music files are imported from the editor and never become video clips.
+            val assets = all.filterNot { it.isAudio }
             val ids = assets.mapTo(HashSet()) { it.id }
             state.copy(assets = assets, selection = state.selection.filter { it in ids })
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MediaLibraryUiState())
