@@ -58,7 +58,7 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import coil.request.videoFrameMillis
 import com.cinemind.core.domain.model.MediaAsset
-import java.util.Locale
+import com.cinemind.core.ui.format.formatDuration
 
 private const val MAX_PICK = 50
 
@@ -285,19 +285,6 @@ private fun SelectionBar(count: Int, busy: Boolean, onClear: () -> Unit, onCreat
             Spacer(Modifier.size(8.dp))
             Button(onClick = onCreate, enabled = !busy) { Text(if (busy) "Creating…" else "Create project") }
         }
-    }
-}
-
-/** m:ss for clips under an hour, h:mm:ss otherwise. */
-internal fun formatDuration(durationUs: Long): String {
-    val totalSeconds = (durationUs / 1_000_000).coerceAtLeast(0)
-    val h = totalSeconds / 3600
-    val m = (totalSeconds % 3600) / 60
-    val s = totalSeconds % 60
-    return if (h > 0) {
-        String.format(Locale.ROOT, "%d:%02d:%02d", h, m, s)
-    } else {
-        String.format(Locale.ROOT, "%d:%02d", m, s)
     }
 }
 

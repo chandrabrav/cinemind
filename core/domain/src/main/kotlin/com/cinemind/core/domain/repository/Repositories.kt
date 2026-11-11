@@ -3,6 +3,7 @@ package com.cinemind.core.domain.repository
 import com.cinemind.core.domain.model.Clip
 import com.cinemind.core.domain.model.MediaAsset
 import com.cinemind.core.domain.model.Project
+import com.cinemind.core.domain.model.ProjectSummary
 import com.cinemind.core.domain.model.ProjectTimeline
 import com.cinemind.core.domain.model.Track
 import kotlinx.coroutines.flow.Flow
@@ -15,6 +16,17 @@ interface ProjectRepository {
 
     suspend fun getProject(id: String): Project?
     fun getAllProjects(): Flow<List<Project>>
+
+    /** Projects with clip count and cover image, most recently edited first. */
+    fun getProjectSummaries(): Flow<List<ProjectSummary>>
+
+    /** Full timeline (tracks + clips) of a project, or null if it doesn't exist. */
+    suspend fun getProjectTimeline(id: String): ProjectTimeline?
+
+    suspend fun renameProject(id: String, name: String)
+
+    /** Copies a project with all tracks and clips; returns the new id, or null if [id] doesn't exist. */
+    suspend fun duplicateProject(id: String, newName: String): String?
     suspend fun updateProject(project: Project)
     suspend fun deleteProject(id: String)
     suspend fun getProjectCount(): Int

@@ -9,6 +9,7 @@ import androidx.room.Update
 import com.cinemind.core.domain.model.Clip
 import com.cinemind.core.domain.model.MediaAsset
 import com.cinemind.core.domain.model.Project
+import com.cinemind.core.domain.model.ProjectSummary
 import com.cinemind.core.domain.model.Track
 import kotlinx.coroutines.flow.Flow
 
@@ -32,6 +33,29 @@ interface ProjectDao {
     @Query("DELETE FROM projects WHERE id = :id")
     suspend fun deleteById(id: String)
 
+    /**
+     * Projects with their clip count and the source of their first clip (used as a cover image),
+     * newest first. Computed in SQL so the home screen needs one query, not one per project.
+     */
+    @Query(
+        """
+        SELECT p.*,
+            (SELECT COUNT(*) FROM clips c JOIN tracks t ON c.trackId = t.id
+                WHERE t.projectId = p.id) AS clipCount,
+            (SELECT a.uri FROM clips c
+                JOIN tracks t ON c.trackId = t.id
+                JOIN media_assets a ON a.id = c.assetId
+                WHERE t.projectId = p.id
+                ORDER BY t.`index` ASC, c.timelineInUs ASC LIMIT 1) AS coverUri
+        FROM projects p
+        ORDER BY p.updatedAt DESC
+        """,
+    )
+    fun getProjectSummaries(): Flow<List<ProjectSummary>>
+
+    @Query("UPDATE projects SET name = :name, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun rename(id: String, name: String, updatedAt: Long)
+
     @Query("SELECT COUNT(*) FROM projects")
     suspend fun count(): Int
 }
@@ -44,6 +68,9 @@ interface TrackDao {
     // `index` is an SQL keyword, so the column name must be quoted.
     @Query("SELECT * FROM tracks WHERE projectId = :projectId ORDER BY `index` ASC")
     fun getTracksForProject(projectId: String): Flow<List<Track>>
+
+    @Query("SELECT * FROM tracks WHERE projectId = :projectId ORDER BY `index` ASC")
+    suspend fun getTracksForProjectOnce(projectId: String): List<Track>
 
     @Update
     suspend fun update(track: Track)
@@ -62,6 +89,9 @@ interface ClipDao {
 
     @Query("SELECT * FROM clips WHERE trackId = :trackId ORDER BY timelineInUs ASC")
     fun getClipsForTrack(trackId: String): Flow<List<Clip>>
+
+    @Query("SELECT * FROM clips WHERE trackId IN (:trackIds) ORDER BY timelineInUs ASC")
+    suspend fun getClipsForTracksOnce(trackIds: List<String>): List<Clip>
 
     @Query("SELECT * FROM clips WHERE id = :id")
     suspend fun getClip(id: String): Clip?

@@ -82,6 +82,7 @@ dependencies {
     implementation(project(":core:ui"))
     implementation(project(":feature:media"))
     implementation(project(":feature:editor:timeline"))
+    implementation(project(":feature:project"))
     implementation(project(":feature:export"))
     implementation(project(":feature:settings"))
 
