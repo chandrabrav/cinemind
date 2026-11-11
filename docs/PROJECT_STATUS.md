@@ -9,13 +9,13 @@ _Last updated: 2026-11-11_
 
 | | |
 |---|---|
-| **Stage** | Stage 1 — Project foundation (in progress) |
-| **Last completed milestone** | Timeline editing (2026-11-11): select a clip, trim (video in/out, photo length), move earlier/later, remove, with undo/redo; every edit saved to Room. Built and unit-tested in CI; **not yet verified on a device**. |
-| **Previous milestones** | AI edit brief (run 43019053443); project list (run 43017020090); editor preview (run 43015369603); media import (run 43013511655); foundation repair (run 43011809441). |
-| **Current task** | Device check of the whole flow; then Media3 Transformer export (last item of the foundation milestone). |
+| **Stage** | Stage 1 — Project foundation: **all foundation features built; awaiting device verification** before Stage 2/3 work |
+| **Last completed milestone** | Export (2026-11-11): Media3 Transformer renders the edited video track to H.264/AAC MP4 in Movies/CineMind, with progress, cancel, foreground service and output verification. Built and unit-tested in CI; **not yet verified on a device**. |
+| **Previous milestones** | Timeline editing (run 43020346309); AI edit brief (run 43019053443); project list (run 43017020090); editor preview (run 43015369603); media import (run 43013511655); foundation repair (run 43011809441). |
+| **Current task** | **Device verification of the full foundation flow** on the Vivo X200 Pro: import → project → preview → brief → trim/reorder → export → play in gallery. Fix what it finds before new features. |
 | **Branch** | `dev-main` |
-| **Latest verified build** | CI run 43020346309 (#27), commit `5a254cb`, 60/60 unit tests passed — https://github.com/chandrabrav/cinemind/actions/runs/43020346309 |
-| **Latest verified APK** | Artifact `cinemind-debug-27` (19.4 MB, expires 2026-12-11). Built, not yet device-tested. |
+| **Latest verified build** | CI run 43023366121 (#30), commit `a37a784`, 65/65 unit tests passed — https://github.com/chandrabrav/cinemind/actions/runs/43023366121 |
+| **Latest verified APK** | Artifact `cinemind-debug-30` (19.8 MB, expires 2026-12-11). Built, not yet device-tested. |
 
 ## Build environment (hard rule)
 
@@ -44,6 +44,7 @@ _Last updated: 2026-11-11_
 - Room schema is **v3**: `MIGRATION_1_2` adds `media_assets.displayName`, `sizeBytes`; `MIGRATION_2_3` creates `edit_briefs`. **No destructive migration.** Exported schema JSON (v2, v3) is committed in `core/data/schemas/` — after any schema change, fetch the new JSON from the `room-schemas-<run>` artifact (`ci-verify.sh <run> /mnt/d/projects/cinemind/core/data/schemas`), compare its `createSql` with the hand-written migration, and commit it.
 - Media: system Photo Picker for import; `MediaMetadataRetriever` + `MediaExtractor` for metadata; Coil 2.7 + `coil-video` for thumbnails (app-wide `ImageLoader` in `CineMindApplication`).
 - Preview: Media3 1.5.1 ExoPlayer + `PlayerView` (via `AndroidView`). `PreviewPlayer` maps each clip to one playlist item — video clips use `ClippingConfiguration` (source in/out), stills and missing media use `SilenceMediaSource` of the clip duration with the image drawn on top in Compose. `TimelineMath` converts timeline positions ↔ (clip index, offset). Preview is playback only; it does not render effects/transitions or write files.
+- Export: `ExportManager` (app-scoped `@Singleton`, main thread) builds a Media3 Transformer `Composition` from the video track — video clips via `ClippingConfiguration` (+ `FrameDropEffect` when the source fps is above the target), photos via `setImageDurationMs` + `setFrameRate`, every item letterboxed into the project frame with `Presentation` (`LAYOUT_SCALE_TO_FIT`), HDR tone-mapped to SDR, `experimentalSetForceAudioTrack` so photos/silent clips get silence. H.264 + AAC; bitrate = pixels × fps × bits-per-pixel (`ExportPlanner`), encoder fallback enabled. Output goes to cache, is verified with `MediaMetadataRetriever`, then copied into MediaStore `Movies/CineMind` (IS_PENDING) and the temp file deleted. `ExportService` is a foreground service (`dataSync`, `mediaProcessing` on API 35+) that mirrors progress in a notification and stops itself.
 
 Modules compiled in CI (`settings.gradle.kts`):
 
@@ -57,7 +58,7 @@ Modules compiled in CI (`settings.gradle.kts`):
 | `:feature:media` | `MediaImporter` (picker URI → `MediaAsset`), `MediaLibraryViewModel`, library screen (grid, ordered multi-select, create project) |
 | `:feature:project` | Home screen: `ProjectListViewModel`, project list (open, rename, duplicate, delete with confirmation) |
 | `:feature:editor:timeline` | Editor screen: `PreviewPlayer` + `TimelineMath` (preview), `TimelineViewModel` (owns the player; holds the edit session/undo history; writes each edit to Room), `EditPanels` (edit toolbar, clip inspector), transport controls, clip strip, "AI brief" entry |
-| `:feature:export` | Export foreground service (stub) |
+| `:feature:export` | `ExportPlanner` (size/bitrate/estimate/file name), `ExportManager` (Transformer pipeline), `MediaStoreSaver`, `ExportService` (foreground notification), export screen + `ExportViewModel` |
 | `:feature:settings` | Settings DataStore |
 | `:feature:ai:generation` | AI edit brief screen + `EditBriefViewModel` (autosave); legacy generation model classes |
 | `:feature:ai:{analysis,llm,cloud}` | Interfaces / data classes only |
@@ -76,10 +77,10 @@ Scaffolded but **excluded** until they get code: `:feature:editor:{preview,effec
 | AI prompt screen | Implemented: prompt (1000 chars, suggestions), style, length, pacing, format; autosave + save on leave; guidance notices. `EditBriefRules`/`ProjectFormat` unit-tested. "Create AI edit" is disabled until Stage 4–5. **Not device-verified** |
 | Editor workspace / timeline | Partial: preview, clip strip with selection, inspector, undo/redo. Single video track only; no zoomable multi-track timeline, playhead on tracks, drag-to-reorder, split or snapping yet |
 | Trim / reorder / delete | Implemented with undo/redo (100 steps, in memory per editor session); ripple edit keeps clips back to back; `TimelineEditing` + `EditHistory` unit-tested (14 tests); **not device-verified** |
-| Export (Media3 Transformer) | Stub service only; editor shows "Export (soon)" disabled |
+| Export (Media3 Transformer) | Implemented: 720p/1080p/4K, 24/25/30/60 fps, Standard/High quality, size estimate, storage check, progress, cancel, verify, save to Movies/CineMind, Play/Share, background notification. H.264 only, SDR only. `ExportPlanner` unit-tested; **pipeline not device-verified** |
 | Project storage | Partial: Room v3 with migrations; edit brief per project (copied on duplicate, deleted with project); atomic create and duplicate; rename; delete (cascades tracks/clips, keeps media); no autosave, crash recovery or versioned project file |
 | AI (all) | Interfaces only |
-| Tests | 60 unit tests: core/domain 40 (`ProjectFactoryTest` 9, `ProjectNamesTest` 4, `ProjectCopierTest` 4, `ProjectFormatTest` 3, `EditBriefRulesTest` 6, `TimelineEditingTest` 10, `EditHistoryTest` 4), core/ui 6, feature/media 7, feature/editor/timeline 7. No instrumented/UI, Room DAO or migration tests yet. |
+| Tests | 65 unit tests: core/domain 40, core/ui 6, feature/media 7, feature/editor/timeline 7, feature/export 5 (`ExportPlannerTest`). No instrumented/UI, Room DAO, migration or end-to-end export tests yet. |
 
 ## Architecture decisions
 
@@ -108,6 +109,7 @@ Scaffolded but **excluded** until they get code: `:feature:editor:{preview,effec
 - No Gradle wrapper committed.
 - CI actions are on deprecated Node 20 majors (`setup-java@v4` etc.); bump soon.
 - Updated master spec missing (captions / Hindi-Hinglish / STT / graphics requirements unknown).
+- Export risks to check on device: mixed photo + video sequences and forced silent audio rely on Media3 1.5 Transformer behaviour that has not been exercised on the Vivo; photo EXIF rotation in export is unverified; 4K/60 may fall back to a lower encoder setting; no HEVC or HDR export yet; an export interrupted by process death is not resumed (it must be restarted).
 
 ## Next recommended task
 
@@ -118,4 +120,10 @@ Foundation milestone, each verified on the Vivo X200 Pro:
 4. ~~Project list on the home screen~~ (done; needs device check)
 5. ~~AI prompt input screen~~ (done; needs device check)
 6. ~~Timeline: trim + reorder with undo~~ (done; needs device check)
-7. **Next:** Media3 Transformer export of the edited sequence to an MP4 in `Movies/CineMind`, playable in the gallery (completes the foundation milestone).
+7. ~~Media3 Transformer export to Movies/CineMind~~ (done; needs device check)
+
+**Foundation milestone: code-complete, not device-verified.** Next, in order:
+1. Device verification of the whole flow on the Vivo X200 Pro; fix findings.
+2. Housekeeping: bump CI actions off deprecated Node 20 majors; commit a Gradle wrapper; re-enable ktlint/detekt.
+3. Stage 2 completion: split clip, drag-to-reorder, autosave/crash recovery check, missing-media relink.
+4. Stage 3: multi-track timeline, transitions, speed, audio tracks, color + LUTs.
