@@ -91,10 +91,11 @@ Scaffolded but **excluded** until they get code: `:feature:editor:{preview,effec
 
 ## Next recommended task
 
-Foundation milestone (Stage 1 → 2 bridge), each verified on the Vivo X200 Pro:
-1. Photo Picker multi-select import → `MediaAsset` with real metadata (`MediaMetadataRetriever`) + thumbnails.
-2. Create project from selected clips (one video track, clips in order).
-3. ExoPlayer preview of the sequence.
-4. AI prompt input screen (UI + stored prompt; no AI yet).
-5. Timeline: clip trimming + reorder with an undoable command model, unit-tested.
-6. Media3 Transformer export of the edited sequence to an MP4 in `Movies/CineMind`, playable in the gallery.
+Foundation milestone, each verified on the Vivo X200 Pro:
+1. ~~Photo Picker multi-select import with metadata + thumbnails~~ (done, needs device check)
+2. ~~Create project from selected clips~~ (done, needs device check)
+3. **Next:** ExoPlayer preview of the clip sequence in the editor (play/pause, scrub, current clip highlight).
+4. Project list on the home screen (reopen / delete projects; never deletes source media).
+5. AI prompt input screen (UI + stored prompt; no AI yet).
+6. Timeline: trim + reorder with an undoable command model, unit-tested.
+7. Media3 Transformer export of the edited sequence to an MP4 in `Movies/CineMind`, playable in the gallery.
