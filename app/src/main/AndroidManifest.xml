@@ -37,6 +37,15 @@
             android:exported="false"
             android:foregroundServiceType="dataSync|mediaProcessing" />
 
+        <service
+            android:name="com.cinemind.feature.ai.llm.ondevice.ModelDownloadService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
+        <!-- Optional GPU libraries for on-device AI (LiteRT-LM); absent on some phones. -->
+        <uses-native-library android:name="libOpenCL.so" android:required="false" />
+        <uses-native-library android:name="libvndksupport.so" android:required="false" />
+
     </application>
 
 </manifest>

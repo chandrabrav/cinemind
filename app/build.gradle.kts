@@ -81,6 +81,7 @@ dependencies {
     implementation(project(":feature:editor:timeline"))
     implementation(project(":feature:project"))
     implementation(project(":feature:ai:generation"))
+    implementation(project(":feature:ai:llm"))
     implementation(project(":feature:export"))
     implementation(project(":feature:settings"))
 
@@ -91,6 +92,7 @@ dependencies {
 
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.material3)
+    implementation(libs.compose.material.icons.extended)
     debugImplementation(libs.compose.ui.tooling)
 
     implementation(libs.hilt.android)
@@ -98,6 +100,7 @@ dependencies {
     implementation(libs.coil.compose)
     implementation(libs.coil.video)
     ksp(libs.hilt.compiler)
+    ksp(libs.kotlin.metadata.jvm)
 
     testImplementation(libs.junit)
 }
