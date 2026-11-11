@@ -62,6 +62,7 @@ import com.cinemind.core.ui.components.hapticClick
 import com.cinemind.core.ui.theme.CineMind
 import com.cinemind.core.ui.theme.Radius
 import com.cinemind.core.ui.theme.Spacing
+import com.cinemind.core.ui.format.formatShortTime
 import com.cinemind.core.ui.theme.formatTimecode
 import com.cinemind.feature.editor.timeline.preview.PreviewClip
 import java.util.Locale
@@ -94,6 +95,7 @@ internal fun ClipInspector(
             .border(1.dp, c.hairline, shape)
             .padding(horizontal = Spacing.m, vertical = Spacing.xs),
     ) {
+        // Title row, then actions on their own row so every target stays 48 dp even on 320 dp screens.
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 text = "Clip ${index + 1} of $clipCount",
@@ -105,11 +107,13 @@ internal fun ClipInspector(
                 StatusPill("Photo")
             }
             Spacer(Modifier.weight(1f))
+            InspectorAction(Icons.Default.Close, "Done", onClick = onClose)
+        }
+        Row(horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             InspectorAction(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Move earlier", enabled = index > 0) { onMove(-1) }
             InspectorAction(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Move later", enabled = index < clipCount - 1) { onMove(1) }
             InspectorAction(Icons.Default.ContentCut, "Split at playhead", onClick = onSplit)
             InspectorAction(Icons.Default.Delete, "Remove clip from timeline", tint = c.danger, onClick = onDelete)
-            InspectorAction(Icons.Default.Close, "Done", onClick = onClose)
         }
         if (limits.isStill) {
             StillLength(item = item, fps = fps, onTrim = onTrim)
@@ -171,7 +175,7 @@ private fun VideoTrim(item: PreviewClip, limits: ClipLimits, fps: Int, onTrim: (
         value = range,
         onValueChange = { range = it },
         valueRange = 0f..sourceEnd.toFloat(),
-        colors = SliderDefaults.colors(thumbColor = c.highlight, activeTrackColor = c.highlight, inactiveTrackColor = c.surfaceSunken),
+        colors = SliderDefaults.colors(thumbColor = c.selection, activeTrackColor = c.selection, inactiveTrackColor = c.surfaceSunken),
         onValueChangeFinished = {
             val start = range.start.toLong()
             val end = range.endInclusive.toLong()
@@ -183,9 +187,9 @@ private fun VideoTrim(item: PreviewClip, limits: ClipLimits, fps: Int, onTrim: (
     val startUs = range.start.toLong()
     val endUs = range.endInclusive.toLong()
     Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-        Label("In ${formatTimecode(startUs, fps)}")
-        Label("Length ${formatTimecode((endUs - startUs).coerceAtLeast(0), fps)}")
-        Label("Out ${formatTimecode(endUs, fps)}")
+        Label("In ${formatShortTime(startUs)}")
+        Label("Length ${formatShortTime((endUs - startUs).coerceAtLeast(0))}")
+        Label("Out ${formatShortTime(endUs)}")
     }
 }
 
@@ -199,14 +203,14 @@ private fun StillLength(item: PreviewClip, fps: Int, onTrim: (Long, Long) -> Uni
         value = length,
         onValueChange = { length = it },
         valueRange = TimelineEditing.MIN_CLIP_US.toFloat()..TimelineEditing.MAX_STILL_US.toFloat(),
-        colors = SliderDefaults.colors(thumbColor = c.highlight, activeTrackColor = c.highlight, inactiveTrackColor = c.surfaceSunken),
+        colors = SliderDefaults.colors(thumbColor = c.selection, activeTrackColor = c.selection, inactiveTrackColor = c.surfaceSunken),
         onValueChangeFinished = {
             val chosen = length.toLong()
             length = stored
             onTrim(0, chosen)
         },
     )
-    Label("Shown for ${formatTimecode(length.toLong(), fps)}")
+    Label("Shown for ${formatShortTime(length.toLong())}")
 }
 
 @Composable
@@ -345,16 +349,16 @@ internal fun EditorToolsBar(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = Spacing.m, vertical = Spacing.s)
+            .padding(horizontal = Spacing.s, vertical = Spacing.s)
             .clip(shape)
             .background(c.surfaceGlass)
             .border(1.dp, c.hairline, shape)
             .padding(vertical = Spacing.xs),
     ) {
-        ToolButton(Icons.Default.AutoAwesome, "Smart edit", onClick = onSmartEdit, enabled = hasClips, minWidth = 56.dp)
-        ToolButton(Icons.Default.AddPhotoAlternate, "Add", onClick = onAddMedia, minWidth = 56.dp)
-        ToolButton(Icons.Default.Animation, "Transitions", onClick = onTransitions, enabled = hasClips, minWidth = 56.dp)
-        ToolButton(Icons.Default.MusicNote, "Music", onClick = onMusic, enabled = hasClips, minWidth = 56.dp)
-        ToolButton(Icons.Default.FileUpload, "Export", onClick = onExport, enabled = hasClips, minWidth = 56.dp)
+        ToolButton(Icons.Default.AutoAwesome, "Smart edit", onClick = onSmartEdit, enabled = hasClips, minWidth = 0.dp, modifier = Modifier.weight(1f))
+        ToolButton(Icons.Default.AddPhotoAlternate, "Add", onClick = onAddMedia, minWidth = 0.dp, modifier = Modifier.weight(1f))
+        ToolButton(Icons.Default.Animation, "Transitions", onClick = onTransitions, enabled = hasClips, minWidth = 0.dp, modifier = Modifier.weight(1f))
+        ToolButton(Icons.Default.MusicNote, "Music", onClick = onMusic, enabled = hasClips, minWidth = 0.dp, modifier = Modifier.weight(1f))
+        ToolButton(Icons.Default.FileUpload, "Export", onClick = onExport, enabled = hasClips, minWidth = 0.dp, modifier = Modifier.weight(1f))
     }
 }

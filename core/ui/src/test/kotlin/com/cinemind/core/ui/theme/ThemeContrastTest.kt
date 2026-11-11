@@ -78,6 +78,8 @@ class ThemeContrastTest {
         assertAA("$theme on-stage text over stage controls", c.onStage, over(c.stageControl, c.stage))
         // Playhead is a graphic, not text: WCAG 1.4.11 asks for 3:1 against the lane and clips.
         assertAA("$theme playhead on lane", c.playhead, c.timelineLane, min = 3.0)
+        assertAA("$theme selection on lane", c.selection, c.timelineLane, min = 3.0)
+        assertAA("$theme selection on glass (sliders)", c.selection, glassTop, min = 3.0)
     }
 
     @Test

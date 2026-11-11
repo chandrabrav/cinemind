@@ -14,3 +14,10 @@ fun formatDuration(durationUs: Long): String {
         String.format(Locale.ROOT, "%d:%02d", m, s)
     }
 }
+
+/** Compact time for tight spaces: "0:03.2", "12:05.0". Locale-independent digits. */
+fun formatShortTime(us: Long): String {
+    val tenths = (us.coerceAtLeast(0) / 100_000)
+    val totalSeconds = tenths / 10
+    return String.format(Locale.ROOT, "%d:%02d.%d", totalSeconds / 60, totalSeconds % 60, tenths % 10)
+}

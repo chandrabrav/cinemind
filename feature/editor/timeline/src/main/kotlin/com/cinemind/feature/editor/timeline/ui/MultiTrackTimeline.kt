@@ -245,7 +245,7 @@ private fun ClipBlock(
             .padding(vertical = Spacing.xs, horizontal = 1.dp)
             .clip(shape)
             .background(c.trackVideo)
-            .then(if (selected) Modifier.border(2.dp, c.highlight, shape) else Modifier)
+            .then(if (selected) Modifier.border(2.dp, c.selection, shape) else Modifier)
             .semantics { contentDescription = "Clip ${index + 1}, ${formatDuration(clip.timelineOutUs - clip.timelineInUs)}" + if (selected) ", selected" else "" }
             .clickable(onClick = hapticClick(onClick = onTap)),
     ) {
@@ -271,7 +271,7 @@ private fun ClipBlock(
             overflow = TextOverflow.Clip,
             modifier = Modifier
                 .align(Alignment.BottomStart)
-                .padding(horizontal = Spacing.s, vertical = Spacing.xxs),
+                .padding(start = if (selected) HANDLE + Spacing.xs else Spacing.s, end = Spacing.s, top = Spacing.xxs, bottom = Spacing.xxs),
         )
         if (index > 0 && ClipTransition.fromName(clip.transitionInType) != ClipTransition.CUT) {
             Icon(
@@ -336,7 +336,7 @@ private fun TrimHandle(alignStart: Boolean, modifier: Modifier) {
         modifier = modifier
             .width(HANDLE)
             .fillMaxHeight()
-            .background(c.highlight)
+            .background(c.selection)
             .semantics { contentDescription = if (alignStart) "Trim start handle" else "Trim end handle" },
     ) {
         Box(

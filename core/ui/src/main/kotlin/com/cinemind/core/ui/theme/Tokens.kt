@@ -56,6 +56,8 @@ data class CineMindColors(
     val trackMusic: Color,
     val clipLabel: Color,
     val playhead: Color,
+    /** Selected clip outline, trim handles and trim sliders (graphic; ≥ 3:1 on the timeline lane). */
+    val selection: Color,
 )
 
 val LightCineMindColors = CineMindColors(
@@ -91,6 +93,7 @@ val LightCineMindColors = CineMindColors(
     trackMusic = Color(0xFF0B7A66),
     clipLabel = Color(0xFFFFFFFF),
     playhead = Color(0xFFE0451F),
+    selection = Color(0xFFD9480F),
 )
 
 val DarkCineMindColors = CineMindColors(
@@ -126,6 +129,7 @@ val DarkCineMindColors = CineMindColors(
     trackMusic = Color(0xFF13806C),
     clipLabel = Color(0xFFFFFFFF),
     playhead = Color(0xFFFFB547),
+    selection = Color(0xFFFFB547),
 )
 
 val LocalCineMindColors = staticCompositionLocalOf { DarkCineMindColors }
