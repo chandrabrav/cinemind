@@ -1,6 +1,7 @@
 package com.cinemind.app.di
 
 import android.app.Application
+import com.cinemind.app.BuildConfig
 import com.cinemind.core.common.CineMindLogger
 import com.cinemind.core.common.TimberTree
 import dagger.hilt.android.HiltAndroidApp

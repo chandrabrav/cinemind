@@ -1,6 +1,9 @@
 package com.cinemind.feature.ai.analysis.repository
 
-import com.cinemind.feature.ai.analysis.model.*
+import com.cinemind.core.domain.model.MediaAnalysis
+import com.cinemind.feature.ai.analysis.model.AnalysisRequest
+import com.cinemind.feature.ai.analysis.model.AnalysisResult
+import com.cinemind.feature.ai.analysis.model.AnalysisState
 import kotlinx.coroutines.flow.Flow
 
 interface AnalysisRepository {

@@ -9,7 +9,7 @@ import kotlinx.coroutines.flow.Flow
 interface ProjectRepository {
     suspend fun createProject(project: Project): String
     suspend fun getProject(id: String): Project?
-    suspend fun getAllProjects(): Flow<List<Project>>
+    fun getAllProjects(): Flow<List<Project>>
     suspend fun updateProject(project: Project)
     suspend fun deleteProject(id: String)
     suspend fun getProjectCount(): Int
@@ -17,7 +17,7 @@ interface ProjectRepository {
 
 interface TrackRepository {
     suspend fun createTrack(track: Track): String
-    suspend fun getTracksForProject(projectId: String): Flow<List<Track>>
+    fun getTracksForProject(projectId: String): Flow<List<Track>>
     suspend fun updateTrack(track: Track)
     suspend fun deleteTrack(id: String)
     suspend fun deleteTracksForProject(projectId: String)
@@ -25,7 +25,7 @@ interface TrackRepository {
 
 interface ClipRepository {
     suspend fun createClip(clip: Clip): String
-    suspend fun getClipsForTrack(trackId: String): Flow<List<Clip>>
+    fun getClipsForTrack(trackId: String): Flow<List<Clip>>
     suspend fun getClip(id: String): Clip?
     suspend fun updateClip(clip: Clip)
     suspend fun deleteClip(id: String)
@@ -35,8 +35,8 @@ interface ClipRepository {
 interface MediaAssetRepository {
     suspend fun createAsset(asset: MediaAsset): String
     suspend fun getAsset(id: String): MediaAsset?
-    suspend fun getAllAssets(): Flow<List<MediaAsset>>
+    fun getAllAssets(): Flow<List<MediaAsset>>
     suspend fun updateAsset(asset: MediaAsset)
     suspend fun deleteAsset(id: String)
-    suspend fun searchAssets(query: String): Flow<List<MediaAsset>>
+    fun searchAssets(query: String): Flow<List<MediaAsset>>
 }

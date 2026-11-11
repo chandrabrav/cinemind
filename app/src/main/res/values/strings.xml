@@ -42,7 +42,8 @@
     <string name="cancel">Cancel</string>
     <string name="save">Save</string>
     <string name="delete">Delete</string>
-    <string name="import">Import</string>
+    <string name="import_media">Import</string>
     <string name="loading">Loading...</string>
     <string name="error">Error</string>
     <string name="success">Success</string>
+</resources>

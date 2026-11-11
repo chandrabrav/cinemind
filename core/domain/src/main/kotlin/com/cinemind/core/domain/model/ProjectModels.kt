@@ -41,7 +41,8 @@ data class Project(
             childColumns = ["projectId"],
             onDelete = ForeignKey.CASCADE
         )
-    ]
+    ],
+    indices = [Index(value = ["projectId"])]
 )
 data class Track(
     @PrimaryKey val id: String = UUID.randomUUID().toString(),
@@ -79,7 +80,7 @@ enum class TrackType {
             onDelete = ForeignKey.RESTRICT
         )
     ],
-    indices = [Index(value = ["trackId"])]
+    indices = [Index(value = ["trackId"]), Index(value = ["assetId"])]
 )
 data class Clip(
     @PrimaryKey val id: String = UUID.randomUUID().toString(),

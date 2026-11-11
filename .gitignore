@@ -95,3 +95,8 @@ firebase_options.dart
 # Temporary files
 *.tmp
 *.temp
+# Local toolchains must never be committed (all builds run in GitHub Actions)
+/jdk*/
+/java*/
+/gradle-*/
+*.zip
