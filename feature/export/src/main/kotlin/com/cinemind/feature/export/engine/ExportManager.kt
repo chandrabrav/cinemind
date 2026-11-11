@@ -43,6 +43,7 @@ class ExportManager @Inject constructor(
     @ApplicationContext private val context: Context,
     private val projectRepository: ProjectRepository,
     private val assetRepository: MediaAssetRepository,
+    private val captionRepository: com.cinemind.core.domain.repository.CaptionRepository,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val renderer = TimelineRenderer(context)
@@ -127,7 +128,9 @@ class ExportManager @Inject constructor(
         }
         val outFile = File(workDir, "export.mp4")
 
-        val composition = renderer.buildComposition(pairs, size, settings.frameRate, music, audio.originalVolume)
+        val captionList = captionRepository.getCaptions(projectId)
+        val captions = if (captionList.isEmpty()) null else RenderCaptions(captionList, captionRepository.getStyle(projectId))
+        val composition = renderer.buildComposition(pairs, size, settings.frameRate, music, audio.originalVolume, captions)
         _state.value = ExportState.Running(projectId, 0f)
         startForegroundService()
 

@@ -31,6 +31,7 @@ dependencies {
     implementation(project(":core:domain"))
     implementation(project(":core:ui"))
     implementation(project(":feature:media"))
+    implementation(project(":feature:captions"))
     implementation(libs.androidx.activity.compose)
     implementation(libs.compose.material.icons.extended)
     implementation(libs.androidx.lifecycle.runtime.compose)

@@ -20,10 +20,16 @@ import javax.inject.Singleton
 
 class ModelNotInstalledException : Exception("No AI model is installed")
 
+/** The installed model can't take audio (no audio encoder, or it failed to load on this phone). */
+class AudioNotSupportedException(message: String) : Exception(message)
+
 /**
- * The on-device language/vision model, run with Google's LiteRT-LM. Loads lazily, prefers the GPU
- * and falls back to the CPU, and keeps one engine in memory until [unload]. Every request uses a
+ * The on-device language/vision/audio model, run with Google's LiteRT-LM. Loads lazily, prefers the
+ * GPU and falls back to the CPU, and keeps one engine in memory until [unload]. Every request uses a
  * fresh conversation so prompts never leak into each other. Thread-safe (one request at a time).
+ *
+ * The audio encoder is loaded only when a request needs it (speech-to-text), so image/text work
+ * keeps its smaller memory footprint; the engine is reloaded once when switching.
  */
 @Singleton
 class OnDeviceLlm @Inject constructor(
@@ -34,6 +40,7 @@ class OnDeviceLlm @Inject constructor(
     private val lock = Mutex()
     private var engine: Engine? = null
     private var loadedId: String? = null
+    private var loadedWithAudio = false
 
     /** "GPU" or "CPU" once loaded. */
     var backendName: String? = null
@@ -46,12 +53,16 @@ class OnDeviceLlm @Inject constructor(
 
     val isAvailable: Boolean get() = installedModel() != null
 
-    /** Loads the model if needed; returns load time in ms (0 if it was already loaded). */
-    suspend fun ensureLoaded(): Long = lock.withLock { loadLocked() }
+    /** True if the installed model has an audio encoder (it may still fail to load on a device). */
+    val supportsAudio: Boolean get() = installedModel()?.supportsAudio == true
 
-    private suspend fun loadLocked(): Long = withContext(Dispatchers.Default) {
+    /** Loads the model if needed; returns load time in ms (0 if it was already loaded). */
+    suspend fun ensureLoaded(withAudio: Boolean = false): Long = lock.withLock { loadLocked(withAudio) }
+
+    private suspend fun loadLocked(withAudio: Boolean): Long = withContext(Dispatchers.Default) {
         val spec = installedModel() ?: throw ModelNotInstalledException()
-        if (engine != null && loadedId == spec.id) return@withContext 0L
+        if (withAudio && !spec.supportsAudio) throw AudioNotSupportedException("${spec.name} can't listen to audio")
+        if (engine != null && loadedId == spec.id && (loadedWithAudio || !withAudio)) return@withContext 0L
         unloadLocked()
         val start = System.nanoTime()
         val path = store.file(spec).absolutePath
@@ -65,6 +76,8 @@ class OnDeviceLlm @Inject constructor(
                         modelPath = path,
                         backend = make(),
                         visionBackend = if (spec.supportsImages) make() else null,
+                        // The audio encoder runs on the CPU (as in Google's reference app).
+                        audioBackend = if (withAudio) Backend.CPU() else null,
                         maxNumTokens = 4096,
                         maxNumImages = 1,
                         cacheDir = cache,
@@ -73,22 +86,29 @@ class OnDeviceLlm @Inject constructor(
                 e.initialize()
                 engine = e
                 loadedId = spec.id
+                loadedWithAudio = withAudio
                 backendName = make().name
                 return@withContext (System.nanoTime() - start) / 1_000_000
             } catch (t: Throwable) {
-                CineMindLogger.w("Model load on ${make().name} failed: ${t.message}")
+                CineMindLogger.w("Model load on ${make().name} (audio=$withAudio) failed: ${t.message}")
                 lastError = t
             }
         }
+        if (withAudio) throw AudioNotSupportedException("Couldn't load the speech part of the AI model: ${lastError?.message}")
         throw IllegalStateException("Couldn't load the AI model: ${lastError?.message}", lastError)
     }
 
     /**
-     * Asks the model one question, optionally about one image (JPEG/PNG file), and returns its text.
-     * [onChunk] receives streamed text as it arrives (for timing/benchmarks).
+     * Asks the model one question, optionally about one image (JPEG/PNG file) or one audio clip
+     * (16 kHz mono WAV file, at most ~30 s), and returns its text.
      */
-    suspend fun ask(prompt: String, imageFile: File? = null, maxOutputTokens: Int = 256): String = lock.withLock {
-        loadLocked()
+    suspend fun ask(
+        prompt: String,
+        imageFile: File? = null,
+        maxOutputTokens: Int = 256,
+        audioFile: File? = null,
+    ): String = lock.withLock {
+        loadLocked(withAudio = audioFile != null)
         withContext(Dispatchers.Default) {
             val e = engine ?: throw ModelNotInstalledException()
             e.createConversation(
@@ -100,6 +120,7 @@ class OnDeviceLlm @Inject constructor(
             ).use { conversation ->
                 val parts = buildList {
                     if (imageFile != null) add(Content.ImageFile(imageFile.absolutePath))
+                    if (audioFile != null) add(Content.AudioFile(audioFile.absolutePath))
                     add(Content.Text(prompt))
                 }
                 conversation.sendMessage(Contents.of(*parts.toTypedArray())).toString()
@@ -113,6 +134,7 @@ class OnDeviceLlm @Inject constructor(
         runCatching { engine?.close() }
         engine = null
         loadedId = null
+        loadedWithAudio = false
         backendName = null
     }
 }

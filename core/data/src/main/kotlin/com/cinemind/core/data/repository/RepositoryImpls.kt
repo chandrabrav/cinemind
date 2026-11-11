@@ -168,6 +168,11 @@ class ProjectRepositoryImpl(
             database.editBriefDao().get(id)?.let { brief ->
                 database.editBriefDao().upsert(brief.copy(projectId = copy.project.id, updatedAt = copy.project.updatedAt))
             }
+            val captions = database.captionDao().get(id)
+            if (captions.isNotEmpty()) {
+                database.captionDao().insertAll(captions.map { it.copy(id = java.util.UUID.randomUUID().toString(), projectId = copy.project.id) })
+            }
+            database.captionDao().getStyle(id)?.let { database.captionDao().upsertStyle(it.copy(projectId = copy.project.id)) }
             copy.project.id
         }
 
@@ -248,4 +253,21 @@ class EditBriefRepositoryImpl(
 
     override suspend fun saveBrief(brief: EditBrief) =
         editBriefDao.upsert(brief.copy(updatedAt = System.currentTimeMillis()))
+}
+
+class CaptionRepositoryImpl(
+    private val captionDao: com.cinemind.core.data.local.dao.CaptionDao,
+) : com.cinemind.core.domain.repository.CaptionRepository {
+    override fun observeCaptions(projectId: String) = captionDao.observe(projectId)
+    override suspend fun getCaptions(projectId: String) = captionDao.get(projectId)
+    override suspend fun saveCaptions(projectId: String, captions: List<com.cinemind.core.domain.captions.Caption>) =
+        captionDao.replaceAll(projectId, captions)
+
+    override fun observeStyle(projectId: String) =
+        captionDao.observeStyle(projectId).map { it ?: com.cinemind.core.domain.captions.CaptionStyle.default(projectId) }
+
+    override suspend fun getStyle(projectId: String) =
+        captionDao.getStyle(projectId) ?: com.cinemind.core.domain.captions.CaptionStyle.default(projectId)
+
+    override suspend fun saveStyle(style: com.cinemind.core.domain.captions.CaptionStyle) = captionDao.upsertStyle(style)
 }

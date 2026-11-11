@@ -26,6 +26,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Animation
+import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material3.Icon
@@ -75,6 +76,7 @@ import kotlin.math.roundToInt
 
 private val VIDEO_LANE = 64.dp
 private val MUSIC_LANE = 34.dp
+private val CAPTION_LANE = 30.dp
 private val RULER = 24.dp
 private val LANE_GAP = 6.dp
 private val MIN_CLIP = 28.dp
@@ -99,6 +101,8 @@ internal fun MultiTrackTimeline(
     onTrim: (Long, Long) -> Unit,
     onMusicTap: () -> Unit,
     modifier: Modifier = Modifier,
+    captions: List<com.cinemind.core.domain.captions.Caption> = emptyList(),
+    onCaptionsTap: () -> Unit = {},
 ) {
     val c = CineMind.colors
     val density = LocalDensity.current
@@ -176,6 +180,27 @@ internal fun MultiTrackTimeline(
                             widthPx = if (music != null) TimelineLayout.xForUs(totalUs, pps) else viewportPx - leadPx * 2,
                             onTap = onMusicTap,
                         )
+                    }
+                    Spacer(Modifier.height(LANE_GAP))
+                    // Caption lane: one block per caption, at its timeline time.
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(CAPTION_LANE)
+                            .background(c.timelineLane),
+                    ) {
+                        if (captions.isEmpty()) {
+                            CaptionBlock(null, leadPx, viewportPx - leadPx * 2, onCaptionsTap)
+                        } else {
+                            captions.forEach { cap ->
+                                CaptionBlock(
+                                    caption = cap,
+                                    xPx = leadPx + TimelineLayout.xForUs(cap.startUs, pps),
+                                    widthPx = TimelineLayout.xForUs(cap.endUs - cap.startUs, pps),
+                                    onTap = onCaptionsTap,
+                                )
+                            }
+                        }
                     }
                 }
                 Playhead(xPx = playheadX)
@@ -386,6 +411,41 @@ private fun MusicBlock(music: MusicUi?, xPx: Float, widthPx: Float, onTap: () ->
     }
 }
 
+/** A caption on the caption lane (or, with null, the "Add captions" hint). */
+@Composable
+private fun CaptionBlock(caption: com.cinemind.core.domain.captions.Caption?, xPx: Float, widthPx: Float, onTap: () -> Unit) {
+    val c = CineMind.colors
+    val density = LocalDensity.current
+    val shape = RoundedCornerShape(Radius.xs)
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .offset { IntOffset(xPx.roundToInt(), 0) }
+            .width(with(density) { widthPx.coerceAtLeast(6.dp.toPx()).toDp() })
+            .fillMaxHeight()
+            .padding(vertical = Spacing.xxs, horizontal = 1.dp)
+            .clip(shape)
+            .then(
+                if (caption != null) Modifier.background(c.accentContainer)
+                else Modifier.border(1.dp, c.textTertiary.copy(alpha = 0.6f), shape),
+            )
+            .clickable(onClick = hapticClick(onClick = onTap))
+            .padding(horizontal = Spacing.xs),
+    ) {
+        if (caption == null) {
+            Icon(Icons.Default.ClosedCaption, contentDescription = null, tint = c.textTertiary, modifier = Modifier.size(14.dp))
+            Spacer(Modifier.width(Spacing.xs))
+        }
+        Text(
+            text = caption?.let { (if (it.uncertain) "● " else "") + it.text } ?: "Add captions",
+            color = if (caption != null) c.onAccentContainer else c.textTertiary,
+            style = MaterialTheme.typography.labelSmall,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
 /** 2 dp line with a knob, drawn over all lanes. */
 @Composable
 private fun Playhead(xPx: Float) {
@@ -396,7 +456,7 @@ private fun Playhead(xPx: Float) {
         modifier = Modifier
             .offset { IntOffset((xPx - with(density) { (knob / 2).toPx() }).roundToInt(), 0) }
             .width(knob)
-            .height(RULER + Spacing.xs + VIDEO_LANE + LANE_GAP + MUSIC_LANE),
+            .height(RULER + Spacing.xs + VIDEO_LANE + LANE_GAP + MUSIC_LANE + LANE_GAP + CAPTION_LANE),
     ) {
         Box(
             Modifier

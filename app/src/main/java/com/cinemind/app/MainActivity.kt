@@ -195,6 +195,7 @@ fun CineMindNavHost(
                 projectId = projectId,
                 onOpenBrief = { navController.navigate(Routes.brief(projectId)) },
                 onExport = { navController.navigate(Routes.export(projectId)) },
+                onOpenAiModels = { navController.navigate(Routes.AI_MODELS) },
             )
         }
         composable(Routes.BRIEF) { backStackEntry ->

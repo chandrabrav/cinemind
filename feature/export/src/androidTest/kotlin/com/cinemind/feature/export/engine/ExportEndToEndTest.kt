@@ -141,6 +141,85 @@ class ExportEndToEndTest {
         }
     }
 
+    /**
+     * Captions are burned in by the same painter as the preview: a white caption box must appear in
+     * its band only while the caption is on, on an otherwise black video, at the right times.
+     */
+    @Test
+    fun burnsInCaptionsAtTheirTimes() = runBlocking {
+        val black = asset("black.mp4")
+        val clips = TimelineEditing.relayout(listOf(clip("b", 0, 2_000_000)))
+        val sources = listOf(RenderSource(Uri.fromFile(black).toString(), isVideo = true, hasAudio = false, frameRate = 30f, durationUs = 2_000_000))
+        val style = com.cinemind.core.domain.captions.CaptionStyle(
+            projectId = "p",
+            mode = com.cinemind.core.domain.captions.CaptionMode.SENTENCE.name,
+            animation = com.cinemind.core.domain.captions.CaptionAnimation.NONE.name,
+            karaoke = false,
+            backgroundColor = 0xFFFFFFFF.toInt(),
+            backgroundOpacity = 1f,
+            positionY = 0.5f,
+            size = 0.08f,
+        )
+        val caption = com.cinemind.core.domain.captions.Caption(
+            projectId = "p", startUs = 200_000, endUs = 1_000_000, text = "Bhai, yeh jagah sach mein bahut beautiful hai!",
+        )
+        val out = File(context.cacheDir, "e2e-captions.mp4").apply { delete() }
+        val progressScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+        withContext(Dispatchers.Main) {
+            val renderer = TimelineRenderer(context)
+            val composition = renderer.buildComposition(
+                clips.zip(sources), OutputSize(720, 1280), fps = 30,
+                captions = RenderCaptions(listOf(caption), style),
+            )
+            renderer.render(composition, out, videoBitrateBps = 4_000_000, progressScope = progressScope)
+        }
+        progressScope.cancel()
+
+        val r = MediaMetadataRetriever()
+        try {
+            r.setDataSource(out.absolutePath)
+            val during = r.getFrameAtTime(600_000, MediaMetadataRetriever.OPTION_CLOSEST)!!
+            saveForReview(during, "export_caption_frame")
+            val band = bandLuma(during, 0.42f, 0.58f)
+            val top = bandLuma(during, 0.05f, 0.2f)
+            val after = bandLuma(r.getFrameAtTime(1_500_000, MediaMetadataRetriever.OPTION_CLOSEST)!!, 0.42f, 0.58f)
+            val before = bandLuma(r.getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST)!!, 0.42f, 0.58f)
+            assertTrue("caption box visible in its band ($band)", band > 0.25f)
+            assertTrue("nothing drawn outside the caption ($top)", top < 0.06f)
+            assertTrue("caption gone after its end ($after)", after < 0.06f)
+            assertTrue("caption not shown before its start ($before)", before < 0.06f)
+        } finally {
+            r.release()
+        }
+    }
+
+    /** Mean luma (0..1) of the horizontal band between [y0] and [y1] (fractions of the height). */
+    private fun bandLuma(raw: Bitmap, y0: Float, y1: Float): Float {
+        // Media3 may store portrait as landscape + rotation flag; measure the upright picture.
+        val frame = if (raw.width > raw.height) {
+            Bitmap.createBitmap(raw, 0, 0, raw.width, raw.height, android.graphics.Matrix().apply { postRotate(90f) }, false)
+        } else {
+            raw
+        }
+        val small = Bitmap.createScaledBitmap(frame, 72, 128, true)
+        val from = (small.height * y0).toInt()
+        val to = (small.height * y1).toInt()
+        val px = IntArray(small.width * (to - from))
+        small.getPixels(px, 0, small.width, 0, from, small.width, to - from)
+        val mean = px.map { c -> (299 * ((c shr 16) and 0xFF) + 587 * ((c shr 8) and 0xFF) + 114 * (c and 0xFF)) / 1000 }.average()
+        return (mean / 255.0).toFloat()
+    }
+
+    /** Saved next to the screenshots so a person can look at the rendered caption. */
+    private fun saveForReview(bitmap: Bitmap, name: String) {
+        val dir = androidx.test.platform.app.InstrumentationRegistry.getArguments().getString("additionalTestOutputDir")
+            ?.let { File(it) } ?: context.getExternalFilesDir(null) ?: return
+        runCatching {
+            dir.mkdirs()
+            File(dir, "$name.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        }
+    }
+
     private fun luma(r: MediaMetadataRetriever, timeUs: Long): Float {
         val frame: Bitmap = r.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST)
             ?: error("no frame at $timeUs")

@@ -88,6 +88,7 @@ dependencies {
     implementation(project(":feature:ai:llm"))
     implementation(project(":feature:export"))
     implementation(project(":feature:settings"))
+    implementation(project(":feature:captions"))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)

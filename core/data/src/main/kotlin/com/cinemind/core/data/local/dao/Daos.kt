@@ -146,3 +146,34 @@ interface EditBriefDao {
     @Query("SELECT * FROM edit_briefs WHERE projectId = :projectId")
     fun observe(projectId: String): Flow<EditBrief?>
 }
+
+@Dao
+interface CaptionDao {
+    @Query("SELECT * FROM captions WHERE projectId = :projectId ORDER BY startUs")
+    fun observe(projectId: String): Flow<List<com.cinemind.core.domain.captions.Caption>>
+
+    @Query("SELECT * FROM captions WHERE projectId = :projectId ORDER BY startUs")
+    suspend fun get(projectId: String): List<com.cinemind.core.domain.captions.Caption>
+
+    @Query("DELETE FROM captions WHERE projectId = :projectId")
+    suspend fun deleteForProject(projectId: String)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAll(captions: List<com.cinemind.core.domain.captions.Caption>)
+
+    /** Replaces the whole caption layer in one transaction. */
+    @androidx.room.Transaction
+    suspend fun replaceAll(projectId: String, captions: List<com.cinemind.core.domain.captions.Caption>) {
+        deleteForProject(projectId)
+        insertAll(captions.map { it.copy(projectId = projectId) })
+    }
+
+    @Upsert
+    suspend fun upsertStyle(style: com.cinemind.core.domain.captions.CaptionStyle)
+
+    @Query("SELECT * FROM caption_styles WHERE projectId = :projectId")
+    fun observeStyle(projectId: String): Flow<com.cinemind.core.domain.captions.CaptionStyle?>
+
+    @Query("SELECT * FROM caption_styles WHERE projectId = :projectId")
+    suspend fun getStyle(projectId: String): com.cinemind.core.domain.captions.CaptionStyle?
+}

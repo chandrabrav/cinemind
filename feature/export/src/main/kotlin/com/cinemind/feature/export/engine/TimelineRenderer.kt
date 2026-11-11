@@ -76,6 +76,7 @@ class TimelineRenderer(private val context: Context) {
         fps: Int,
         music: RenderMusic? = null,
         originalVolume: Float = 1f,
+        captions: RenderCaptions? = null,
     ): Composition {
         val fit = Presentation.createForWidthAndHeight(size.width, size.height, Presentation.LAYOUT_SCALE_TO_FIT)
         val animations = TransitionMath.animations(clips.map { it.first })
@@ -94,6 +95,8 @@ class TimelineRenderer(private val context: Context) {
                     add(TransitionMotion(clip.timelineInUs, lengthUs, anim))
                     add(TransitionBrightness(clip.timelineInUs, lengthUs, anim))
                 }
+                // Captions last: drawn on top of the picture and not moved/dimmed by transitions.
+                CaptionBitmapOverlay.effectFor(captions, size, clip.timelineInUs, clip.timelineOutUs)?.let { add(it) }
             }
             if (source.isVideo) {
                 val endMs = if (clip.sourceOutUs >= source.durationUs) C.TIME_END_OF_SOURCE else clip.sourceOutUs / 1_000

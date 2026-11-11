@@ -42,6 +42,10 @@ class EditorScreenshotTest {
     ).map { PreviewClip(it, asset = null) }
 
     private val music = MusicUi("Sunset Drive.mp3", 180_000_000, MusicSettings(assetId = "m"))
+    private val captions = listOf(
+        com.cinemind.core.domain.captions.Caption(id = "c1", projectId = "p", startUs = 500_000, endUs = 2_200_000, text = "Bhai, yeh jagah sach mein"),
+        com.cinemind.core.domain.captions.Caption(id = "c2", projectId = "p", startUs = 2_400_000, endUs = 4_600_000, text = "bahut beautiful hai!", uncertain = true),
+    )
     private val limits = ClipLimits(sourceDurationUs = 10_000_000, isStill = false)
 
     private fun editor(colors: CineMindColors) {
@@ -62,6 +66,7 @@ class EditorScreenshotTest {
                             onTrim = { _, _ -> },
                             onMusicTap = {},
                             modifier = Modifier.fillMaxWidth(),
+                            captions = captions,
                         )
                         ClipInspector(
                             item = clips[1],
@@ -87,7 +92,9 @@ class EditorScreenshotTest {
         compose.onNodeWithText("Sunset Drive.mp3").assertIsDisplayed()
         compose.onNodeWithContentDescription("Trim end handle").assertIsDisplayed()
         compose.onNodeWithContentDescription("Split at playhead").assertIsDisplayed()
-        compose.onNodeWithText("Export").assertIsDisplayed()
+        compose.onNodeWithText("Export").assertExists()
+        compose.onNodeWithText("Captions").assertExists()
+        compose.onNodeWithText("Bhai, yeh jagah sach mein").assertIsDisplayed()
     }
 
     @Test

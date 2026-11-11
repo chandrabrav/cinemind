@@ -12,6 +12,8 @@ data class ModelSpec(
     val license: String,
     val summary: String,
     val supportsImages: Boolean,
+    /** Accepts speech audio (Gemma 4 E2B/E4B have an audio encoder). Used for speech-to-text. */
+    val supportsAudio: Boolean = false,
 )
 
 /**
@@ -30,8 +32,9 @@ object ModelCatalog {
         sizeBytes = 2_588_147_712L,
         sha256 = "181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c",
         license = "Apache-2.0 (Google Gemma 4)",
-        summary = "Understands images and text. Fast on phone GPUs; about 2.6 GB.",
+        summary = "Understands images, speech and text. Fast on phone GPUs; about 2.6 GB.",
         supportsImages = true,
+        supportsAudio = true,
     )
 
     val GEMMA_4_E4B = ModelSpec(
@@ -44,6 +47,7 @@ object ModelCatalog {
         license = "Apache-2.0 (Google Gemma 4)",
         summary = "Better descriptions, slower and warmer; about 3.7 GB. Benchmark before relying on it.",
         supportsImages = true,
+        supportsAudio = true,
     )
 
     val ALL: List<ModelSpec> = listOf(GEMMA_4_E2B, GEMMA_4_E4B)

@@ -47,6 +47,9 @@ object DatabaseModule {
 
     @Provides
     fun provideEditBriefDao(database: AppDatabase): EditBriefDao = database.editBriefDao()
+
+    @Provides
+    fun provideCaptionDao(database: AppDatabase): com.cinemind.core.data.local.dao.CaptionDao = database.captionDao()
 }
 
 @Module
@@ -72,4 +75,8 @@ object RepositoryModule {
     @Provides
     fun provideEditBriefRepository(editBriefDao: EditBriefDao): EditBriefRepository =
         EditBriefRepositoryImpl(editBriefDao)
+
+    @Provides
+    fun provideCaptionRepository(dao: com.cinemind.core.data.local.dao.CaptionDao): com.cinemind.core.domain.repository.CaptionRepository =
+        com.cinemind.core.data.repository.CaptionRepositoryImpl(dao)
 }

@@ -30,6 +30,7 @@ include(":feature:ai:generation")
 include(":feature:ai:cloud")
 include(":feature:export")
 include(":feature:settings")
+include(":feature:captions")
 
 // Scaffolded but empty (build files only, no sources). Re-include each one when
 // it gets real code so CI stays green and fast:
