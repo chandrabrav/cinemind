@@ -6,6 +6,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -341,12 +345,19 @@ internal fun EditorToolsBar(
     onTransitions: () -> Unit,
     onMusic: () -> Unit,
     onExport: () -> Unit,
+    onCaptions: () -> Unit = {},
 ) {
     val c = CineMind.colors
     val shape = RoundedCornerShape(Radius.xl)
-    Row(
-        horizontalArrangement = Arrangement.SpaceEvenly,
-        verticalAlignment = Alignment.CenterVertically,
+    val tools = listOf(
+        Tool(Icons.Default.AutoAwesome, "Smart edit", hasClips, onSmartEdit),
+        Tool(Icons.Default.AddPhotoAlternate, "Add", true, onAddMedia),
+        Tool(Icons.Default.Animation, "Transitions", hasClips, onTransitions),
+        Tool(Icons.Default.MusicNote, "Music", hasClips, onMusic),
+        Tool(Icons.Default.ClosedCaption, "Captions", hasClips, onCaptions),
+        Tool(Icons.Default.FileUpload, "Export", hasClips, onExport),
+    )
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = Spacing.s, vertical = Spacing.s)
@@ -355,10 +366,22 @@ internal fun EditorToolsBar(
             .border(1.dp, c.hairline, shape)
             .padding(vertical = Spacing.xs),
     ) {
-        ToolButton(Icons.Default.AutoAwesome, "Smart edit", onClick = onSmartEdit, enabled = hasClips, minWidth = 0.dp, modifier = Modifier.weight(1f))
-        ToolButton(Icons.Default.AddPhotoAlternate, "Add", onClick = onAddMedia, minWidth = 0.dp, modifier = Modifier.weight(1f))
-        ToolButton(Icons.Default.Animation, "Transitions", onClick = onTransitions, enabled = hasClips, minWidth = 0.dp, modifier = Modifier.weight(1f))
-        ToolButton(Icons.Default.MusicNote, "Music", onClick = onMusic, enabled = hasClips, minWidth = 0.dp, modifier = Modifier.weight(1f))
-        ToolButton(Icons.Default.FileUpload, "Export", onClick = onExport, enabled = hasClips, minWidth = 0.dp, modifier = Modifier.weight(1f))
+        // Equal slots when they fit (≥ 64 dp each, so labels aren't cut); otherwise scroll.
+        val fits = maxWidth / tools.size >= 64.dp
+        Row(
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = if (fits) Modifier.fillMaxWidth() else Modifier.horizontalScroll(rememberScrollState()),
+        ) {
+            tools.forEach { t ->
+                ToolButton(
+                    t.icon, t.label, onClick = t.onClick, enabled = t.enabled,
+                    minWidth = if (fits) 0.dp else 72.dp,
+                    modifier = if (fits) Modifier.weight(1f) else Modifier,
+                )
+            }
+        }
     }
 }
+
+private class Tool(val icon: androidx.compose.ui.graphics.vector.ImageVector, val label: String, val enabled: Boolean, val onClick: () -> Unit)

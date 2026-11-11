@@ -114,7 +114,15 @@ jobs:
           ffmpeg -nostdin -loglevel error -y -f lavfi -i testsrc2=size=1280x720:rate=60 -t 2 -c:v libx264 -pix_fmt yuv420p "$d/landscape_silent.mp4"
           ffmpeg -nostdin -loglevel error -y -f lavfi -i testsrc2=size=1200x900 -frames:v 1 "$d/photo.jpg"
           ffmpeg -nostdin -loglevel error -y -f lavfi -i sine=frequency=660:sample_rate=44100 -t 3 -c:a aac "$d/music.m4a"
+          ffmpeg -nostdin -loglevel error -y -f lavfi -i color=c=black:size=720x1280:rate=30 -t 2 -c:v libx264 -pix_fmt yuv420p "$d/black.mp4"
           ls -la "$d"
+          # Speech-detection test: three 1.2 s "voice" bursts (300 Hz, wobbling) 2 s apart, in a video.
+          s=feature/captions/src/androidTest/assets
+          mkdir -p "$s"
+          ffmpeg -nostdin -loglevel error -y -f lavfi -i color=c=gray:size=320x240:rate=30 \
+            -f lavfi -i "aevalsrc=0.5*sin(2*PI*(300+40*sin(2*PI*3*t))*t)*between(mod(t\,2)\,0\,1.2):s=48000:d=6" \
+            -t 6 -c:v libx264 -pix_fmt yuv420p -c:a aac -ac 2 "$s/bursts.mp4"
+          ls -la "$s"
 
       - name: Run export test on emulator
         timeout-minutes: 30
@@ -127,14 +135,16 @@ jobs:
           disk-size: 3000M
           emulator-options: -no-window -no-snapshot-save -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           disable-animations: true
-          script: gradle --continue :feature:export:connectedDebugAndroidTest :core:ui:connectedDebugAndroidTest :feature:editor:timeline:connectedDebugAndroidTest --stacktrace
+          script: gradle --continue :feature:export:connectedDebugAndroidTest :feature:captions:connectedDebugAndroidTest :core:ui:connectedDebugAndroidTest :feature:editor:timeline:connectedDebugAndroidTest --stacktrace
 
       - name: Upload instrumented test reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: export-e2e-reports-${{ github.run_number }}
-          path: feature/export/build/reports/androidTests/
+          path: |
+            feature/export/build/reports/androidTests/
+            feature/captions/build/reports/androidTests/
           retention-days: 14
           if-no-files-found: ignore
 

@@ -28,8 +28,10 @@ import com.cinemind.core.domain.model.Track
         Clip::class,
         MediaAsset::class,
         EditBrief::class,
+        com.cinemind.core.domain.captions.Caption::class,
+        com.cinemind.core.domain.captions.CaptionStyle::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -38,6 +40,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun clipDao(): ClipDao
     abstract fun mediaAssetDao(): MediaAssetDao
     abstract fun editBriefDao(): EditBriefDao
+    abstract fun captionDao(): com.cinemind.core.data.local.dao.CaptionDao
 
     companion object {
         @Volatile private var instance: AppDatabase? = null
@@ -86,4 +89,28 @@ val MIGRATION_3_4 = object : Migration(3, 4) {
     }
 }
 
-val ALL_MIGRATIONS: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+/** v4 → v5: caption layer (one row per caption) and the project's caption style. */
+val MIGRATION_4_5 = object : Migration(4, 5) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `captions` (" +
+                "`id` TEXT NOT NULL, `projectId` TEXT NOT NULL, `startUs` INTEGER NOT NULL, `endUs` INTEGER NOT NULL, " +
+                "`text` TEXT NOT NULL, `wordTimes` TEXT NOT NULL, `language` TEXT NOT NULL, `script` TEXT NOT NULL, " +
+                "`source` TEXT NOT NULL, `uncertain` INTEGER NOT NULL, PRIMARY KEY(`id`), " +
+                "FOREIGN KEY(`projectId`) REFERENCES `projects`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_captions_projectId` ON `captions` (`projectId`)")
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `caption_styles` (" +
+                "`projectId` TEXT NOT NULL, `presetId` TEXT NOT NULL, `font` TEXT NOT NULL, `size` REAL NOT NULL, " +
+                "`weight` INTEGER NOT NULL, `uppercase` INTEGER NOT NULL, `textColor` INTEGER NOT NULL, " +
+                "`highlightColor` INTEGER NOT NULL, `outline` REAL NOT NULL, `outlineColor` INTEGER NOT NULL, " +
+                "`shadow` INTEGER NOT NULL, `backgroundColor` INTEGER NOT NULL, `backgroundOpacity` REAL NOT NULL, " +
+                "`positionY` REAL NOT NULL, `align` TEXT NOT NULL, `mode` TEXT NOT NULL, `karaoke` INTEGER NOT NULL, " +
+                "`animation` TEXT NOT NULL, PRIMARY KEY(`projectId`), " +
+                "FOREIGN KEY(`projectId`) REFERENCES `projects`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        )
+    }
+}
+
+val ALL_MIGRATIONS: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)

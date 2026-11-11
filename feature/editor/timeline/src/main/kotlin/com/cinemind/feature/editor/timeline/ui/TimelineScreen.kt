@@ -77,6 +77,10 @@ import com.cinemind.core.ui.theme.Radius
 import com.cinemind.core.ui.theme.Spacing
 import com.cinemind.core.ui.theme.formatTimecode
 import com.cinemind.feature.editor.timeline.R
+import com.cinemind.feature.captions.speech.SpeechSource
+import com.cinemind.feature.captions.ui.CaptionOverlay
+import com.cinemind.feature.captions.ui.CaptionsSheet
+import com.cinemind.feature.captions.ui.CaptionsViewModel
 import com.cinemind.feature.editor.timeline.preview.PreviewClip
 import com.cinemind.feature.editor.timeline.preview.PreviewState
 
@@ -85,9 +89,16 @@ fun TimelineScreen(
     projectId: String,
     onOpenBrief: () -> Unit,
     onExport: () -> Unit,
+    onOpenAiModels: () -> Unit = {},
     viewModel: TimelineViewModel = hiltViewModel(),
+    captionsViewModel: CaptionsViewModel = hiltViewModel(),
 ) {
-    LaunchedEffect(projectId) { viewModel.loadProject(projectId) }
+    LaunchedEffect(projectId) {
+        viewModel.loadProject(projectId)
+        captionsViewModel.load(projectId)
+    }
+    val captionsUi by captionsViewModel.ui.collectAsStateWithLifecycle()
+    var showCaptions by remember { mutableStateOf(false) }
     val project by viewModel.project.collectAsStateWithLifecycle()
     val editor by viewModel.editor.collectAsStateWithLifecycle()
     val clips = editor.clips
@@ -130,6 +141,7 @@ fun TimelineScreen(
             canRedo = editor.canRedo,
             onUndo = viewModel::undo,
             onRedo = viewModel::redo,
+            onExport = onExport,
         )
 
         PreviewStage(
@@ -141,6 +153,9 @@ fun TimelineScreen(
             fps = fps,
             enabled = clips.isNotEmpty(),
             onTogglePlay = viewModel::togglePlayPause,
+            captionLayer = {
+                CaptionOverlay(captionsUi.captions, captionsUi.style, preview.positionUs, Modifier.fillMaxSize())
+            },
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
@@ -167,6 +182,8 @@ fun TimelineScreen(
             onTrim = viewModel::trimSelected,
             onMusicTap = { showMusic = true },
             modifier = Modifier.fillMaxWidth(),
+            captions = captionsUi.captions,
+            onCaptionsTap = { showCaptions = true },
         )
 
         AnimatedVisibility(
@@ -199,6 +216,32 @@ fun TimelineScreen(
             onTransitions = { showTransitions = true },
             onMusic = { showMusic = true },
             onExport = onExport,
+            onCaptions = { showCaptions = true },
+        )
+    }
+
+    if (showCaptions) {
+        LaunchedEffect(Unit) { captionsViewModel.refreshModelState() }
+        val sources = remember(clips) {
+            clips.mapNotNull { pc ->
+                val a = pc.asset ?: return@mapNotNull null
+                if (!a.isVideo || !a.hasAudio) return@mapNotNull null
+                SpeechSource(a.uri, pc.clip.sourceInUs, pc.clip.sourceOutUs, pc.clip.timelineInUs)
+            }
+        }
+        CaptionsSheet(
+            state = captionsUi,
+            sources = sources,
+            positionUs = preview.positionUs,
+            totalUs = totalUs,
+            frameRatio = project?.let { it.resolutionWidth.toFloat() / it.resolutionHeight } ?: (9f / 16f),
+            onSeek = viewModel::scrubFinished,
+            viewModel = captionsViewModel,
+            onOpenAiModels = {
+                showCaptions = false
+                onOpenAiModels()
+            },
+            onDismiss = { showCaptions = false },
         )
     }
 
@@ -231,6 +274,7 @@ private fun EditorHeader(
     canRedo: Boolean,
     onUndo: () -> Unit,
     onRedo: () -> Unit,
+    onExport: (() -> Unit)? = null,
 ) {
     val c = CineMind.colors
     Row(
@@ -261,6 +305,10 @@ private fun EditorHeader(
         IconButton(onClick = hapticClick(onClick = onRedo), enabled = canRedo) {
             Icon(Icons.AutoMirrored.Filled.Redo, contentDescription = "Redo", tint = if (canRedo) c.textPrimary else c.textTertiary.copy(alpha = 0.4f))
         }
+        // Always reachable, even when the tools bar scrolls on narrow phones.
+        if (onExport != null && clipCount > 0) {
+            com.cinemind.core.ui.components.Pill(text = "Export", selected = true, onClick = onExport)
+        }
     }
 }
 
@@ -276,6 +324,7 @@ private fun PreviewStage(
     enabled: Boolean,
     onTogglePlay: () -> Unit,
     modifier: Modifier = Modifier,
+    captionLayer: @Composable () -> Unit = {},
 ) {
     val c = CineMind.colors
     val ratio = project?.let { it.resolutionWidth.toFloat() / it.resolutionHeight } ?: (9f / 16f)
@@ -332,6 +381,8 @@ private fun PreviewStage(
             if (look.brightness < 1f) {
                 Box(Modifier.fillMaxSize().background(c.stage.copy(alpha = (1f - look.brightness).coerceIn(0f, 1f))))
             }
+            // Captions sit above the picture and its transitions, as in the export.
+            captionLayer()
         }
 
         if (!enabled) {

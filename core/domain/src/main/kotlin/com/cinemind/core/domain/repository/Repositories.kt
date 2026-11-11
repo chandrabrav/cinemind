@@ -85,3 +85,17 @@ interface EditBriefRepository {
     fun observeBrief(projectId: String): Flow<EditBrief>
     suspend fun saveBrief(brief: EditBrief)
 }
+
+/** The project's caption layer and its look. */
+interface CaptionRepository {
+    fun observeCaptions(projectId: String): Flow<List<com.cinemind.core.domain.captions.Caption>>
+    suspend fun getCaptions(projectId: String): List<com.cinemind.core.domain.captions.Caption>
+
+    /** Replaces every caption of the project (one transaction, so autosave never half-writes). */
+    suspend fun saveCaptions(projectId: String, captions: List<com.cinemind.core.domain.captions.Caption>)
+
+    /** The saved style, or the default preset. */
+    fun observeStyle(projectId: String): Flow<com.cinemind.core.domain.captions.CaptionStyle>
+    suspend fun getStyle(projectId: String): com.cinemind.core.domain.captions.CaptionStyle
+    suspend fun saveStyle(style: com.cinemind.core.domain.captions.CaptionStyle)
+}
