@@ -37,6 +37,8 @@ dependencies {
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.hilt.navigation.compose)
     implementation(libs.coil.compose)
+    implementation(libs.media3.exoplayer)
+    implementation(libs.media3.ui)
     implementation(platform(libs.compose.bom))
     debugImplementation(libs.compose.ui.tooling)
     implementation(libs.hilt.android)
