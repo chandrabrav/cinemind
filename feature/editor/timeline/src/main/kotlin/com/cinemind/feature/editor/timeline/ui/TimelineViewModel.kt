@@ -67,6 +67,9 @@ data class EditorState(
     val voiceClips: List<PreviewClip> = emptyList(),
     val selectedVoiceId: String? = null,
     val voiceSettings: VoiceoverSettings = VoiceoverSettings(),
+    /** Preview listening volume / mute (not part of the project). */
+    val previewVolume: Float = 1f,
+    val previewMuted: Boolean = false,
 )
 
 /** The voiceover recorder as shown in its sheet. */
@@ -176,6 +179,17 @@ class TimelineViewModel @Inject constructor(
     fun pause() {
         preview.pause()
         refreshPreview()
+    }
+
+    fun togglePreviewMute() {
+        val muted = !_editor.value.previewMuted
+        _editor.value = _editor.value.copy(previewMuted = muted)
+        preview.setListeningVolume(if (muted) 0f else _editor.value.previewVolume)
+    }
+
+    fun setPreviewVolume(volume: Float) {
+        _editor.value = _editor.value.copy(previewVolume = volume, previewMuted = volume <= 0.001f)
+        preview.setListeningVolume(volume)
     }
 
     /** The editor left the screen (e.g. export opened): free decoders so export has them. */

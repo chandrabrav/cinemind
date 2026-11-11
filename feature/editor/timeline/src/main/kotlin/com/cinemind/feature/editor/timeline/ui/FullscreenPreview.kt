@@ -158,7 +158,7 @@ private fun FullscreenContent(
                     (LayoutInflater.from(ctx).inflate(R.layout.preview_player_view, null) as PlayerView).apply { this.player = player }
                 },
                 update = { it.player = player },
-                onRelease = { it.player = null },
+                onRelease = { view -> runCatching { view.player = null } },
                 modifier = Modifier.fillMaxSize(),
             )
             captionLayer()

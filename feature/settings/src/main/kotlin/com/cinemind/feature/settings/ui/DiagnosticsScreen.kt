@@ -65,6 +65,10 @@ fun DiagnosticsScreen() {
             )
             Spacer(Modifier.width(Spacing.s))
             TextButton(onClick = { report = Diagnostics.report(context) }) { Text("Refresh", color = c.accent) }
+            TextButton(onClick = {
+                Diagnostics.clear(context)
+                report = Diagnostics.report(context)
+            }) { Text("Clear", color = c.textSecondary) }
         }
         Text(
             "Contains the app version, phone model, memory, how the app last closed (from Android), the step an export reached and " +

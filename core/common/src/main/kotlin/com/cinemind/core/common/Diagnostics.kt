@@ -93,6 +93,11 @@ object Diagnostics {
 
     // ---------------------------------------------------------------- report
 
+    /** Deletes recorded crashes and job journals (after they were sent), so the next report is clean. */
+    fun clear(context: Context) {
+        dir(context).listFiles()?.forEach { it.delete() }
+    }
+
     /** Why the app's process ended recently, from Android itself (API 30+). */
     fun exitReasons(context: Context, max: Int = 5): List<String> = runCatching {
         val am = context.getSystemService(ActivityManager::class.java) ?: return emptyList()
@@ -123,7 +128,8 @@ object Diagnostics {
         appendLine()
         val crashes = dir(context).listFiles { f -> f.name.startsWith("crash-") }?.sortedByDescending { it.name }.orEmpty()
         appendLine("Recorded crashes: ${crashes.size}")
-        crashes.take(2).forEach { appendLine(); appendLine(it.readText().take(6_000)) }
+        // Every recorded crash (up to 5), newest first; long traces are shortened.
+        crashes.forEach { appendLine(); appendLine(it.readText().take(3_500)) }
     }
 
     private fun appInfo(context: Context): String {
