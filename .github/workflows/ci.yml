@@ -13,7 +13,7 @@ concurrency:
 
 env:
   # No Gradle wrapper is committed yet; CI provisions this exact Gradle version instead.
-  GRADLE_VERSION: "8.11.1"
+  GRADLE_VERSION: "8.14.3"
 
 jobs:
   build:

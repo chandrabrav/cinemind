@@ -16,12 +16,15 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = libs.versions.jvmTarget.get()
-    }
 }
 
 dependencies {
     implementation(project(":core:domain"))
     testImplementation(libs.junit)
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+    }
 }

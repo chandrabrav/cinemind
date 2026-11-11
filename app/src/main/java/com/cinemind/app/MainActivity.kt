@@ -7,6 +7,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -25,6 +26,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.cinemind.core.ui.theme.CineMindTheme
 import com.cinemind.feature.ai.generation.ui.EditBriefScreen
+import com.cinemind.feature.ai.llm.ui.AiModelsScreen
 import com.cinemind.feature.editor.timeline.ui.TimelineScreen
 import com.cinemind.feature.export.ui.ExportScreen
 import com.cinemind.feature.media.ui.MediaLibraryScreen
@@ -37,6 +39,7 @@ private object Routes {
     const val EDITOR = "editor/{projectId}"
     const val BRIEF = "brief/{projectId}"
     const val EXPORT = "export/{projectId}"
+    const val AI_MODELS = "ai_models"
     fun editor(projectId: String) = "editor/$projectId"
     fun brief(projectId: String) = "brief/$projectId"
     fun export(projectId: String) = "export/$projectId"
@@ -59,6 +62,7 @@ class MainActivity : ComponentActivity() {
                     Routes.EDITOR -> "Editor"
                     Routes.BRIEF -> "Smart edit"
                     Routes.EXPORT -> "Export"
+                    Routes.AI_MODELS -> "On-device AI"
                     else -> "CineMind AI"
                 }
 
@@ -70,6 +74,13 @@ class MainActivity : ComponentActivity() {
                                 if (route != null && route != Routes.HOME) {
                                     IconButton(onClick = { navController.navigateUp() }) {
                                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                                    }
+                                }
+                            },
+                            actions = {
+                                if (route == Routes.HOME) {
+                                    IconButton(onClick = { navController.navigate(Routes.AI_MODELS) }) {
+                                        Icon(Icons.Default.AutoAwesome, contentDescription = "On-device AI")
                                     }
                                 }
                             },
@@ -127,6 +138,7 @@ fun CineMindNavHost(
                 onSmartEditCreated = { newId -> navController.navigate(Routes.editor(newId)) { popUpTo(Routes.HOME) } },
             )
         }
+        composable(Routes.AI_MODELS) { AiModelsScreen() }
         composable(Routes.EXPORT) { backStackEntry ->
             ExportScreen(projectId = backStackEntry.arguments?.getString("projectId").orEmpty())
         }

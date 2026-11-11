@@ -20,9 +20,6 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = libs.versions.jvmTarget.get()
-    }
 
     buildFeatures {
         compose = true
@@ -47,7 +44,14 @@ dependencies {
     debugImplementation(libs.compose.ui.tooling)
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
+    ksp(libs.kotlin.metadata.jvm)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.androidx.test.ext.junit)
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+    }
 }

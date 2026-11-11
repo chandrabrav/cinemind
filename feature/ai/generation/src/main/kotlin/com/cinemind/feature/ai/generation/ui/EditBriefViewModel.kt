@@ -79,6 +79,10 @@ class EditBriefViewModel @Inject constructor(
                     _smartEdit.value = when (p) {
                         is SmartEditProgress.Analyzing ->
                             SmartEditUi.Working("Analysing clip ${p.index} of ${p.count}…", (p.index - 1f) / p.count)
+                        SmartEditProgress.LoadingModel -> SmartEditUi.Working("Loading the on-device AI model…", null)
+                        SmartEditProgress.ReadingBrief -> SmartEditUi.Working("AI is reading your brief…", null)
+                        is SmartEditProgress.Looking ->
+                            SmartEditUi.Working("AI is looking at moment ${p.index} of ${p.count}…", (p.index - 1f) / p.count)
                         SmartEditProgress.Planning -> SmartEditUi.Working("Choosing shots and building the edit…", 1f)
                     }
                 }
