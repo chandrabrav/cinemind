@@ -9,104 +9,114 @@ import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.ReadOnlyComposable
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.util.Locale
 
-// Color Palette
-private val DarkColorPalette = darkColorScheme(
-    primary = Color(0xFFFFD600),
-    onPrimary = Color(0xFF0D0D0D),
-    primaryContainer = Color(0xFF1A1A1A),
-    secondary = Color(0xFF00E5FF),
-    secondaryContainer = Color(0xFF262626),
-    tertiary = Color(0xFFFF3D00),
-    surface = Color(0xFF0D0D0D),
-    surfaceContainer = Color(0xFF1A1A1A),
-    surfaceContainerHigh = Color(0xFF262626),
-    surfaceContainerHighest = Color(0xFF333333),
-    background = Color(0xFF0D0D0D),
-    onBackground = Color(0xFFFFFFFF),
-    surfaceVariant = Color(0xFF1A1A1A),
-    onSurface = Color(0xFFFFFFFF),
-    onSurfaceVariant = Color(0xFFB3B3B3),
-    inverseSurface = Color(0xFFB3B3B3),
-    inverseOnSurface = Color(0xFF0D0D0D),
-    inversePrimary = Color(0xFF0D0D0D),
-    error = Color(0xFFFF3D00),
-    errorContainer = Color(0xFF1A0D0D),
-    outline = Color(0xFF404040),
-    outlineVariant = Color(0xFF2A2A2A),
-    scrim = Color(0xFF000000),
-)
-
-// Provisional light palette; the full design system (Stage 1) will refine both themes.
-private val LightColorPalette = lightColorScheme(
-    primary = Color(0xFF8A6D00),
-    onPrimary = Color(0xFFFFFFFF),
-    secondary = Color(0xFF006874),
-    tertiary = Color(0xFFB02F00),
-    surface = Color(0xFFFAFAFA),
-    background = Color(0xFFFAFAFA),
-    onSurface = Color(0xFF111111),
-    onSurfaceVariant = Color(0xFF4D4D4D),
-    error = Color(0xFFB3261E),
-)
-
-// Track Colors
-val TrackVideoColor = Color(0xFF1E3A5F)
-val TrackAudioColor = Color(0xFF5F1E3A)
-val TrackEffectColor = Color(0xFF3A5F1E)
-val TrackOverlayColor = Color(0xFF5F3A1E)
-
-@Composable
-@ReadOnlyComposable
-fun CineMindColorScheme(): ColorScheme = MaterialTheme.colorScheme
-
+/**
+ * App-wide theme. [mode] comes from the persisted appearance setting; SYSTEM follows Android.
+ * Provides Material 3 colours derived from [CineMindColors] plus the tokens themselves.
+ */
 @Composable
 fun CineMindTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
+    mode: ThemeMode = ThemeMode.SYSTEM,
     content: @Composable () -> Unit,
 ) {
-    MaterialTheme(
-        colorScheme = if (darkTheme) DarkColorPalette else LightColorPalette,
-        typography = CineMindTypography,
-        shapes = CineMindShapes,
-        content = content,
+    val colors = if (mode.isDark(isSystemInDarkTheme())) DarkCineMindColors else LightCineMindColors
+    CineMindTheme(colors = colors, content = content)
+}
+
+/** Theme with explicit tokens (used by the Settings preview to show both themes side by side). */
+@Composable
+fun CineMindTheme(colors: CineMindColors, content: @Composable () -> Unit) {
+    CompositionLocalProvider(LocalCineMindColors provides colors) {
+        MaterialTheme(
+            colorScheme = colors.toColorScheme(),
+            typography = CineMindTypography,
+            shapes = CineMindShapes,
+            content = content,
+        )
+    }
+}
+
+/** Shorthand: `CineMind.colors.textSecondary`. */
+object CineMind {
+    val colors: CineMindColors
+        @Composable @ReadOnlyComposable get() = LocalCineMindColors.current
+}
+
+fun CineMindColors.toColorScheme(): ColorScheme {
+    val base = if (isDark) darkColorScheme() else lightColorScheme()
+    return base.copy(
+        primary = accent,
+        onPrimary = onAccent,
+        primaryContainer = accentContainer,
+        onPrimaryContainer = onAccentContainer,
+        secondary = highlight,
+        onSecondary = if (isDark) background else surface,
+        secondaryContainer = accentContainer,
+        onSecondaryContainer = onAccentContainer,
+        tertiary = success,
+        background = background,
+        onBackground = textPrimary,
+        surface = surface,
+        onSurface = textPrimary,
+        surfaceVariant = surfaceSunken,
+        onSurfaceVariant = textSecondary,
+        surfaceContainerLowest = background,
+        surfaceContainerLow = surface,
+        surfaceContainer = surface,
+        surfaceContainerHigh = surfaceRaised,
+        surfaceContainerHighest = surfaceSunken,
+        surfaceTint = accent,
+        inverseSurface = textPrimary,
+        inverseOnSurface = background,
+        inversePrimary = accentContainer,
+        error = danger,
+        onError = if (isDark) background else surface,
+        outline = textTertiary,
+        outlineVariant = hairline,
+        scrim = scrim,
     )
 }
 
-private fun style(size: Int, weight: FontWeight) =
-    TextStyle(fontFamily = FontFamily.Default, fontSize = size.sp, fontWeight = weight)
+private fun style(size: Float, weight: FontWeight, line: Float, tracking: Float = 0f) = TextStyle(
+    fontFamily = FontFamily.Default,
+    fontSize = size.sp,
+    fontWeight = weight,
+    lineHeight = line.sp,
+    letterSpacing = tracking.sp,
+)
 
+/** System font (Vivo's own UI font on the target phone) with a calm, clear hierarchy. */
 val CineMindTypography = Typography(
-    displayLarge = style(57, FontWeight.W400),
-    displayMedium = style(45, FontWeight.W400),
-    displaySmall = style(36, FontWeight.W400),
-    headlineLarge = style(32, FontWeight.W400),
-    headlineMedium = style(28, FontWeight.W400),
-    headlineSmall = style(24, FontWeight.W400),
-    titleLarge = style(22, FontWeight.W500),
-    titleMedium = style(16, FontWeight.W500),
-    titleSmall = style(14, FontWeight.W500),
-    bodyLarge = style(16, FontWeight.W400),
-    bodyMedium = style(14, FontWeight.W400),
-    bodySmall = style(12, FontWeight.W400),
-    labelLarge = style(14, FontWeight.W500),
-    labelMedium = style(12, FontWeight.W500),
-    labelSmall = style(11, FontWeight.W500),
+    displayLarge = style(48f, FontWeight.SemiBold, 54f, -1f),
+    displayMedium = style(40f, FontWeight.SemiBold, 46f, -0.8f),
+    displaySmall = style(34f, FontWeight.SemiBold, 40f, -0.6f),
+    headlineLarge = style(30f, FontWeight.SemiBold, 36f, -0.4f),
+    headlineMedium = style(26f, FontWeight.SemiBold, 32f, -0.3f),
+    headlineSmall = style(22f, FontWeight.SemiBold, 28f, -0.2f),
+    titleLarge = style(20f, FontWeight.SemiBold, 26f),
+    titleMedium = style(16f, FontWeight.SemiBold, 22f),
+    titleSmall = style(14f, FontWeight.Medium, 20f),
+    bodyLarge = style(16f, FontWeight.Normal, 23f),
+    bodyMedium = style(14f, FontWeight.Normal, 20f),
+    bodySmall = style(12.5f, FontWeight.Normal, 17f),
+    labelLarge = style(14f, FontWeight.Medium, 18f),
+    labelMedium = style(12f, FontWeight.Medium, 16f),
+    labelSmall = style(11f, FontWeight.Medium, 14f, 0.2f),
 )
 
 val CineMindShapes = Shapes(
-    small = RoundedCornerShape(4.dp),
-    medium = RoundedCornerShape(8.dp),
-    large = RoundedCornerShape(16.dp),
-    extraLarge = RoundedCornerShape(28.dp),
+    extraSmall = RoundedCornerShape(Radius.xs),
+    small = RoundedCornerShape(Radius.s),
+    medium = RoundedCornerShape(Radius.m),
+    large = RoundedCornerShape(Radius.l),
+    extraLarge = RoundedCornerShape(Radius.xl),
 )
 
 /**

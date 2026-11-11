@@ -63,7 +63,7 @@ import com.cinemind.core.domain.editing.FrameLook
 import com.cinemind.core.domain.editing.TransitionMath
 import com.cinemind.core.domain.model.Project
 import com.cinemind.feature.editor.timeline.R
-import com.cinemind.core.ui.theme.TrackVideoColor
+import com.cinemind.core.ui.theme.CineMind
 import com.cinemind.core.ui.theme.formatTimecode
 import com.cinemind.feature.editor.timeline.preview.PreviewClip
 import com.cinemind.feature.editor.timeline.preview.PreviewState
@@ -432,7 +432,7 @@ private fun ClipTile(
             .width(96.dp)
             .height(64.dp)
             .clip(shape)
-            .background(TrackVideoColor)
+            .background(CineMind.colors.trackVideo)
             .then(outline)
             .clickable(onClick = onClick),
     ) {
