@@ -43,14 +43,26 @@ object SmartEditPlanner {
     const val MIN_SHOT_US = 600_000L
     private const val PHOTO_MAX_US = 3_000_000L
     private const val REPEAT_PENALTY = 0.85
+    private const val SCENE_REPEAT_PENALTY = 0.7
     private const val WEAK = 0.30f
     private const val WEAK_STRICT = 0.45f
 
-    fun plan(analyses: List<AssetAnalysis>, intent: EditIntent): SmartEditPlan {
+    /**
+     * @param insights optional on-device model descriptions per source; when present they weight
+     *   each window by the model's quality/interest score and discourage repeating the same scene.
+     */
+    fun plan(
+        analyses: List<AssetAnalysis>,
+        intent: EditIntent,
+        insights: Map<String, List<TimedInsight>> = emptyMap(),
+    ): SmartEditPlan {
         require(analyses.isNotEmpty()) { "Nothing to edit" }
 
         val sharpRef = MomentScoring.sharpnessReference(analyses.flatMap { a -> a.samples.map { it.sharpness } })
-        val candidates = analyses.flatMap { candidatesFor(it, intent, sharpRef) }
+        fun insightOf(s: PlannedShot) = AiAssist.nearest(insights[s.assetId], (s.sourceInUs + s.sourceOutUs) / 2)?.insight
+        val candidates = analyses.flatMap { candidatesFor(it, intent, sharpRef) }.map { c ->
+            insightOf(c)?.let { c.copy(score = c.score * AiAssist.weight(it)) } ?: c
+        }
         val totalUs = analyses.sumOf { if (it.isVideo) it.durationUs else minOf(PHOTO_MAX_US, intent.shotUs) }
         val target = (intent.targetUs ?: autoTargetUs(totalUs)).coerceAtMost(totalUs)
 
@@ -63,10 +75,22 @@ object SmartEditPlanner {
         val usesPerAsset = mutableMapOf<String, Int>()
         var totalPicked = 0L
         val remaining = pool.toMutableList()
+        var avoidedRepeats = 0
+        fun effective(c: PlannedShot): Float {
+            var s = c.score * REPEAT_PENALTY.pow(usesPerAsset[c.assetId] ?: 0).toFloat()
+            if (insights.isNotEmpty()) {
+                val mine = insightOf(c)
+                // Same scene filmed in another clip (repeats within one clip are handled by REPEAT_PENALTY).
+                val repeats = picked.count { it.assetId != c.assetId && AiAssist.isRepeat(mine, insightOf(it)) }
+                if (repeats > 0) s *= SCENE_REPEAT_PENALTY.pow(repeats).toFloat()
+            }
+            return s
+        }
         while (totalPicked < target && remaining.isNotEmpty()) {
-            val best = remaining.maxBy { c -> c.score * REPEAT_PENALTY.pow(usesPerAsset[c.assetId] ?: 0).toFloat() }
+            val best = remaining.maxBy { effective(it) }
             remaining.remove(best)
             if (picked.any { it.assetId == best.assetId && overlaps(it, best) }) continue
+            if (insights.isNotEmpty() && picked.any { it.assetId != best.assetId && AiAssist.isRepeat(insightOf(best), insightOf(it)) }) avoidedRepeats++
             picked += best
             usesPerAsset[best.assetId] = (usesPerAsset[best.assetId] ?: 0) + 1
             totalPicked += best.lengthUs
@@ -80,7 +104,15 @@ object SmartEditPlanner {
             add("Style ${intent.style.label} · pace ${intent.pacing.label} · shots about ${seconds(intent.shotUs)}")
             if (skippedWeak > 0 && pool === good) add("Skipped $skippedWeak dark, blurry or shaky moments")
             if (pool !== good) add("Footage is short or mostly weak, so some weaker moments were kept")
-            if (intent.order == ShotOrder.HOOK_FIRST) add("Opens with the strongest shot, then follows the original order")
+            if (insights.isNotEmpty()) {
+                val seen = fitted.mapNotNull { insightOf(it)?.subject }.distinct().take(4)
+                if (seen.isNotEmpty()) add("On-device AI saw: " + seen.joinToString(", ") { "“$it”" })
+                if (avoidedRepeats == 0) add("No repeated scenes") else add("Kept $avoidedRepeats similar scene(s) because the footage was limited")
+            }
+            if (intent.order == ShotOrder.HOOK_FIRST) {
+                val hook = fitted.firstOrNull()?.let { insightOf(it)?.subject }
+                add("Opens with the strongest shot" + (hook?.let { " (“$it”)" } ?: "") + ", then follows the original order")
+            }
             add(
                 if (intent.transition == ClipTransition.CUT) "Hard cuts between shots"
                 else "${intent.transition.label} when the source changes, cuts within a source",
