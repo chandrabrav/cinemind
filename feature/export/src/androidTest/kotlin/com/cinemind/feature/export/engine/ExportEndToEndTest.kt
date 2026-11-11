@@ -80,8 +80,13 @@ class ExportEndToEndTest {
             assertTrue("duration ~4.5 s, was $durationMs ms", durationMs in 4_200..4_800)
             assertEquals("yes", r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_VIDEO))
             assertEquals("yes", r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_AUDIO))
-            assertEquals("720", r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH))
-            assertEquals("1280", r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT))
+            // Media3 may encode portrait as landscape + a 90° rotation flag; players show it upright.
+            val w = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)!!.toInt()
+            val h = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)!!.toInt()
+            val rotation = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)?.toIntOrNull() ?: 0
+            val (shownW, shownH) = if (rotation % 180 != 0) h to w else w to h
+            assertEquals("displayed width (raw ${w}x$h, rotation $rotation)", 720, shownW)
+            assertEquals("displayed height (raw ${w}x$h, rotation $rotation)", 1280, shownH)
 
             // Fade: the cut at 2.0 s must be (near) black, while the middle of each side is not.
             // This also proves effects see composition time (the assumption in TimelineRenderer).
