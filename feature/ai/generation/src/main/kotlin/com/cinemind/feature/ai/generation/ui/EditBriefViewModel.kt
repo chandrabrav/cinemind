@@ -12,7 +12,16 @@ import com.cinemind.core.domain.model.ProjectFormat
 import com.cinemind.core.domain.repository.EditBriefRepository
 import com.cinemind.core.domain.repository.ProjectRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import com.cinemind.feature.ai.generation.smartedit.SmartEditException
+import com.cinemind.feature.ai.generation.smartedit.SmartEditProgress
+import com.cinemind.feature.ai.generation.smartedit.SmartEditResult
+import com.cinemind.feature.ai.generation.smartedit.SmartEditor
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -35,12 +44,62 @@ data class EditBriefUiState(
     val saved: Boolean = true,
 )
 
+/** Smart-edit run state shown on the brief screen. */
+sealed interface SmartEditUi {
+    data object Idle : SmartEditUi
+    data class Working(val message: String, val progress: Float?) : SmartEditUi
+    data class Failed(val message: String) : SmartEditUi
+}
+
 @OptIn(FlowPreview::class, kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class EditBriefViewModel @Inject constructor(
     private val briefRepository: EditBriefRepository,
     private val projectRepository: ProjectRepository,
+    private val smartEditor: SmartEditor,
 ) : ViewModel() {
+
+    private val _smartEdit = MutableStateFlow<SmartEditUi>(SmartEditUi.Idle)
+    val smartEdit: StateFlow<SmartEditUi> = _smartEdit.asStateFlow()
+
+    /** Emits the new project's id when a smart edit is ready, so the screen can open it. */
+    private val created = Channel<SmartEditResult>(Channel.BUFFERED)
+    val createdFlow: Flow<SmartEditResult> = created.receiveAsFlow()
+    private var smartJob: Job? = null
+
+    fun createSmartEdit() {
+        val id = projectId.value ?: return
+        if (_smartEdit.value is SmartEditUi.Working) return
+        smartJob = viewModelScope.launch {
+            // Make sure the latest brief text is stored before it's read.
+            _state.value.brief?.let { if (!_state.value.saved) briefRepository.saveBrief(it) }
+            _smartEdit.value = SmartEditUi.Working("Reading your brief…", null)
+            try {
+                val result = smartEditor.create(id) { p ->
+                    _smartEdit.value = when (p) {
+                        is SmartEditProgress.Analyzing ->
+                            SmartEditUi.Working("Analysing clip ${p.index} of ${p.count}…", (p.index - 1f) / p.count)
+                        SmartEditProgress.Planning -> SmartEditUi.Working("Choosing shots and building the edit…", 1f)
+                    }
+                }
+                _smartEdit.value = SmartEditUi.Idle
+                created.send(result)
+            } catch (e: CancellationException) {
+                _smartEdit.value = SmartEditUi.Idle
+                throw e
+            } catch (e: SmartEditException) {
+                _smartEdit.value = SmartEditUi.Failed(e.message ?: "Smart edit failed")
+            } catch (e: Exception) {
+                CineMindLogger.e(e, "Smart edit failed")
+                _smartEdit.value = SmartEditUi.Failed("Smart edit failed: ${e.message}")
+            }
+        }
+    }
+
+    fun cancelSmartEdit() {
+        smartJob?.cancel()
+        _smartEdit.value = SmartEditUi.Idle
+    }
 
     private val projectId = MutableStateFlow<String?>(null)
 

@@ -57,7 +57,7 @@ class MainActivity : ComponentActivity() {
                 val title = when (route) {
                     Routes.MEDIA_LIBRARY -> "Import media"
                     Routes.EDITOR -> "Editor"
-                    Routes.BRIEF -> "AI brief"
+                    Routes.BRIEF -> "Smart edit"
                     Routes.EXPORT -> "Export"
                     else -> "CineMind AI"
                 }
@@ -121,7 +121,11 @@ fun CineMindNavHost(
             )
         }
         composable(Routes.BRIEF) { backStackEntry ->
-            EditBriefScreen(projectId = backStackEntry.arguments?.getString("projectId").orEmpty())
+            EditBriefScreen(
+                projectId = backStackEntry.arguments?.getString("projectId").orEmpty(),
+                // Open the new edit; Back returns to the project list, where the original stays.
+                onSmartEditCreated = { newId -> navController.navigate(Routes.editor(newId)) { popUpTo(Routes.HOME) } },
+            )
         }
         composable(Routes.EXPORT) { backStackEntry ->
             ExportScreen(projectId = backStackEntry.arguments?.getString("projectId").orEmpty())
