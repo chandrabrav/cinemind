@@ -96,6 +96,10 @@ class TimelineViewModel @Inject constructor(
     private val writeLock = Mutex()
 
     init {
+        // The preview renders the project's own shape and frame rate (as the export does).
+        viewModelScope.launch {
+            project.filterNotNull().collect { preview.setFormat(it.resolutionWidth, it.resolutionHeight, it.frameRate) }
+        }
         // Poll the player for the UI: smooth while playing, cheap while paused.
         viewModelScope.launch {
             while (isActive) {

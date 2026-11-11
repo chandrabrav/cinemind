@@ -143,6 +143,9 @@ jobs:
           ffmpeg -nostdin -loglevel error -y -f lavfi -i sine=frequency=660:sample_rate=44100 -t 3 -c:a aac "$d/music.m4a"
           ffmpeg -nostdin -loglevel error -y -f lavfi -i color=c=black:size=720x1280:rate=30 -t 2 -c:v libx264 -pix_fmt yuv420p "$d/black.mp4"
           ls -la "$d"
+          # The editor preview test plays the same video and photo.
+          e=feature/editor/timeline/src/androidTest/assets
+          mkdir -p "$e" && cp "$d/portrait.mp4" "$d/photo.jpg" "$e/"
           # Speech-detection test: three 1.2 s "voice" bursts (300 Hz, wobbling) 2 s apart, in a video.
           s=feature/captions/src/androidTest/assets
           mkdir -p "$s"

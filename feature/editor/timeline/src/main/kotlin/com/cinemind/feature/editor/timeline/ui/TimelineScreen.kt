@@ -125,12 +125,9 @@ fun TimelineScreen(
         ActivityResultContracts.PickMultipleVisualMedia(maxItems = 50),
     ) { uris -> viewModel.addMedia(uris) }
 
-    val animations = remember(clips) { TransitionMath.animations(clips.map { it.clip }) }
-    val look = clips.getOrNull(preview.currentIndex)?.let { current ->
-        val clip = current.clip
-        val anim = animations.getOrNull(preview.currentIndex) ?: return@let null
-        TransitionMath.lookAt(preview.positionUs - clip.timelineInUs, clip.timelineOutUs - clip.timelineInUs, anim)
-    } ?: FrameLook.IDENTITY
+    // Transitions are rendered inside the preview video by the export's own effects
+    // (CompositionPlayer), so Compose no longer imitates them.
+    val look = FrameLook.IDENTITY
     val totalUs = TimelineEditing.durationUs(clips.map { it.clip })
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -365,17 +362,10 @@ private fun PreviewStage(
                 )
                 val asset = currentClip?.asset
                 when {
+                    // Photos are rendered by the composition like videos; only a missing file needs a label.
                     currentClip != null && asset == null -> Box(Modifier.fillMaxSize().background(c.stage), contentAlignment = Alignment.Center) {
                         Text("Missing media", color = c.onStage.copy(alpha = 0.7f))
                     }
-                    asset != null && asset.isImage -> AsyncImage(
-                        model = asset.uri,
-                        contentDescription = asset.displayName.ifEmpty { null },
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(c.stage),
-                    )
                 }
             }
             // Fades dip through black.

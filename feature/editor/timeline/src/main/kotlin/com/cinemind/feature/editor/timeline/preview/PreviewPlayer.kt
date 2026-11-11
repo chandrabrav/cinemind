@@ -1,19 +1,25 @@
 package com.cinemind.feature.editor.timeline.preview
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Color
+import android.net.Uri
+import android.os.Handler
+import android.os.Looper
 import androidx.annotation.OptIn
-import androidx.media3.common.C
-import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.SeekParameters
-import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
-import androidx.media3.exoplayer.source.MediaSource
-import androidx.media3.exoplayer.source.SilenceMediaSource
+import androidx.media3.transformer.CompositionPlayer
 import com.cinemind.core.domain.model.Clip
 import com.cinemind.core.domain.model.MediaAsset
+import com.cinemind.feature.export.engine.RenderMusic
+import com.cinemind.feature.export.engine.RenderSource
+import com.cinemind.feature.export.engine.TimelineRenderer
+import com.cinemind.feature.export.plan.ExportPlanner
+import com.cinemind.feature.export.plan.ExportResolution
+import com.cinemind.feature.export.plan.OutputSize
+import java.io.File
 
 /** One timeline clip with its source media (null when the media record is missing). */
 data class PreviewClip(val clip: Clip, val asset: MediaAsset?)
@@ -27,130 +33,191 @@ data class PreviewState(
     val error: String? = null,
 )
 
+/** Everything needed to play the music under a timeline of [totalUs]. */
+data class MusicPlayback(
+    val uri: String,
+    val durationUs: Long,
+    val startOffsetUs: Long,
+    val volume: Float,
+    val fadeInUs: Long,
+    val fadeOutUs: Long,
+    val totalUs: Long,
+)
+
 /**
- * Plays a single video track as an ExoPlayer playlist — one playlist item per clip:
- *  - video clips → the source file clipped to the clip's source in/out points;
- *  - stills and missing media → a silent span of the clip's duration (the UI draws the image on top).
- *
- * Preview only: nothing is rendered or written to disk here. Must be used from the main thread.
+ * The editor preview plays **the same Media3 composition the export renders** (built by
+ * [TimelineRenderer.buildComposition]) with a [CompositionPlayer], at 720p:
+ *  - transitions, photos, frame-rate conversion, music (looped/cut, fades) and the original-sound
+ *    volume come from the export code, so preview and export can't drift apart;
+ *  - one continuous composition timeline instead of a playlist of clipped items, so there is no
+ *    per-clip player hand-over at cuts (the old preview's stutter);
+ *  - captions are not baked in here: the editor draws them on top with the same painter, so caption
+ *    edits show instantly without rebuilding the composition.
+ * Rebuilds are coalesced (one per main-thread turn). Must be used from the main thread.
  */
 @OptIn(UnstableApi::class)
 class PreviewPlayer(context: Context) {
 
-    val player: ExoPlayer = ExoPlayer.Builder(context.applicationContext).build()
+    private val appContext = context.applicationContext
+    val player: CompositionPlayer = CompositionPlayer.Builder(appContext).build()
+    private val renderer = TimelineRenderer(appContext)
+    private val main = Handler(Looper.getMainLooper())
 
-    /** Background music, kept in step with [player]. */
-    val music = MusicPreview(context)
+    /** Background music; part of the composition (no second player to keep in step). */
+    val music = MusicControl()
 
-    /** Volume of the clips' own sound (0..1). */
-    fun setOriginalVolume(volume: Float) {
-        player.volume = volume.coerceIn(0f, 1f)
+    inner class MusicControl {
+        fun set(next: MusicPlayback?) {
+            if (next == musicPlayback) return
+            musicPlayback = next
+            scheduleRebuild()
+        }
+
+        /** Kept for callers; the composition plays music in sync by construction. */
+        @Suppress("UNUSED_PARAMETER")
+        fun sync(timelineUs: Long, playing: Boolean) = Unit
     }
 
-    private val sourceFactory = DefaultMediaSourceFactory(context.applicationContext)
+    private var clips: List<PreviewClip> = emptyList()
+    private var musicPlayback: MusicPlayback? = null
+    private var originalVolume = 1f
+    private var size = OutputSize(720, 1280)
+    private var fps = 30
     private var spans: List<ClipSpan> = emptyList()
-    private var loadedKey: List<Any?> = emptyList()
     private var lastError: String? = null
+    private var rebuildPending = false
+    private var builtKey: Any? = null
 
     init {
         player.addListener(object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
-                lastError = "Can't play clip ${player.currentMediaItemIndex + 1}: ${error.errorCodeName}"
+                lastError = "Can't play the preview: ${error.errorCodeName}"
             }
         })
     }
 
-    /** Loads [clips] as the playlist, keeping the current timeline position. No-op if unchanged. */
-    fun setClips(clips: List<PreviewClip>) {
-        val key = clips.map { listOf(it.clip, it.asset?.uri) }
-        if (key == loadedKey) return
-        val keepPositionUs = currentPositionUs()
-
-        loadedKey = key
-        spans = clips.map { ClipSpan(it.clip.timelineInUs, it.clip.timelineOutUs) }
-        lastError = null
-
-        if (clips.isEmpty()) {
-            player.clearMediaItems()
-            return
-        }
-        player.setMediaSources(clips.map(::sourceFor))
-        player.prepare()
-        seekToUs(keepPositionUs)
+    /** Output shape of the project (preview renders it at 720p on the short side). */
+    fun setFormat(projectWidth: Int, projectHeight: Int, frameRate: Int) {
+        if (projectWidth <= 0 || projectHeight <= 0) return
+        val next = ExportPlanner.outputSize(projectWidth, projectHeight, ExportResolution.P720)
+        if (next == size && frameRate == fps) return
+        size = next
+        fps = frameRate.coerceIn(1, 120)
+        scheduleRebuild()
     }
 
-    private fun sourceFor(item: PreviewClip): MediaSource {
-        val clip = item.clip
-        val asset = item.asset
-        if (asset == null || !asset.isVideo) {
-            return SilenceMediaSource.Factory()
-                .setDurationUs((clip.timelineOutUs - clip.timelineInUs).coerceAtLeast(1))
-                .setTag(clip.id)
-                .createMediaSource()
+    fun setOriginalVolume(volume: Float) {
+        val v = volume.coerceIn(0f, 1f)
+        if (v == originalVolume) return
+        originalVolume = v
+        scheduleRebuild()
+    }
+
+    /** Loads [clips]; keeps the current timeline position. No-op if unchanged. */
+    fun setClips(next: List<PreviewClip>) {
+        if (next == clips) return
+        clips = next
+        spans = next.map { ClipSpan(it.clip.timelineInUs, it.clip.timelineOutUs) }
+        scheduleRebuild()
+    }
+
+    private fun scheduleRebuild() {
+        if (rebuildPending) return
+        rebuildPending = true
+        main.post {
+            rebuildPending = false
+            rebuild()
         }
-        // Metadata durations are rounded; if the clip runs to the end of the file, let the
-        // container decide where that is instead of asking for a position past it.
-        val endMs = if (clip.sourceOutUs >= asset.durationUs) C.TIME_END_OF_SOURCE else clip.sourceOutUs / 1_000
-        val mediaItem = MediaItem.Builder()
-            .setUri(asset.uri)
-            .setMediaId(clip.id)
-            .setClippingConfiguration(
-                MediaItem.ClippingConfiguration.Builder()
-                    .setStartPositionMs(clip.sourceInUs / 1_000)
-                    .setEndPositionMs(endMs)
-                    .build(),
-            )
-            .build()
-        return sourceFactory.createMediaSource(mediaItem)
+    }
+
+    private fun rebuild() {
+        val key = listOf(clips.map { it.clip to it.asset?.uri }, musicPlayback, originalVolume, size, fps)
+        if (key == builtKey) return
+        builtKey = key
+        lastError = null
+        if (clips.isEmpty()) {
+            player.stop()
+            return
+        }
+        val keepMs = (currentPositionUs() / 1_000).coerceAtLeast(0)
+        val pairs = clips.map { it.clip to sourceFor(it) }
+        val music = musicPlayback?.let { RenderMusic(it.uri, it.durationUs, it.startOffsetUs, it.volume, it.fadeInUs, it.fadeOutUs) }
+        val composition = runCatching { renderer.buildComposition(pairs, size, fps, music, originalVolume) }
+            .getOrElse {
+                lastError = "Can't build the preview: ${it.message}"
+                return
+            }
+        val wasPlaying = player.playWhenReady
+        player.setComposition(composition, keepMs.coerceAtMost(TimelineMath.totalDurationUs(spans) / 1_000))
+        player.prepare()
+        player.playWhenReady = wasPlaying
+    }
+
+    private fun sourceFor(item: PreviewClip): RenderSource {
+        val a = item.asset
+        return if (a != null) {
+            RenderSource(a.uri, a.isVideo, a.hasAudio, a.frameRate, a.durationUs)
+        } else {
+            // Missing media plays as black for its length, so the rest of the timeline stays in place.
+            RenderSource(Uri.fromFile(blackFrame()).toString(), isVideo = false, hasAudio = false, frameRate = 0f, durationUs = 0)
+        }
+    }
+
+    private fun blackFrame(): File {
+        val f = File(appContext.cacheDir, "preview_missing_media.png")
+        if (!f.exists()) {
+            val bmp = Bitmap.createBitmap(16, 16, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.BLACK) }
+            f.outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        }
+        return f
     }
 
     fun togglePlayPause() {
         if (spans.isEmpty()) return
         if (player.playbackState == Player.STATE_ENDED) {
-            player.seekTo(0, 0)
+            player.seekTo(0)
             player.play()
             return
         }
         if (player.playbackState == Player.STATE_IDLE) {
             lastError = null
-            player.prepare()
+            builtKey = null
+            rebuild()
         }
         if (player.playWhenReady) player.pause() else player.play()
     }
 
     fun pause() {
         player.pause()
-        music.pause()
     }
 
-    /** Seeks to a whole-timeline position. [fast] trades accuracy for speed while scrubbing. */
+    /** Seeks to a whole-timeline position (the composition's own time). */
+    @Suppress("UNUSED_PARAMETER")
     fun seekToUs(positionUs: Long, fast: Boolean = false) {
-        val loc = TimelineMath.locate(spans, positionUs) ?: return
-        player.setSeekParameters(if (fast) SeekParameters.CLOSEST_SYNC else SeekParameters.EXACT)
-        player.seekTo(loc.index, loc.offsetUs / 1_000)
+        if (spans.isEmpty()) return
+        player.seekTo((positionUs.coerceIn(0, TimelineMath.totalDurationUs(spans)) / 1_000))
     }
 
     fun seekToClip(index: Int) {
         if (index in spans.indices) seekToUs(spans[index].startUs)
     }
 
-    fun currentPositionUs(): Long {
-        if (spans.isEmpty()) return 0
-        val index = player.currentMediaItemIndex.coerceIn(0, spans.lastIndex)
-        return TimelineMath.absolutePositionUs(spans, index, player.currentPosition * 1_000)
+    fun currentPositionUs(): Long = if (spans.isEmpty()) 0 else player.currentPosition.coerceAtLeast(0) * 1_000
+
+    fun snapshot(): PreviewState {
+        val pos = currentPositionUs()
+        return PreviewState(
+            isPlaying = player.playWhenReady && player.playbackState != Player.STATE_ENDED &&
+                player.playbackState != Player.STATE_IDLE,
+            positionUs = pos,
+            durationUs = TimelineMath.totalDurationUs(spans),
+            currentIndex = TimelineMath.locate(spans, pos)?.index ?: 0,
+            error = lastError,
+        )
     }
 
-    fun snapshot(): PreviewState = PreviewState(
-        isPlaying = player.playWhenReady && player.playbackState != Player.STATE_ENDED &&
-            player.playbackState != Player.STATE_IDLE,
-        positionUs = currentPositionUs(),
-        durationUs = TimelineMath.totalDurationUs(spans),
-        currentIndex = if (spans.isEmpty()) 0 else player.currentMediaItemIndex.coerceIn(0, spans.lastIndex),
-        error = lastError,
-    )
-
     fun release() {
+        main.removeCallbacksAndMessages(null)
         player.release()
-        music.release()
     }
 }
