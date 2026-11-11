@@ -112,13 +112,17 @@ class TimelineRenderer(private val context: Context) {
                             .build(),
                     )
                     .build()
-                EditedMediaItem.Builder(mediaItem).setEffects(Effects(clipAudio, effects)).build()
+                EditedMediaItem.Builder(mediaItem)
+                    .setDurationUs(knownDurationUs(source.durationUs, clip.sourceOutUs))
+                    .setEffects(Effects(clipAudio, effects))
+                    .build()
             } else {
                 val mediaItem = MediaItem.Builder()
                     .setUri(source.uri)
                     .setImageDurationMs(lengthUs / 1_000)
                     .build()
                 EditedMediaItem.Builder(mediaItem)
+                    .setDurationUs(lengthUs / 1_000 * 1_000)
                     .setFrameRate(fps)
                     .setEffects(Effects(emptyList(), effects))
                     .build()
@@ -171,9 +175,13 @@ class TimelineRenderer(private val context: Context) {
                         val effects = buildList<Effect> {
                             if (o.source.frameRate > fps + 1) add(FrameDropEffect.createDefaultFrameDropEffect(fps.toFloat()))
                         }
-                        EditedMediaItem.Builder(mediaItem).setEffects(Effects(emptyList(), effects)).build()
+                        EditedMediaItem.Builder(mediaItem)
+                            .setDurationUs(knownDurationUs(o.source.durationUs, c.sourceOutUs))
+                            .setEffects(Effects(emptyList(), effects))
+                            .build()
                     } else {
                         EditedMediaItem.Builder(MediaItem.Builder().setUri(o.source.uri).setImageDurationMs(piece.durationUs / 1_000).build())
+                            .setDurationUs(piece.durationUs / 1_000 * 1_000)
                             .setFrameRate(fps)
                             .build()
                     }
@@ -192,8 +200,16 @@ class TimelineRenderer(private val context: Context) {
         }
         return EditedMediaItem.Builder(
             MediaItem.Builder().setUri(android.net.Uri.fromFile(f)).setImageDurationMs((durationUs / 1_000).coerceAtLeast(1)).build(),
-        ).setFrameRate(fps).build()
+        ).setDurationUs((durationUs / 1_000).coerceAtLeast(1) * 1_000).setFrameRate(fps).build()
     }
+
+    /**
+     * Media3's CompositionPlayer (the editor preview) needs each item's full, unclipped duration up
+     * front (export works it out itself). Metadata can be missing or slightly short, so never less
+     * than the clipping end.
+     */
+    private fun knownDurationUs(sourceDurationUs: Long, clipEndUs: Long): Long =
+        maxOf(sourceDurationUs, clipEndUs, 1L)
 
     private fun buildMusicItems(music: RenderMusic, totalUs: Long): List<EditedMediaItem> =
         MusicLayout.segments(music.durationUs, music.startOffsetUs, totalUs).map { seg ->
@@ -210,6 +226,7 @@ class TimelineRenderer(private val context: Context) {
                 MusicLayout.gainAt(seg.timelineStartUs + localUs, totalUs, music.volume, music.fadeInUs, music.fadeOutUs)
             }
             EditedMediaItem.Builder(mediaItem)
+                .setDurationUs(knownDurationUs(music.durationUs, seg.sourceOutUs))
                 .setRemoveVideo(true)
                 .setEffects(Effects(listOf(gain), emptyList()))
                 .build()
