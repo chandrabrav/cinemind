@@ -44,7 +44,7 @@ enum class CaptionAlign { START, CENTER, END }
 )
 data class CaptionStyle(
     @PrimaryKey val projectId: String,
-    val presetId: String = CaptionPresets.REELS.id,
+    val presetId: String = DEFAULT_PRESET_ID,
     val font: String = CaptionFont.SANS.name,
     /** Text height as a fraction of the video's short side. */
     val size: Float = 0.062f,
@@ -74,6 +74,8 @@ data class CaptionStyle(
     val alignEnum: CaptionAlign get() = CaptionAlign.entries.firstOrNull { it.name == align } ?: CaptionAlign.CENTER
 
     companion object {
+        /** Literal (not CaptionPresets.REELS.id): presets are built from this class, so reading them here would be a class-init cycle. */
+        const val DEFAULT_PRESET_ID = "reels"
         const val WHITE = 0xFFFFFFFF.toInt()
         const val BLACK = 0xFF000000.toInt()
 
