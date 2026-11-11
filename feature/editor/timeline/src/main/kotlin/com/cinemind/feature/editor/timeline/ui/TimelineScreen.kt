@@ -94,6 +94,10 @@ fun TimelineScreen(
 
     val fps = project?.frameRate ?: 30
     var showTransitions by remember { mutableStateOf(false) }
+    var showMusic by remember { mutableStateOf(false) }
+    val musicPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) viewModel.setMusicFromUri(uri)
+    }
     val addMediaPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickMultipleVisualMedia(maxItems = 50),
     ) { uris -> viewModel.addMedia(uris) }
@@ -159,6 +163,7 @@ fun TimelineScreen(
                 onTrim = viewModel::trimSelected,
                 onMove = viewModel::moveSelected,
                 onDelete = viewModel::deleteSelected,
+                onSplit = viewModel::splitSelectedAtPlayhead,
                 onClose = viewModel::clearSelection,
                 onTransition = viewModel::setTransitionSelected,
             )
@@ -171,7 +176,20 @@ fun TimelineScreen(
                 addMediaPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
             },
             onTransitions = { showTransitions = true },
+            onMusic = { showMusic = true },
             onExport = onExport,
+        )
+    }
+
+    if (showMusic) {
+        MusicDialog(
+            music = editor.music,
+            originalVolume = editor.originalVolume,
+            onChoose = { musicPicker.launch(arrayOf("audio/*")) },
+            onUpdate = viewModel::updateMusic,
+            onRemove = viewModel::removeMusic,
+            onOriginalVolume = viewModel::setOriginalVolume,
+            onDismiss = { showMusic = false },
         )
     }
 

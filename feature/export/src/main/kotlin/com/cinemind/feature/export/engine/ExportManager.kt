@@ -107,7 +107,17 @@ class ExportManager @Inject constructor(
         val size = ExportPlanner.outputSize(project.resolutionWidth, project.resolutionHeight, settings.resolution)
         val bitrate = ExportPlanner.videoBitrateBps(size, settings.frameRate, settings.quality)
         val durationUs = clips.maxOf { it.timelineOutUs }
-        val hasAudio = pairs.any { (_, s) -> s.isVideo && s.hasAudio }
+        val audio = projectRepository.getProjectAudio(projectId)
+        val music = audio.music?.let { m ->
+            val song = assetRepository.getAsset(m.assetId)
+            if (song == null) {
+                CineMindLogger.w("Music file is no longer available; exporting without it")
+                null
+            } else {
+                RenderMusic(song.uri, song.durationUs, m.startOffsetUs, m.volume, m.fadeInMs * 1_000, m.fadeOutMs * 1_000)
+            }
+        }
+        val hasAudio = pairs.any { (_, s) -> s.isVideo && s.hasAudio } || music != null
         val estimate = ExportPlanner.estimatedSizeBytes(durationUs, bitrate, hasAudio)
 
         val workDir = tempDir()
@@ -117,7 +127,7 @@ class ExportManager @Inject constructor(
         }
         val outFile = File(workDir, "export.mp4")
 
-        val composition = renderer.buildComposition(pairs, size, settings.frameRate)
+        val composition = renderer.buildComposition(pairs, size, settings.frameRate, music, audio.originalVolume)
         _state.value = ExportState.Running(projectId, 0f)
         startForegroundService()
 

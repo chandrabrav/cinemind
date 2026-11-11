@@ -57,6 +57,7 @@ class MediaImporter @Inject constructor(
         return when {
             mime.startsWith("video/") -> readVideo(uri, mime, name, size)
             mime.startsWith("image/") -> readImage(uri, mime, name, size)
+            mime.startsWith("audio/") -> readAudio(uri, mime, name, size)
             else -> throw UnsupportedMediaException("Unsupported type: $mime")
         }
     }
@@ -136,6 +137,34 @@ class MediaImporter @Inject constructor(
             null
         } finally {
             extractor.release()
+        }
+    }
+
+    private fun readAudio(uri: Uri, mime: String, name: String, size: Long): MediaAsset {
+        val retriever = MediaMetadataRetriever()
+        try {
+            retriever.setDataSource(context, uri)
+            val durationUs = MediaMetadataParsing.durationMsToUs(
+                retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION),
+            )
+            if (durationUs <= 0) throw UnsupportedMediaException("Audio has no readable duration")
+            return MediaAsset(
+                uri = uri.toString(),
+                mimeType = mime,
+                width = 0,
+                height = 0,
+                durationUs = durationUs,
+                frameRate = 0f,
+                hasAudio = true,
+                displayName = name,
+                sizeBytes = size,
+            )
+        } catch (e: UnsupportedMediaException) {
+            throw e
+        } catch (e: Exception) {
+            throw UnsupportedMediaException("Could not read audio: ${e.message}")
+        } finally {
+            runCatching { retriever.release() }
         }
     }
 

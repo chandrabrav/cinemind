@@ -7,6 +7,8 @@ import com.cinemind.core.data.local.dao.ProjectDao
 import com.cinemind.core.data.local.dao.TrackDao
 import com.cinemind.core.data.local.database.AppDatabase
 import androidx.room.withTransaction
+import com.cinemind.core.domain.audio.MusicSettings
+import com.cinemind.core.domain.audio.ProjectAudio
 import com.cinemind.core.domain.model.Clip
 import com.cinemind.core.domain.model.EditBrief
 import com.cinemind.core.domain.model.MediaAsset
@@ -16,6 +18,7 @@ import com.cinemind.core.domain.model.ProjectFormat
 import com.cinemind.core.domain.model.ProjectSummary
 import com.cinemind.core.domain.model.ProjectTimeline
 import com.cinemind.core.domain.model.Track
+import com.cinemind.core.domain.model.TrackType
 import com.cinemind.core.domain.repository.ClipRepository
 import com.cinemind.core.domain.repository.EditBriefRepository
 import com.cinemind.core.domain.repository.MediaAssetRepository
@@ -81,6 +84,64 @@ class ProjectRepositoryImpl(
 
     override suspend fun renameProject(id: String, name: String) =
         projectDao.rename(id, name, System.currentTimeMillis())
+
+    override suspend fun getProjectAudio(projectId: String): ProjectAudio = database.withTransaction {
+        val tracks = database.trackDao().getTracksForProjectOnce(projectId)
+        val video = tracks.firstOrNull { it.type == TrackType.VIDEO }
+        val musicTrack = tracks.firstOrNull { it.type == TrackType.AUDIO }
+        val musicClip = musicTrack?.let { database.clipDao().getClipsForTracksOnce(listOf(it.id)).firstOrNull() }
+        ProjectAudio(
+            music = musicClip?.let { c ->
+                MusicSettings(
+                    assetId = c.assetId,
+                    startOffsetUs = c.sourceInUs,
+                    volume = musicTrack?.volume ?: 0.8f,
+                    fadeInMs = c.transitionInMs,
+                    fadeOutMs = c.transitionOutMs,
+                )
+            },
+            originalVolume = video?.volume ?: 1f,
+        )
+    }
+
+    override suspend fun saveMusic(projectId: String, music: MusicSettings?) {
+        database.withTransaction {
+            val project = projectDao.getProject(projectId) ?: return@withTransaction
+            val tracks = database.trackDao().getTracksForProjectOnce(projectId)
+            val existing = tracks.firstOrNull { it.type == TrackType.AUDIO }
+            if (music == null) {
+                existing?.let { database.trackDao().deleteById(it.id) } // cascades to its clip
+            } else {
+                val asset = database.mediaAssetDao().getAsset(music.assetId) ?: return@withTransaction
+                val track = existing?.copy(volume = music.volume)?.also { database.trackDao().update(it) }
+                    ?: Track(projectId = projectId, type = TrackType.AUDIO, index = 1, name = "Music", volume = music.volume)
+                        .also { database.trackDao().insert(it) }
+                database.clipDao().deleteByTrackId(track.id)
+                database.clipDao().insert(
+                    Clip(
+                        trackId = track.id,
+                        assetId = asset.id,
+                        // The music clip spans the video; renderers recompute its length from the video track.
+                        timelineInUs = 0,
+                        timelineOutUs = project.durationUs,
+                        sourceInUs = music.startOffsetUs.coerceIn(0, asset.durationUs.coerceAtLeast(0)),
+                        sourceOutUs = asset.durationUs,
+                        transitionInMs = music.fadeInMs,
+                        transitionOutMs = music.fadeOutMs,
+                    ),
+                )
+            }
+            projectDao.update(project.copy(updatedAt = System.currentTimeMillis()))
+        }
+    }
+
+    override suspend fun setOriginalAudioVolume(projectId: String, volume: Float) {
+        database.withTransaction {
+            val video = database.trackDao().getTracksForProjectOnce(projectId).firstOrNull { it.type == TrackType.VIDEO }
+                ?: return@withTransaction
+            database.trackDao().update(video.copy(volume = volume.coerceIn(0f, 1f)))
+        }
+    }
 
     override suspend fun saveTrackClips(projectId: String, trackId: String, clips: List<Clip>) {
         require(clips.all { it.trackId == trackId }) { "All clips must belong to track $trackId" }

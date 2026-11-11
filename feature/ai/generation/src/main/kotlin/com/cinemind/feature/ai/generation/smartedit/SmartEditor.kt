@@ -51,6 +51,10 @@ class SmartEditor @Inject constructor(
         val result = SmartEditPlanner.toTimeline(plan, timeline.project, name)
         val newId = projectRepository.createProjectWithTimeline(result)
         briefRepository.saveBrief(brief.copy(projectId = newId))
+        // Keep the source project's music and original-sound level.
+        val audio = projectRepository.getProjectAudio(projectId)
+        audio.music?.let { projectRepository.saveMusic(newId, it) }
+        if (audio.originalVolume < 1f) projectRepository.setOriginalAudioVolume(newId, audio.originalVolume)
         return SmartEditResult(newId, plan.decisions)
     }
 }

@@ -7,12 +7,15 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.Player
 import com.cinemind.core.common.CineMindLogger
+import com.cinemind.core.domain.audio.MusicSettings
+import com.cinemind.core.domain.audio.ProjectAudio
 import com.cinemind.core.domain.editing.ClipLimits
 import com.cinemind.core.domain.editing.EditHistory
 import com.cinemind.core.domain.editing.ClipTransition
 import com.cinemind.core.domain.editing.TimelineEditing
 import com.cinemind.core.domain.editing.TransitionEditing
 import com.cinemind.core.domain.editing.append
+import com.cinemind.core.domain.editing.split
 import com.cinemind.core.domain.model.ProjectFactory
 import com.cinemind.feature.media.importer.MediaImporter
 import com.cinemind.core.domain.model.Clip
@@ -21,6 +24,7 @@ import com.cinemind.core.domain.model.Project
 import com.cinemind.core.domain.model.TrackType
 import com.cinemind.core.domain.repository.MediaAssetRepository
 import com.cinemind.core.domain.repository.ProjectRepository
+import com.cinemind.feature.editor.timeline.preview.MusicPlayback
 import com.cinemind.feature.editor.timeline.preview.PreviewClip
 import com.cinemind.feature.editor.timeline.preview.PreviewPlayer
 import com.cinemind.feature.editor.timeline.preview.PreviewState
@@ -38,6 +42,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import javax.inject.Inject
@@ -49,7 +54,12 @@ data class EditorState(
     val selectedClipId: String? = null,
     val canUndo: Boolean = false,
     val canRedo: Boolean = false,
+    val music: MusicUi? = null,
+    val originalVolume: Float = 1f,
 )
+
+/** The project's background music as shown in the editor. */
+data class MusicUi(val name: String, val durationUs: Long, val settings: MusicSettings)
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
@@ -91,6 +101,7 @@ class TimelineViewModel @Inject constructor(
             while (isActive) {
                 val snapshot = preview.snapshot()
                 _previewState.value = snapshot
+                preview.music.sync(snapshot.positionUs, snapshot.isPlaying)
                 delay(if (snapshot.isPlaying) 33 else 250)
             }
         }
@@ -110,6 +121,7 @@ class TimelineViewModel @Inject constructor(
             clips.map { it.assetId }.distinct().forEach { assetId -> assets[assetId] = assetRepository.getAsset(assetId) }
             trackId = track?.id
             history = EditHistory(clips)
+            loadAudio(id)
             publish(seekToSelection = false)
         }
     }
@@ -173,6 +185,90 @@ class TimelineViewModel @Inject constructor(
     fun deleteSelected() {
         val id = _editor.value.selectedClipId ?: return
         commit(TimelineEditing.delete(history?.present ?: return, id), selectAfter = null)
+    }
+
+    /** Splits the selected clip where the playhead is (one undo step). */
+    fun splitSelectedAtPlayhead() {
+        val clips = history?.present ?: return
+        val clip = clips.firstOrNull { it.id == _editor.value.selectedClipId } ?: return
+        val at = preview.currentPositionUs()
+        val next = TimelineEditing.split(clips, clip.id, at)
+        if (next === clips) {
+            Toast.makeText(appContext, "Move the playhead inside the selected clip (not at its edges) to split", Toast.LENGTH_SHORT).show()
+            return
+        }
+        commit(next, selectAfter = clip.id)
+    }
+
+    // ---- Music & volume --------------------------------------------------------------------
+
+    private var audio = ProjectAudio(music = null)
+    private var musicAsset: MediaAsset? = null
+
+    private suspend fun loadAudio(projectId: String) {
+        audio = runCatching { projectRepository.getProjectAudio(projectId) }.getOrDefault(ProjectAudio(null))
+        musicAsset = audio.music?.let { assetRepository.getAsset(it.assetId) }
+        preview.setOriginalVolume(audio.originalVolume)
+        val m = audio.music
+        val a = musicAsset
+        _editor.value = _editor.value.copy(
+            music = if (m != null && a != null) MusicUi(a.displayName.ifEmpty { "Music" }, a.durationUs, m) else null,
+            originalVolume = audio.originalVolume,
+        )
+        refreshMusicPlayback()
+    }
+
+    private fun refreshMusicPlayback() {
+        val m = audio.music
+        val a = musicAsset
+        val total = TimelineEditing.durationUs(history?.present.orEmpty())
+        preview.music.set(
+            if (m == null || a == null || total <= 0) {
+                null
+            } else {
+                MusicPlayback(a.uri, a.durationUs, m.startOffsetUs, m.volume, m.fadeInMs * 1_000, m.fadeOutMs * 1_000, total)
+            },
+        )
+    }
+
+    /** Imports a picked audio file and makes it the project's music. */
+    fun setMusicFromUri(uri: Uri) {
+        val id = projectId.value ?: return
+        viewModelScope.launch {
+            val asset = runCatching { importer.import(uri) }.getOrNull()
+            if (asset == null || !asset.isAudio) {
+                Toast.makeText(appContext, "That file can't be used as music", Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+            saveMusic(id, MusicSettings(assetId = asset.id))
+        }
+    }
+
+    fun updateMusic(settings: MusicSettings) {
+        val id = projectId.value ?: return
+        viewModelScope.launch { saveMusic(id, settings) }
+    }
+
+    fun removeMusic() {
+        val id = projectId.value ?: return
+        viewModelScope.launch { saveMusic(id, null) }
+    }
+
+    fun setOriginalVolume(volume: Float) {
+        val id = projectId.value ?: return
+        preview.setOriginalVolume(volume)
+        viewModelScope.launch(NonCancellable) {
+            runCatching { projectRepository.setOriginalAudioVolume(id, volume) }
+            loadAudio(id)
+        }
+    }
+
+    private suspend fun saveMusic(projectId: String, settings: MusicSettings?) {
+        withContext(NonCancellable) {
+            runCatching { projectRepository.saveMusic(projectId, settings) }
+                .onFailure { CineMindLogger.e(it, "Saving music failed") }
+            loadAudio(projectId)
+        }
     }
 
     // ---- Transitions ----------------------------------------------------------------------
@@ -264,6 +360,7 @@ class TimelineViewModel @Inject constructor(
             canRedo = h.canRedo,
         )
         preview.setClips(clips)
+        refreshMusicPlayback()
         if (seekToSelection) {
             val index = h.present.indexOfFirst { it.id == _editor.value.selectedClipId }
             if (index >= 0) preview.seekToClip(index)

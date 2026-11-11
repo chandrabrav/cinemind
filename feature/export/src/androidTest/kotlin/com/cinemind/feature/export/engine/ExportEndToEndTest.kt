@@ -98,6 +98,44 @@ class ExportEndToEndTest {
         }
     }
 
+    @Test
+    fun exportsWithLoopingMusicAndLowerOriginalSound() = runBlocking {
+        val photo = asset("photo.jpg")
+        val landscape = asset("landscape_silent.mp4")
+        val song = asset("music.m4a") // 3 s tone; the 5 s video below needs it looped
+
+        val clips = TimelineEditing.relayout(
+            listOf(clip("p", 0, 3_000_000), clip("v", 0, 2_000_000, ClipTransition.FADE, 500)),
+        )
+        val sources = listOf(
+            RenderSource(Uri.fromFile(photo).toString(), isVideo = false, hasAudio = false, frameRate = 0f, durationUs = 0),
+            RenderSource(Uri.fromFile(landscape).toString(), isVideo = true, hasAudio = false, frameRate = 60f, durationUs = 2_000_000),
+        )
+        val music = RenderMusic(Uri.fromFile(song).toString(), durationUs = 3_000_000, startOffsetUs = 1_000_000,
+            volume = 0.8f, fadeInUs = 500_000, fadeOutUs = 800_000)
+        val out = File(context.cacheDir, "e2e-music.mp4").apply { delete() }
+
+        val progressScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+        withContext(Dispatchers.Main) {
+            val renderer = TimelineRenderer(context)
+            val composition = renderer.buildComposition(clips.zip(sources), OutputSize(720, 1280), fps = 30, music = music, originalVolume = 0.3f)
+            renderer.render(composition, out, videoBitrateBps = 3_000_000, progressScope = progressScope)
+        }
+        progressScope.cancel()
+
+        val r = MediaMetadataRetriever()
+        try {
+            r.setDataSource(out.absolutePath)
+            val durationMs = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)!!.toLong()
+            // Music must not stretch the video: it is cut to the 5 s timeline.
+            assertTrue("duration ~5 s, was $durationMs ms", durationMs in 4_700..5_300)
+            assertEquals("yes", r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_AUDIO))
+            assertEquals("yes", r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_VIDEO))
+        } finally {
+            r.release()
+        }
+    }
+
     private fun luma(r: MediaMetadataRetriever, timeUs: Long): Float {
         val frame: Bitmap = r.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST)
             ?: error("no frame at $timeUs")

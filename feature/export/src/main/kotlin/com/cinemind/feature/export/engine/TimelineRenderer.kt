@@ -24,6 +24,7 @@ import androidx.media3.transformer.ExportResult
 import androidx.media3.transformer.ProgressHolder
 import androidx.media3.transformer.Transformer
 import androidx.media3.transformer.VideoEncoderSettings
+import com.cinemind.core.domain.audio.MusicLayout
 import com.cinemind.core.domain.editing.ClipAnimation
 import com.cinemind.core.domain.editing.TransitionMath
 import com.cinemind.core.domain.model.Clip
@@ -46,6 +47,16 @@ data class RenderSource(
     val durationUs: Long,
 )
 
+/** Background music for a render. */
+data class RenderMusic(
+    val uri: String,
+    val durationUs: Long,
+    val startOffsetUs: Long,
+    val volume: Float,
+    val fadeInUs: Long,
+    val fadeOutUs: Long,
+)
+
 /**
  * Turns a laid-out track into a Media3 Transformer [Composition] and renders it to an MP4.
  * Independent of storage/DI so it can be exercised directly by instrumented tests.
@@ -54,10 +65,24 @@ data class RenderSource(
 @OptIn(UnstableApi::class)
 class TimelineRenderer(private val context: Context) {
 
-    fun buildComposition(clips: List<Pair<Clip, RenderSource>>, size: OutputSize, fps: Int): Composition {
+    /**
+     * @param music optional background music: a second, audio-only sequence (looped / cut to the
+     *   video length by [MusicLayout]) that Media3 mixes with the clips' own sound.
+     * @param originalVolume volume of the clips' own sound, 0..1.
+     */
+    fun buildComposition(
+        clips: List<Pair<Clip, RenderSource>>,
+        size: OutputSize,
+        fps: Int,
+        music: RenderMusic? = null,
+        originalVolume: Float = 1f,
+    ): Composition {
         val fit = Presentation.createForWidthAndHeight(size.width, size.height, Presentation.LAYOUT_SCALE_TO_FIT)
         val animations = TransitionMath.animations(clips.map { it.first })
-        val hasAudio = clips.any { (_, s) -> s.isVideo && s.hasAudio }
+        val totalUs = clips.maxOfOrNull { it.first.timelineOutUs } ?: 0L
+        val musicItems = music?.let { buildMusicItems(it, totalUs) }.orEmpty()
+        val hasAudio = clips.any { (_, s) -> s.isVideo && s.hasAudio } || musicItems.isNotEmpty()
+        val clipAudio = if (originalVolume < 0.999f) listOf(GainAudioProcessor { originalVolume.coerceIn(0f, 1f) }) else emptyList()
 
         val items = clips.mapIndexed { i, (clip, source) ->
             val lengthUs = clip.timelineOutUs - clip.timelineInUs
@@ -81,7 +106,7 @@ class TimelineRenderer(private val context: Context) {
                             .build(),
                     )
                     .build()
-                EditedMediaItem.Builder(mediaItem).setEffects(Effects(emptyList(), effects)).build()
+                EditedMediaItem.Builder(mediaItem).setEffects(Effects(clipAudio, effects)).build()
             } else {
                 val mediaItem = MediaItem.Builder()
                     .setUri(source.uri)
@@ -93,12 +118,36 @@ class TimelineRenderer(private val context: Context) {
                     .build()
             }
         }
-        return Composition.Builder(EditedMediaItemSequence(items))
+        val sequences = buildList {
+            add(EditedMediaItemSequence(items))
+            if (musicItems.isNotEmpty()) add(EditedMediaItemSequence(musicItems))
+        }
+        return Composition.Builder(sequences)
             // Photos and silent clips get silence so the audio track stays continuous.
             .experimentalSetForceAudioTrack(hasAudio)
             .setHdrMode(Composition.HDR_MODE_TONE_MAP_HDR_TO_SDR_USING_OPEN_GL)
             .build()
     }
+
+    private fun buildMusicItems(music: RenderMusic, totalUs: Long): List<EditedMediaItem> =
+        MusicLayout.segments(music.durationUs, music.startOffsetUs, totalUs).map { seg ->
+            val mediaItem = MediaItem.Builder()
+                .setUri(music.uri)
+                .setClippingConfiguration(
+                    MediaItem.ClippingConfiguration.Builder()
+                        .setStartPositionMs(seg.sourceInUs / 1_000)
+                        .setEndPositionMs(seg.sourceOutUs / 1_000)
+                        .build(),
+                )
+                .build()
+            val gain = GainAudioProcessor { localUs ->
+                MusicLayout.gainAt(seg.timelineStartUs + localUs, totalUs, music.volume, music.fadeInUs, music.fadeOutUs)
+            }
+            EditedMediaItem.Builder(mediaItem)
+                .setRemoveVideo(true)
+                .setEffects(Effects(listOf(gain), emptyList()))
+                .build()
+        }
 
     /**
      * Renders [composition] to [outFile] (H.264 + AAC). [onProgress] receives 0..1 or null.

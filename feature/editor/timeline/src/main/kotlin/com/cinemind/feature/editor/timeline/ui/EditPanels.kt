@@ -15,7 +15,9 @@ import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.Animation
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCut
 import androidx.compose.material.icons.filled.FileUpload
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -43,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import java.util.Locale
+import com.cinemind.core.domain.audio.MusicSettings
 import com.cinemind.core.domain.editing.ClipLimits
 import com.cinemind.core.domain.editing.ClipTransition
 import com.cinemind.core.domain.editing.TimelineEditing
@@ -93,6 +96,7 @@ internal fun ClipInspector(
     onTrim: (Long, Long) -> Unit,
     onMove: (Int) -> Unit,
     onDelete: () -> Unit,
+    onSplit: () -> Unit,
     onClose: () -> Unit,
     onTransition: (ClipTransition, Long) -> Unit,
 ) {
@@ -109,6 +113,9 @@ internal fun ClipInspector(
                 }
                 IconButton(onClick = { onMove(1) }, enabled = index < clipCount - 1) {
                     Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "Move later")
+                }
+                IconButton(onClick = onSplit) {
+                    Icon(Icons.Default.ContentCut, contentDescription = "Split at playhead")
                 }
                 IconButton(onClick = onDelete) {
                     Icon(Icons.Default.Delete, contentDescription = "Remove clip from timeline", tint = MaterialTheme.colorScheme.error)
@@ -226,6 +233,7 @@ internal fun EditorToolsBar(
     onSmartEdit: () -> Unit,
     onAddMedia: () -> Unit,
     onTransitions: () -> Unit,
+    onMusic: () -> Unit,
     onExport: () -> Unit,
 ) {
     Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh) {
@@ -238,6 +246,7 @@ internal fun EditorToolsBar(
             ToolButton(Icons.Default.AutoAwesome, "Smart edit", enabled = hasClips, onClick = onSmartEdit)
             ToolButton(Icons.Default.AddPhotoAlternate, "Add clips", enabled = true, onClick = onAddMedia)
             ToolButton(Icons.Default.Animation, "Transitions", enabled = hasClips, onClick = onTransitions)
+            ToolButton(Icons.Default.MusicNote, "Music", enabled = hasClips, onClick = onMusic)
             ToolButton(Icons.Default.FileUpload, "Export", enabled = hasClips, onClick = onExport)
         }
     }
@@ -306,4 +315,78 @@ private fun StillLength(item: PreviewClip, fps: Int, onTrim: (Long, Long) -> Uni
 @Composable
 private fun Label(text: String) {
     Text(text, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+}
+
+/** Background music: choose a song, its volume, where it starts, fades; plus the clips' own sound level. */
+@Composable
+internal fun MusicDialog(
+    music: MusicUi?,
+    originalVolume: Float,
+    onChoose: () -> Unit,
+    onUpdate: (MusicSettings) -> Unit,
+    onRemove: () -> Unit,
+    onOriginalVolume: (Float) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Music") },
+        text = {
+            Column {
+                if (music == null) {
+                    Text(
+                        "Add a song from your phone (MP3, M4A, WAV…). It plays under the whole video, " +
+                            "loops if it's shorter, and fades in and out.",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                } else {
+                    val s = music.settings
+                    Text(music.name, style = MaterialTheme.typography.titleSmall, maxLines = 1)
+                    Text(formatTimecode(music.durationUs, 30), style = MaterialTheme.typography.labelSmall)
+
+                    var volume by remember(s.volume) { mutableFloatStateOf(s.volume) }
+                    Label("Music volume ${(volume * 100).toInt()}%")
+                    Slider(value = volume, onValueChange = { volume = it }, onValueChangeFinished = { onUpdate(s.copy(volume = volume)) })
+
+                    val maxStart = (music.durationUs - 1_000_000).coerceAtLeast(0).toFloat()
+                    var start by remember(s.startOffsetUs) { mutableFloatStateOf(s.startOffsetUs.toFloat().coerceAtMost(maxStart)) }
+                    Label("Start the song at ${formatTimecode(start.toLong(), 30)}")
+                    Slider(
+                        value = start,
+                        valueRange = 0f..maxOf(maxStart, 1f),
+                        enabled = maxStart > 0f,
+                        onValueChange = { start = it },
+                        onValueChangeFinished = { onUpdate(s.copy(startOffsetUs = start.toLong())) },
+                    )
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Fade in", modifier = Modifier.weight(1f))
+                        Switch(checked = s.fadeInMs > 0, onCheckedChange = { onUpdate(s.copy(fadeInMs = if (it) 1_000 else 0)) })
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Fade out", modifier = Modifier.weight(1f))
+                        Switch(checked = s.fadeOutMs > 0, onCheckedChange = { onUpdate(s.copy(fadeOutMs = if (it) 1_500 else 0)) })
+                    }
+                }
+
+                var original by remember(originalVolume) { mutableFloatStateOf(originalVolume) }
+                Label("Original sound of the clips ${(original * 100).toInt()}%")
+                Slider(value = original, onValueChange = { original = it }, onValueChangeFinished = { onOriginalVolume(original) })
+                Text(
+                    "Use only music you're allowed to publish. Spotify songs can't be used in exported videos.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onChoose) { Text(if (music == null) "Choose a song" else "Replace song") }
+        },
+        dismissButton = {
+            Row {
+                if (music != null) TextButton(onClick = onRemove) { Text("Remove") }
+                TextButton(onClick = onDismiss) { Text("Done") }
+            }
+        },
+    )
 }
