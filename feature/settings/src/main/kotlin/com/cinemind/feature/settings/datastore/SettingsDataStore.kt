@@ -1,32 +1,32 @@
 package com.cinemind.feature.settings.datastore
 
 import android.content.Context
-import androidx.datastore.preferences.core.edit
-import androidx.datastore.preferences.core.editCommit
-import androidx.datastore.preferences.core.preferencesKey
-import androidx.datastore.preferences.core.stringPreferencesKey
-import androidx.datastore.preferences.core.booleanPreferencesKey
-import androidx.datastore.preferences.core.floatPreferencesKey
-import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
-import androidx.datastore.preferences.core.PreferencesKeys
-import androidx.datastore.preferences.core.SharedPreferencesMigration
-import androidx.datastore.preferences.core.createDataStore
-import androidx.datastore.preferences.core.PreferenceDataStore
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
+import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.flow.SharingStarted
 
+private val Context.settingsDataStore: DataStore<Preferences> by preferencesDataStore(
+    name = "cinemind_settings",
+)
+
+/**
+ * Non-secret user preferences.
+ *
+ * SECURITY: cloud-AI API keys must NOT be stored here (DataStore is plain text on disk).
+ * They belong in Android Keystore-backed storage, which arrives with the Stage 6 provider work.
+ */
 object SettingsKeys {
     val AI_MODEL_ENABLED = booleanPreferencesKey("ai_model_enabled")
     val CLOUD_AI_ENABLED = booleanPreferencesKey("cloud_ai_enabled")
     val CLOUD_AI_PROVIDER = stringPreferencesKey("cloud_ai_provider")
-    val CLOUD_AI_API_KEY = stringPreferencesKey("cloud_ai_api_key")
     val CLOUD_AI_BASE_URL = stringPreferencesKey("cloud_ai_base_url")
     val DEFAULT_EXPORT_PRESET = stringPreferencesKey("default_export_preset")
     val DEFAULT_ASPECT_RATIO = stringPreferencesKey("default_aspect_ratio")
@@ -36,89 +36,26 @@ object SettingsKeys {
     val HAPTIC_FEEDBACK = booleanPreferencesKey("haptic_feedback")
 }
 
-class SettingsDataStore(private val context: Context) {
-    private val dataStore: PreferenceDataStore by lazy {
-        context.createDataStore(
-            name = "cinemind_settings",
-            productionMigrations = listOf(
-                SharedPreferencesMigration(context, "cinemind_settings_preferences")
-            )
-        )
+class SettingsDataStore(context: Context) {
+    private val dataStore = context.applicationContext.settingsDataStore
+
+    val aiModelEnabled: Flow<Boolean> = observe(SettingsKeys.AI_MODEL_ENABLED, false)
+    val cloudAiEnabled: Flow<Boolean> = observe(SettingsKeys.CLOUD_AI_ENABLED, false)
+    val cloudAiProvider: Flow<String?> = dataStore.data
+        .map { it[SettingsKeys.CLOUD_AI_PROVIDER] }
+        .distinctUntilChanged()
+
+    fun <T> observe(key: Preferences.Key<T>, default: T): Flow<T> =
+        dataStore.data.map { it[key] ?: default }.distinctUntilChanged()
+
+    suspend fun <T> set(key: Preferences.Key<T>, value: T) {
+        dataStore.edit { it[key] = value }
     }
 
-    val aiModelEnabled: Flow<Boolean> by lazy {
-        dataStore.data
-            .map { preferences ->
-                preferences[SettingsKeys.AI_MODEL_ENABLED] ?: false
-            }
-            .distinctUntilChanged()
+    suspend fun <T> remove(key: Preferences.Key<T>) {
+        dataStore.edit { it.remove(key) }
     }
 
-    val cloudAIEnabled: Flow<Boolean> by lazy {
-        dataStore.data
-            .map { preferences ->
-                preferences[SettingsKeys.CLOUD_AI_ENABLED] ?: false
-            }
-            .distinctUntilChanged()
-    }
-
-    val cloudAIProvider: Flow<String?> by lazy {
-        dataStore.data
-            .map { preferences ->
-                preferences[SettingsKeys.CLOUD_AI_PROVIDER]
-            }
-            .distinctUntilChanged()
-    }
-
-    suspend fun setBoolean(key: PreferencesKeys<Boolean>, value: Boolean) {
-        dataStore.edit { preferences ->
-            preferences[key] = value
-        }.editCommit()
-    }
-
-    suspend fun setString(key: PreferencesKeys<String>, value: String?) {
-        dataStore.edit { preferences ->
-            preferences[key] = value
-        }.editCommit()
-    }
-
-    suspend fun setInt(key: PreferencesKeys<Int>, value: Int) {
-        dataStore.edit { preferences ->
-            preferences[key] = value
-        }.editCommit()
-    }
-
-    suspend fun <T> getValue(key: PreferencesKeys<T>, default: T): T {
-        return dataStore.data.first().let { preferences ->
-            preferences[key] ?: default
-        }
-    }
-}
-
-class SettingsViewModel(private val settingsDataStore: SettingsDataStore) {
-    val aiModelEnabled: Flow<Boolean> = settingsDataStore.aiModelEnabled
-        .stateIn(
-            scope = CoroutineScope(Dispatchers.Main),
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = false
-        )
-
-    val cloudAIEnabled: Flow<Boolean> = settingsDataStore.cloudAIEnabled
-        .stateIn(
-            scope = CoroutineScope(Dispatchers.Main),
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = false
-        )
-
-    fun toggleAIModel(enabled: Boolean) {
-        CoroutineScope(Dispatchers.IO).launch {
-            settingsDataStore.setBoolean(SettingsKeys.AI_MODEL_ENABLED, enabled)
-        }
-    }
-
-    fun toggleCloudAI(enabled: Boolean) {
-        CoroutineScope(Dispatchers.IO).launch {
-            settingsDataStore.setBoolean(SettingsKeys.CLOUD_AI_ENABLED, enabled)
-        }
-    }
+    suspend fun <T> get(key: Preferences.Key<T>, default: T): T =
+        dataStore.data.first()[key] ?: default
 }

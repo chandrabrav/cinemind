@@ -1,12 +1,24 @@
 package com.cinemind.app.di
 
 import android.content.Context
+import com.cinemind.core.data.local.dao.ClipDao
+import com.cinemind.core.data.local.dao.MediaAssetDao
+import com.cinemind.core.data.local.dao.ProjectDao
+import com.cinemind.core.data.local.dao.TrackDao
 import com.cinemind.core.data.local.database.AppDatabase
-import com.cinemind.core.data.repository.*
-import com.cinemind.core.domain.repository.*
+import com.cinemind.core.data.repository.ClipRepositoryImpl
+import com.cinemind.core.data.repository.MediaAssetRepositoryImpl
+import com.cinemind.core.data.repository.ProjectRepositoryImpl
+import com.cinemind.core.data.repository.TrackRepositoryImpl
+import com.cinemind.core.domain.repository.ClipRepository
+import com.cinemind.core.domain.repository.MediaAssetRepository
+import com.cinemind.core.domain.repository.ProjectRepository
+import com.cinemind.core.domain.repository.TrackRepository
 import dagger.Module
 import dagger.Provides
-import hilt.android.ApplicationContext
+import dagger.hilt.InstallIn
+import dagger.hilt.android.qualifiers.ApplicationContext
+import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
 
 @Module
@@ -15,9 +27,8 @@ object DatabaseModule {
 
     @Provides
     @Singleton
-    fun provideAppDatabase(@ApplicationContext context: Context): AppDatabase {
-        return AppDatabase.getDatabase(context)
-    }
+    fun provideAppDatabase(@ApplicationContext context: Context): AppDatabase =
+        AppDatabase.getDatabase(context)
 
     @Provides
     fun provideProjectDao(database: AppDatabase): ProjectDao = database.projectDao()
@@ -37,13 +48,8 @@ object DatabaseModule {
 object RepositoryModule {
 
     @Provides
-    fun provideProjectRepository(
-        projectDao: ProjectDao,
-        trackDao: TrackDao,
-        clipDao: ClipDao,
-        mediaAssetDao: MediaAssetDao
-    ): ProjectRepository =
-        ProjectRepositoryImpl(projectDao, trackDao, clipDao, mediaAssetDao)
+    fun provideProjectRepository(database: AppDatabase): ProjectRepository =
+        ProjectRepositoryImpl(database)
 
     @Provides
     fun provideTrackRepository(trackDao: TrackDao): TrackRepository =

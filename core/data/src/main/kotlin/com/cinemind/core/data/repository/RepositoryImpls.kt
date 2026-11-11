@@ -1,20 +1,39 @@
 package com.cinemind.core.data.repository
 
-import com.cinemind.core.domain.model.*
-import com.cinemind.core.domain.repository.*
-import com.cinemind.core.data.local.dao.*
+import com.cinemind.core.data.local.dao.ClipDao
+import com.cinemind.core.data.local.dao.MediaAssetDao
+import com.cinemind.core.data.local.dao.ProjectDao
+import com.cinemind.core.data.local.dao.TrackDao
 import com.cinemind.core.data.local.database.AppDatabase
+import androidx.room.withTransaction
+import com.cinemind.core.domain.model.Clip
+import com.cinemind.core.domain.model.MediaAsset
+import com.cinemind.core.domain.model.Project
+import com.cinemind.core.domain.model.ProjectTimeline
+import com.cinemind.core.domain.model.Track
+import com.cinemind.core.domain.repository.ClipRepository
+import com.cinemind.core.domain.repository.MediaAssetRepository
+import com.cinemind.core.domain.repository.ProjectRepository
+import com.cinemind.core.domain.repository.TrackRepository
 import kotlinx.coroutines.flow.Flow
 
 class ProjectRepositoryImpl(
-    private val projectDao: ProjectDao,
-    private val trackDao: TrackDao,
-    private val clipDao: ClipDao,
-    private val mediaAssetDao: MediaAssetDao
+    private val database: AppDatabase,
 ) : ProjectRepository {
+    private val projectDao: ProjectDao = database.projectDao()
+
     override suspend fun createProject(project: Project): String {
-        val id = projectDao.insert(project).toString()
-        return id
+        projectDao.insert(project)
+        return project.id
+    }
+
+    override suspend fun createProjectWithTimeline(timeline: ProjectTimeline): String {
+        database.withTransaction {
+            projectDao.insert(timeline.project)
+            timeline.tracks.forEach { database.trackDao().insert(it) }
+            timeline.clips.forEach { database.clipDao().insert(it) }
+        }
+        return timeline.project.id
     }
 
     override suspend fun getProject(id: String): Project? = projectDao.getProject(id)
@@ -23,36 +42,38 @@ class ProjectRepositoryImpl(
 
     override suspend fun updateProject(project: Project) = projectDao.update(project)
 
-    override suspend fun deleteProject(id: String) {
-        val project = projectDao.getProject(id) ?: return
-        projectDao.delete(project)
-    }
+    // Tracks and clips are removed by the CASCADE foreign keys. Source media files are never touched.
+    override suspend fun deleteProject(id: String) = projectDao.deleteById(id)
 
     override suspend fun getProjectCount(): Int = projectDao.count()
 }
 
 class TrackRepositoryImpl(
-    private val trackDao: TrackDao
+    private val trackDao: TrackDao,
 ) : TrackRepository {
-    override suspend fun createTrack(track: Track): String = trackDao.insert(track).toString()
+    override suspend fun createTrack(track: Track): String {
+        trackDao.insert(track)
+        return track.id
+    }
 
     override fun getTracksForProject(projectId: String): Flow<List<Track>> =
         trackDao.getTracksForProject(projectId)
 
     override suspend fun updateTrack(track: Track) = trackDao.update(track)
 
-    override suspend fun deleteTrack(id: String) = trackDao.delete(Track(id = id))
+    override suspend fun deleteTrack(id: String) = trackDao.deleteById(id)
 
-    override suspend fun deleteTracksForProject(projectId: String) {
-        // Note: In production, fetch tracks first then delete individually
-        // Room doesn't support delete by query directly without DAO method
-    }
+    override suspend fun deleteTracksForProject(projectId: String) =
+        trackDao.deleteByProjectId(projectId)
 }
 
 class ClipRepositoryImpl(
-    private val clipDao: ClipDao
+    private val clipDao: ClipDao,
 ) : ClipRepository {
-    override suspend fun createClip(clip: Clip): String = clipDao.insert(clip).toString()
+    override suspend fun createClip(clip: Clip): String {
+        clipDao.insert(clip)
+        return clip.id
+    }
 
     override fun getClipsForTrack(trackId: String): Flow<List<Clip>> =
         clipDao.getClipsForTrack(trackId)
@@ -61,23 +82,28 @@ class ClipRepositoryImpl(
 
     override suspend fun updateClip(clip: Clip) = clipDao.update(clip)
 
-    override suspend fun deleteClip(id: String) = clipDao.delete(Clip(id = id))
+    override suspend fun deleteClip(id: String) = clipDao.deleteById(id)
 
     override suspend fun deleteClipsForTrack(trackId: String) = clipDao.deleteByTrackId(trackId)
 }
 
 class MediaAssetRepositoryImpl(
-    private val mediaAssetDao: MediaAssetDao
+    private val mediaAssetDao: MediaAssetDao,
 ) : MediaAssetRepository {
-    override suspend fun createAsset(asset: MediaAsset): String = mediaAssetDao.insert(asset).toString()
+    override suspend fun createAsset(asset: MediaAsset): String {
+        mediaAssetDao.insert(asset)
+        return asset.id
+    }
 
     override suspend fun getAsset(id: String): MediaAsset? = mediaAssetDao.getAsset(id)
+
+    override suspend fun getAssetByUri(uri: String): MediaAsset? = mediaAssetDao.getAssetByUri(uri)
 
     override fun getAllAssets(): Flow<List<MediaAsset>> = mediaAssetDao.getAllAssets()
 
     override suspend fun updateAsset(asset: MediaAsset) = mediaAssetDao.update(asset)
 
-    override suspend fun deleteAsset(id: String) = mediaAssetDao.delete(MediaAsset(id = id))
+    override suspend fun deleteAsset(id: String) = mediaAssetDao.deleteById(id)
 
     override fun searchAssets(query: String): Flow<List<MediaAsset>> =
         mediaAssetDao.searchAssets("%$query%")

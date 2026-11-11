@@ -1,5 +1,6 @@
 package com.cinemind.core.domain.model
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
@@ -41,7 +42,8 @@ data class Project(
             childColumns = ["projectId"],
             onDelete = ForeignKey.CASCADE
         )
-    ]
+    ],
+    indices = [Index(value = ["projectId"])]
 )
 data class Track(
     @PrimaryKey val id: String = UUID.randomUUID().toString(),
@@ -79,7 +81,7 @@ enum class TrackType {
             onDelete = ForeignKey.RESTRICT
         )
     ],
-    indices = [Index(value = ["trackId"])]
+    indices = [Index(value = ["trackId"]), Index(value = ["assetId"])]
 )
 data class Clip(
     @PrimaryKey val id: String = UUID.randomUUID().toString(),
@@ -114,8 +116,14 @@ data class MediaAsset(
     val hasAudio: Boolean = false,
     val dateTaken: Long? = null,
     val proxyPath: String? = null,
-    val importDate: Long = System.currentTimeMillis()
-)
+    val importDate: Long = System.currentTimeMillis(),
+    // Added in schema v2 (see MIGRATION_1_2). Width/height are display-oriented (rotation applied).
+    @ColumnInfo(defaultValue = "''") val displayName: String = "",
+    @ColumnInfo(defaultValue = "0") val sizeBytes: Long = 0,
+) {
+    val isVideo: Boolean get() = mimeType.startsWith("video/")
+    val isImage: Boolean get() = mimeType.startsWith("image/")
+}
 
 /**
  * AI analysis results for a media asset, stored as embedded JSON.

@@ -3,28 +3,31 @@ package com.cinemind.app
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.appcompat.app.AppCompatActivity
-import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.lifecycle.viewmodel.compose.viewModel
-import com.cinemind.app.di.CineMindApplication
-import com.cinemind.core.ui.theme.CineMindTheme
-import com.cinemind.feature.editor.timeline.ui.TimelineScreen
-import com.cinemind.feature.media.ui.MediaLibraryScreen
-import androidx.compose.material3.*
-import androidx.compose.foundation.layout.*
-import androidx.compose.runtime.*
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
+import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import androidx.navigation.navArgument
+import com.cinemind.core.ui.theme.CineMindTheme
+import com.cinemind.feature.editor.timeline.ui.TimelineScreen
+import com.cinemind.feature.media.ui.MediaLibraryScreen
 import dagger.hilt.android.AndroidEntryPoint
 
 @AndroidEntryPoint
-class MainActivity : AppCompatActivity() {
+class MainActivity : ComponentActivity() {
 
+    @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         setContent {
             CineMindTheme {
@@ -32,11 +35,11 @@ class MainActivity : AppCompatActivity() {
                     topBar = {
                         TopAppBar(
                             title = { Text(text = "CineMind AI") },
-                            colors = TopAppBarDefaults.mediumTopAppBarColors(
-                                containerColor = MaterialTheme.colorScheme.surface
-                            )
+                            colors = TopAppBarDefaults.topAppBarColors(
+                                containerColor = MaterialTheme.colorScheme.surface,
+                            ),
                         )
-                    }
+                    },
                 ) { paddingValues ->
                     CineMindNavHost(modifier = Modifier.padding(paddingValues))
                 }
@@ -48,23 +51,22 @@ class MainActivity : AppCompatActivity() {
 @Composable
 fun CineMindNavHost(
     modifier: Modifier = Modifier,
-    navController: androidx.navigation.NavController = rememberNavController()
+    navController: NavHostController = rememberNavController(),
 ) {
     NavHost(
         navController = navController,
         startDestination = "media_library",
-        modifier = modifier
+        modifier = modifier,
     ) {
         composable("media_library") {
             MediaLibraryScreen(
-                onProjectSelected = { projectId ->
+                onProjectCreated = { projectId ->
                     navController.navigate("editor/$projectId")
-                }
+                },
             )
         }
-        composable("editor/{projectId}") {
-            val projectId = navController.currentBackStackEntryAsSelf()
-                ?.arguments?.getString("projectId") ?: ""
+        composable("editor/{projectId}") { backStackEntry ->
+            val projectId = backStackEntry.arguments?.getString("projectId").orEmpty()
             TimelineScreen(projectId = projectId)
         }
     }
