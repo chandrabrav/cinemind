@@ -96,6 +96,8 @@ class AiModelsViewModel @Inject constructor(
 
     fun state(spec: ModelSpec): StateFlow<ModelState> = downloads.state(spec)
 
+    fun record(spec: ModelSpec) = store.record(spec)
+
     private fun read() = AiSettingsUi(prefs.useAiInSmartEdit, prefs.wifiOnly, prefs.preferGpu, prefs.selectedModelId, store.freeBytes())
 
     fun setUseAi(v: Boolean) { prefs.useAiInSmartEdit = v; _settings.value = read() }
@@ -168,6 +170,7 @@ fun AiModelsScreen(viewModel: AiModelsViewModel = hiltViewModel()) {
                 onDownload = { viewModel.download(spec) },
                 onPause = viewModel::pause,
                 onDelete = { viewModel.delete(spec) },
+                record = if (state == ModelState.Installed) viewModel.record(spec) else null,
             )
         }
 
@@ -219,6 +222,7 @@ private fun ModelCard(
     onDownload: () -> Unit,
     onPause: () -> Unit,
     onDelete: () -> Unit,
+    record: com.cinemind.feature.ai.llm.ondevice.ModelRecord? = null,
 ) {
     val c = CineMind.colors
     GlassCard(modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.gutter)) {
@@ -230,7 +234,8 @@ private fun ModelCard(
             }
             when (state) {
                 ModelState.Installed -> StatusPill("Installed", Tone.Success)
-                is ModelState.Downloading, ModelState.Verifying -> StatusPill("Downloading", Tone.Accent)
+                is ModelState.Downloading -> StatusPill("Downloading", Tone.Accent)
+                ModelState.Verifying -> StatusPill("Checking", Tone.Accent)
                 is ModelState.Paused -> StatusPill("Paused", Tone.Warning)
                 is ModelState.Failed -> StatusPill("Problem", Tone.Danger)
                 ModelState.NotInstalled -> Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = c.textTertiary)
@@ -265,14 +270,24 @@ private fun ModelCard(
                 Spacer(Modifier.height(Spacing.xs))
                 LinearProgressIndicator(color = c.accent, trackColor = c.surfaceSunken, modifier = Modifier.fillMaxWidth())
             }
-            ModelState.Installed -> Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    if (selected) "In use for Smart edit" else "Ready",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = c.textSecondary,
-                    modifier = Modifier.weight(1f),
-                )
-                TextButton(onClick = onDelete) { Text("Delete", color = c.danger) }
+            ModelState.Installed -> Column {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        if (selected) "In use for Smart edit and captions" else "Ready",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = c.textSecondary,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(onClick = onDelete) { Text("Delete", color = c.danger) }
+                }
+                if (record != null) {
+                    val date = android.text.format.DateFormat.getMediumDateFormat(LocalContext.current).format(java.util.Date(record.verifiedAtMs))
+                    Text(
+                        "${DownloadMath.formatBytes(record.sizeBytes)} on this phone · checksum verified $date · format ${record.format}. Kept when the app updates.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = c.textTertiary,
+                    )
+                }
             }
             is ModelState.Failed -> Column {
                 Text(state.message, color = c.danger, style = MaterialTheme.typography.bodySmall)

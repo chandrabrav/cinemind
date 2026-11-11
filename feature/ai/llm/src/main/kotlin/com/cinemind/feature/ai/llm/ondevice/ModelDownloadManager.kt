@@ -57,10 +57,36 @@ class ModelDownloadManager @Inject constructor(
 
     val isBusy: Boolean get() = job?.isActive == true
 
-    private fun initialState(spec: ModelSpec): ModelState = when {
-        store.isInstalled(spec) -> ModelState.Installed
-        store.partialBytes(spec) > 0 -> ModelState.Paused(store.partialBytes(spec), spec.sizeBytes)
-        else -> ModelState.NotInstalled
+    private fun initialState(spec: ModelSpec): ModelState = when (store.status(spec)) {
+        DiskStatus.READY -> ModelState.Installed
+        // The right file is there (e.g. its record was lost): check it on the phone, never re-download.
+        DiskStatus.NEEDS_CHECK -> ModelState.Verifying
+        DiskStatus.INCOMPATIBLE -> ModelState.Failed(
+            "This model file was made for an older version of the AI runtime. It's kept until you download the update.",
+            store.partialBytes(spec),
+        )
+        DiskStatus.DAMAGED -> ModelState.Failed("The model file is damaged (wrong size). Download it again.", store.partialBytes(spec))
+        DiskStatus.PARTIAL -> ModelState.Paused(store.partialBytes(spec), spec.sizeBytes)
+        DiskStatus.ABSENT -> ModelState.NotInstalled
+    }
+
+    init {
+        // Re-verify found models whose verification record is missing, from the file on the phone.
+        ModelCatalog.ALL.filter { store.status(it) == DiskStatus.NEEDS_CHECK }.forEach { spec ->
+            scope.launch {
+                val flow = states.getValue(spec.id)
+                try {
+                    if (sha256(store.file(spec)).equals(spec.sha256, ignoreCase = true)) {
+                        store.markVerified(spec)
+                        flow.value = ModelState.Installed
+                    } else {
+                        flow.value = ModelState.Failed("The model file doesn't match the published checksum. Download it again.", 0)
+                    }
+                } catch (e: Exception) {
+                    flow.value = ModelState.Failed("Couldn't check the model file: ${e.message}", 0)
+                }
+            }
+        }
     }
 
     fun start(spec: ModelSpec) {
@@ -84,7 +110,10 @@ class ModelDownloadManager @Inject constructor(
             try {
                 download(spec)
                 flow.value = ModelState.Verifying
+                // Verify the downloaded copy *before* it replaces anything: a failed or corrupted
+                // download never touches a working model.
                 verify(spec)
+                if (!store.promotePart(spec)) throw IOException("Couldn't move the downloaded file into place")
                 store.markVerified(spec)
                 flow.value = ModelState.Installed
             } catch (e: CancellationException) {
@@ -131,7 +160,6 @@ class ModelDownloadManager @Inject constructor(
                 kotlinx.coroutines.delay(3_000L * attempt)
             }
         }
-        if (!part.renameTo(store.file(spec))) throw IOException("Couldn't move the downloaded file into place")
     }
 
     private suspend fun fetch(spec: ModelSpec, from: Long) {
@@ -179,9 +207,18 @@ class ModelDownloadManager @Inject constructor(
         }
     }
 
+    /** Checks the downloaded `.part` file; a mismatch discards only the partial download. */
     private suspend fun verify(spec: ModelSpec) {
+        val actual = sha256(store.partFile(spec))
+        if (!actual.equals(spec.sha256, ignoreCase = true)) {
+            store.deletePart(spec)
+            throw IOException("The download was corrupted (checksum mismatch). Please download again.")
+        }
+    }
+
+    private suspend fun sha256(file: java.io.File): String {
         val digest = MessageDigest.getInstance("SHA-256")
-        store.file(spec).inputStream().use { input ->
+        file.inputStream().use { input ->
             val buf = ByteArray(1 shl 20)
             while (true) {
                 coroutineContext.ensureActive()
@@ -190,11 +227,7 @@ class ModelDownloadManager @Inject constructor(
                 digest.update(buf, 0, n)
             }
         }
-        val actual = DownloadMath.hex(digest.digest())
-        if (!actual.equals(spec.sha256, ignoreCase = true)) {
-            store.delete(spec)
-            throw IOException("The download was corrupted (checksum mismatch). Please download again.")
-        }
+        return DownloadMath.hex(digest.digest())
     }
 
     private fun isMetered(): Boolean {

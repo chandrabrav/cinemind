@@ -47,6 +47,9 @@ interface ProjectRepository {
 
     suspend fun setOriginalAudioVolume(projectId: String, volume: Float)
 
+    /** The project's overlay (picture-in-picture) track, created on first use. */
+    suspend fun ensureOverlayTrack(projectId: String): Track
+
     /** Copies a project with all tracks and clips; returns the new id, or null if [id] doesn't exist. */
     suspend fun duplicateProject(id: String, newName: String): String?
     suspend fun updateProject(project: Project)

@@ -97,6 +97,12 @@ fun TimelineScreen(
         viewModel.loadProject(projectId)
         captionsViewModel.load(projectId)
     }
+    // Leaving the editor (export, Smart edit, AI models…) frees the preview's decoders and GPU
+    // pipeline; coming back restores them at the same position.
+    DisposableEffect(viewModel) {
+        viewModel.onEditorShown()
+        onDispose { viewModel.onEditorHidden() }
+    }
     val captionsUi by captionsViewModel.ui.collectAsStateWithLifecycle()
     var showCaptions by remember { mutableStateOf(false) }
     val project by viewModel.project.collectAsStateWithLifecycle()
@@ -124,13 +130,15 @@ fun TimelineScreen(
     val addMediaPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickMultipleVisualMedia(maxItems = 50),
     ) { uris -> viewModel.addMedia(uris) }
+    val overlayPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) viewModel.addOverlay(uri)
+    }
+    val pickOverlay = { overlayPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)) }
+    val selectedOverlay = editor.overlays.firstOrNull { it.clip.id == editor.selectedOverlayId }
 
-    val animations = remember(clips) { TransitionMath.animations(clips.map { it.clip }) }
-    val look = clips.getOrNull(preview.currentIndex)?.let { current ->
-        val clip = current.clip
-        val anim = animations.getOrNull(preview.currentIndex) ?: return@let null
-        TransitionMath.lookAt(preview.positionUs - clip.timelineInUs, clip.timelineOutUs - clip.timelineInUs, anim)
-    } ?: FrameLook.IDENTITY
+    // Transitions are rendered inside the preview video by the export's own effects
+    // (CompositionPlayer), so Compose no longer imitates them.
+    val look = FrameLook.IDENTITY
     val totalUs = TimelineEditing.durationUs(clips.map { it.clip })
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -185,6 +193,10 @@ fun TimelineScreen(
             captions = captionsUi.captions,
             onCaptionsTap = { showCaptions = true },
             fps = fps,
+            overlays = editor.overlays,
+            selectedOverlayId = editor.selectedOverlayId,
+            onOverlayTap = viewModel::onOverlayTapped,
+            onAddOverlay = pickOverlay,
         )
 
         AnimatedVisibility(
@@ -208,6 +220,22 @@ fun TimelineScreen(
             )
         }
 
+        AnimatedVisibility(
+            visible = selectedOverlay != null,
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically(),
+        ) {
+            val item = selectedOverlay ?: return@AnimatedVisibility
+            OverlayInspector(
+                item = item,
+                onTransform = viewModel::setOverlayTransform,
+                onMove = viewModel::moveOverlay,
+                onTrim = viewModel::trimOverlay,
+                onDelete = viewModel::deleteOverlay,
+                onClose = viewModel::clearOverlaySelection,
+            )
+        }
+
         EditorToolsBar(
             hasClips = clips.isNotEmpty(),
             onSmartEdit = onOpenBrief,
@@ -218,6 +246,7 @@ fun TimelineScreen(
             onMusic = { showMusic = true },
             onExport = onExport,
             onCaptions = { showCaptions = true },
+            onOverlay = pickOverlay,
         )
     }
 
@@ -365,17 +394,10 @@ private fun PreviewStage(
                 )
                 val asset = currentClip?.asset
                 when {
+                    // Photos are rendered by the composition like videos; only a missing file needs a label.
                     currentClip != null && asset == null -> Box(Modifier.fillMaxSize().background(c.stage), contentAlignment = Alignment.Center) {
                         Text("Missing media", color = c.onStage.copy(alpha = 0.7f))
                     }
-                    asset != null && asset.isImage -> AsyncImage(
-                        model = asset.uri,
-                        contentDescription = asset.displayName.ifEmpty { null },
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(c.stage),
-                    )
                 }
             }
             // Fades dip through black.

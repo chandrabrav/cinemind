@@ -30,7 +30,20 @@ data class ExportEstimate(val size: OutputSize, val videoBitrateBps: Int, val si
 class ExportViewModel @Inject constructor(
     projectRepository: ProjectRepository,
     private val exportManager: ExportManager,
+    @dagger.hilt.android.qualifiers.ApplicationContext private val context: android.content.Context,
 ) : ViewModel() {
+
+    /** Set when the previous export never finished because the app closed (stage it reached). */
+    private val _interrupted = MutableStateFlow(
+        if (exportManager.state.value.isActive) null
+        else com.cinemind.core.common.Diagnostics.interruptedJob(context)?.getProperty("stage"),
+    )
+    val interrupted: StateFlow<String?> = _interrupted
+
+    fun dismissInterrupted() {
+        com.cinemind.core.common.Diagnostics.clearInterrupted(context)
+        _interrupted.value = null
+    }
 
     private val projectId = MutableStateFlow<String?>(null)
 

@@ -9,6 +9,12 @@ plugins {
 // Release signing is configured only when CI provides the secrets (never committed).
 val releaseKeystore: String? = System.getenv("CINEMIND_KEYSTORE_PATH")
 
+// Debug builds are signed with ONE permanent CineMind debug key (a CI secret, never committed), so a
+// newer debug APK installs over an older one and keeps projects, settings and downloaded models.
+// Without it every CI machine invents a throwaway key and Android rejects the "update"
+// (root cause of the uninstall-to-update problem, 2026-11-11).
+val debugKeystore: String? = System.getenv("CINEMIND_DEBUG_KEYSTORE_PATH")
+
 android {
     namespace = "com.cinemind.app"
     compileSdk = libs.versions.compileSdk.get().toInt()
@@ -30,6 +36,15 @@ android {
     }
 
     signingConfigs {
+        if (debugKeystore != null) {
+            create("stableDebug") {
+                storeFile = file(debugKeystore)
+                storeType = "pkcs12"
+                storePassword = System.getenv("CINEMIND_DEBUG_KEYSTORE_PASSWORD")
+                keyAlias = "cinemind-debug"
+                keyPassword = System.getenv("CINEMIND_DEBUG_KEYSTORE_PASSWORD")
+            }
+        }
         if (releaseKeystore != null) {
             create("release") {
                 storeFile = file(releaseKeystore)
@@ -55,6 +70,9 @@ android {
         debug {
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-debug"
+            if (debugKeystore != null) {
+                signingConfig = signingConfigs.getByName("stableDebug")
+            }
         }
     }
 

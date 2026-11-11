@@ -25,6 +25,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.outlined.BugReport
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -80,6 +81,7 @@ class SettingsViewModel @Inject constructor(
 fun SettingsScreen(
     onOpenAiModels: () -> Unit,
     onOpenAbout: () -> Unit = {},
+    onOpenDiagnostics: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val mode by viewModel.themeMode.collectAsStateWithLifecycle()
@@ -127,6 +129,28 @@ fun SettingsScreen(
                     Text("On-device AI", style = MaterialTheme.typography.titleMedium, color = CineMind.colors.textPrimary)
                     Text(
                         "Download and benchmark AI models for Smart edit",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = CineMind.colors.textTertiary,
+                    )
+                }
+                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = CineMind.colors.textTertiary)
+            }
+        }
+
+        SectionHeader("Help", modifier = Modifier.padding(top = Spacing.l))
+        GlassCard(
+            onClick = onOpenDiagnostics,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = Spacing.gutter),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Outlined.BugReport, contentDescription = null, tint = CineMind.colors.textSecondary)
+                Spacer(Modifier.width(Spacing.m))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Diagnostics", style = MaterialTheme.typography.titleSmall, color = CineMind.colors.textPrimary)
+                    Text(
+                        "Crash and export reports to copy and share",
                         style = MaterialTheme.typography.bodySmall,
                         color = CineMind.colors.textTertiary,
                     )

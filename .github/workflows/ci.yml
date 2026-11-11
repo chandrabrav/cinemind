@@ -35,11 +35,33 @@ jobs:
         with:
           gradle-version: ${{ env.GRADLE_VERSION }}
 
+      # One permanent debug signing key for every build, so new APKs install over old ones (keeping
+      # projects, settings and downloaded models). Stored only as repository secrets.
+      - name: Permanent debug signing key
+        env:
+          KEY_B64: ${{ secrets.CINEMIND_DEBUG_KEYSTORE_BASE64 }}
+          KEY_PW: ${{ secrets.CINEMIND_DEBUG_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -z "$KEY_B64" ] || [ -z "$KEY_PW" ]; then
+            echo "::warning::CINEMIND_DEBUG_KEYSTORE_BASE64/PASSWORD are not set: this APK is signed with a throwaway key and cannot update an installed CineMind AI."
+            exit 0
+          fi
+          echo "$KEY_B64" | base64 -d > "$RUNNER_TEMP/cinemind-debug.p12"
+          echo "CINEMIND_DEBUG_KEYSTORE_PATH=$RUNNER_TEMP/cinemind-debug.p12" >> "$GITHUB_ENV"
+          echo "CINEMIND_DEBUG_KEYSTORE_PASSWORD=$KEY_PW" >> "$GITHUB_ENV"
+
       - name: Unit tests
         run: gradle testDebugUnitTest --stacktrace
 
       - name: Build debug APK
         run: gradle assembleDebug --stacktrace
+
+      - name: Report signing identity
+        run: |
+          apk=$(ls app/build/outputs/apk/debug/*.apk | head -1)
+          cert=$(python3 .github/scripts/apkcert.py --digest "$apk")
+          echo "Debug APK signing certificate SHA-256: \`$cert\` (must stay the same across builds)" >> "$GITHUB_STEP_SUMMARY"
+          echo "$cert"
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
@@ -69,7 +91,12 @@ jobs:
   export-e2e:
     name: Export end-to-end (emulator)
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 50
+    # Needs this run's APK for the update test.
+    needs: build
+    permissions:
+      contents: read
+      actions: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -115,7 +142,14 @@ jobs:
           ffmpeg -nostdin -loglevel error -y -f lavfi -i testsrc2=size=1200x900 -frames:v 1 "$d/photo.jpg"
           ffmpeg -nostdin -loglevel error -y -f lavfi -i sine=frequency=660:sample_rate=44100 -t 3 -c:a aac "$d/music.m4a"
           ffmpeg -nostdin -loglevel error -y -f lavfi -i color=c=black:size=720x1280:rate=30 -t 2 -c:v libx264 -pix_fmt yuv420p "$d/black.mp4"
+          # 10-bit HDR10 (PQ, BT.2020) HEVC like phone cameras record; skipped if libx265 is missing.
+          ffmpeg -nostdin -loglevel error -y -f lavfi -i testsrc2=size=1280x720:rate=30 -f lavfi -i sine=frequency=500:sample_rate=48000 -t 2 \
+            -c:v libx265 -pix_fmt yuv420p10le -tag:v hvc1 -x265-params "colorprim=bt2020:transfer=smpte2084:colormatrix=bt2020nc:log-level=error" \
+            -color_primaries bt2020 -color_trc smpte2084 -colorspace bt2020nc -c:a aac -shortest "$d/hdr_hevc.mp4" || echo "no libx265: HDR test will be skipped"
           ls -la "$d"
+          # The editor preview test plays the same video and photo.
+          e=feature/editor/timeline/src/androidTest/assets
+          mkdir -p "$e" && cp "$d/portrait.mp4" "$d/photo.jpg" "$e/"
           # Speech-detection test: three 1.2 s "voice" bursts (300 Hz, wobbling) 2 s apart, in a video.
           s=feature/captions/src/androidTest/assets
           mkdir -p "$s"
@@ -124,8 +158,23 @@ jobs:
             -t 6 -c:v libx264 -pix_fmt yuv420p -c:a aac -ac 2 "$s/bursts.mp4"
           ls -la "$s"
 
+      - name: Get this run's APK
+        uses: actions/download-artifact@v4
+        with:
+          name: cinemind-debug-${{ github.run_number }}
+          path: new-apk
+
+      - name: Get the previous build signed with the same key (update baseline)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          bash .github/scripts/find-baseline.sh "${{ github.repository }}" "${{ github.run_id }}" "$(ls new-apk/*.apk | head -1)"
+          echo "BASE_APK=$(ls baseline/*.apk 2>/dev/null | head -1)" >> "$GITHUB_ENV"
+          echo "NEW_APK=$(ls new-apk/*.apk | head -1)" >> "$GITHUB_ENV"
+          ls -la baseline new-apk
+
       - name: Run export test on emulator
-        timeout-minutes: 30
+        timeout-minutes: 35
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 30
@@ -135,7 +184,17 @@ jobs:
           disk-size: 3000M
           emulator-options: -no-window -no-snapshot-save -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           disable-animations: true
-          script: gradle --continue :feature:export:connectedDebugAndroidTest :feature:captions:connectedDebugAndroidTest :feature:settings:connectedDebugAndroidTest :core:ui:connectedDebugAndroidTest :feature:editor:timeline:connectedDebugAndroidTest --stacktrace
+          # The update test runs first (about a minute); a failure is recorded and fails the job
+          # afterwards, so the other emulator tests still run.
+          script: |
+            bash .github/scripts/upgrade-test.sh "$BASE_APK" "$NEW_APK" || touch upgrade-failed.flag
+            gradle --continue :feature:export:connectedDebugAndroidTest :feature:captions:connectedDebugAndroidTest :feature:settings:connectedDebugAndroidTest :core:ui:connectedDebugAndroidTest :feature:editor:timeline:connectedDebugAndroidTest --stacktrace
+
+      - name: Update test result
+        if: always()
+        run: |
+          if [ -f upgrade-failed.flag ]; then echo "::error::The update-compatibility test failed (see the emulator step log)."; exit 1; fi
+          echo "Update-compatibility test passed."
 
       - name: Upload instrumented test reports
         if: always()

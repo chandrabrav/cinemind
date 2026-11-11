@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.filled.ClosedCaption
+import androidx.compose.material.icons.filled.PictureInPicture
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -346,6 +347,7 @@ internal fun EditorToolsBar(
     onMusic: () -> Unit,
     onExport: () -> Unit,
     onCaptions: () -> Unit = {},
+    onOverlay: () -> Unit = {},
 ) {
     val c = CineMind.colors
     val shape = RoundedCornerShape(Radius.xl)
@@ -355,6 +357,7 @@ internal fun EditorToolsBar(
         Tool(Icons.Default.Animation, "Transitions", hasClips, onTransitions),
         Tool(Icons.Default.MusicNote, "Music", hasClips, onMusic),
         Tool(Icons.Default.ClosedCaption, "Captions", hasClips, onCaptions),
+        Tool(Icons.Default.PictureInPicture, "Overlay", hasClips, onOverlay),
         Tool(Icons.Default.FileUpload, "Export", hasClips, onExport),
     )
     BoxWithConstraints(
@@ -385,3 +388,73 @@ internal fun EditorToolsBar(
 }
 
 private class Tool(val icon: androidx.compose.ui.graphics.vector.ImageVector, val label: String, val enabled: Boolean, val onClick: () -> Unit)
+
+/**
+ * Overlay (picture-in-picture) inspector: where it sits, how big, rotation, opacity and timing.
+ * Sliders preview locally and commit one undo step when released.
+ */
+@androidx.compose.runtime.Composable
+internal fun OverlayInspector(
+    item: com.cinemind.feature.editor.timeline.preview.PreviewClip,
+    onTransform: (x: Float, y: Float, scale: Float, rotation: Float, opacity: Float) -> Unit,
+    onMove: (deltaUs: Long) -> Unit,
+    onTrim: (startDeltaUs: Long, endDeltaUs: Long) -> Unit,
+    onDelete: () -> Unit,
+    onClose: () -> Unit,
+) {
+    val c = com.cinemind.core.ui.theme.CineMind.colors
+    val clip = item.clip
+    var x by androidx.compose.runtime.remember(clip) { androidx.compose.runtime.mutableFloatStateOf(clip.transformX) }
+    var y by androidx.compose.runtime.remember(clip) { androidx.compose.runtime.mutableFloatStateOf(clip.transformY) }
+    var size by androidx.compose.runtime.remember(clip) { androidx.compose.runtime.mutableFloatStateOf(clip.scale) }
+    var rot by androidx.compose.runtime.remember(clip) { androidx.compose.runtime.mutableFloatStateOf(if (clip.rotation > 180f) clip.rotation - 360f else clip.rotation) }
+    var alpha by androidx.compose.runtime.remember(clip) { androidx.compose.runtime.mutableFloatStateOf(clip.opacity) }
+    val commit = { onTransform(x, y, size, rot, alpha) }
+    val sliderColors = SliderDefaults.colors(thumbColor = c.selection, activeTrackColor = c.selection, inactiveTrackColor = c.surfaceSunken)
+    val shape = RoundedCornerShape(Radius.l)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = Spacing.s)
+            .clip(shape)
+            .background(c.surfaceGlass)
+            .border(1.dp, c.hairline, shape)
+            .padding(horizontal = Spacing.m, vertical = Spacing.s),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "Overlay · ${com.cinemind.core.ui.format.formatShortTime(clip.timelineInUs)}–${com.cinemind.core.ui.format.formatShortTime(clip.timelineOutUs)}",
+                style = MaterialTheme.typography.titleSmall,
+                color = c.textPrimary,
+                modifier = Modifier.weight(1f),
+            )
+            IconButton(onClick = onDelete) { Icon(Icons.Default.Delete, contentDescription = "Delete overlay", tint = c.danger) }
+            IconButton(onClick = onClose) { Icon(Icons.Default.Close, contentDescription = "Close overlay settings", tint = c.textSecondary) }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+            androidx.compose.material3.TextButton(onClick = { onMove(-500_000) }) { Text("◀ 0.5 s", color = c.textPrimary) }
+            androidx.compose.material3.TextButton(onClick = { onMove(500_000) }) { Text("0.5 s ▶", color = c.textPrimary) }
+            Spacer(Modifier.weight(1f))
+            androidx.compose.material3.TextButton(onClick = { onTrim(0, -500_000) }) { Text("Shorter", color = c.textPrimary) }
+            androidx.compose.material3.TextButton(onClick = { onTrim(0, 500_000) }) { Text("Longer", color = c.textPrimary) }
+        }
+        OverlaySlider("Left ↔ right", x, 0f..1f, sliderColors, { x = it }, commit)
+        OverlaySlider("Top ↕ bottom", y, 0f..1f, sliderColors, { y = it }, commit)
+        OverlaySlider("Size ${(size * 100).toInt()}% of width", size, 0.1f..1f, sliderColors, { size = it }, commit)
+        OverlaySlider("Rotation ${rot.toInt()}°", rot, -180f..180f, sliderColors, { rot = it }, commit)
+        OverlaySlider("Opacity ${(alpha * 100).toInt()}%", alpha, 0f..1f, sliderColors, { alpha = it }, commit)
+    }
+}
+
+@androidx.compose.runtime.Composable
+private fun OverlaySlider(
+    label: String,
+    value: Float,
+    range: ClosedFloatingPointRange<Float>,
+    colors: androidx.compose.material3.SliderColors,
+    onChange: (Float) -> Unit,
+    onDone: () -> Unit,
+) {
+    Text(label, style = MaterialTheme.typography.labelMedium, color = com.cinemind.core.ui.theme.CineMind.colors.textSecondary)
+    Slider(value = value, valueRange = range, onValueChange = onChange, onValueChangeFinished = onDone, colors = colors, modifier = Modifier.height(36.dp))
+}

@@ -15,6 +15,8 @@ class CineMindApplication : Application(), ImageLoaderFactory {
 
     override fun onCreate() {
         super.onCreate()
+        // First: record any crash (incl. out-of-memory) so it can be diagnosed on the phone.
+        com.cinemind.core.common.Diagnostics.install(this)
         initializeTimber()
         CineMindLogger.i("CineMind Application created")
     }

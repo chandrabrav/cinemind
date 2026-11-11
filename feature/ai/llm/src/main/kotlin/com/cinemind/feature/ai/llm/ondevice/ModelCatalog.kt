@@ -14,6 +14,11 @@ data class ModelSpec(
     val supportsImages: Boolean,
     /** Accepts speech audio (Gemma 4 E2B/E4B have an audio encoder). Used for speech-to-text. */
     val supportsAudio: Boolean = false,
+    /**
+     * Runtime file format. Bump only when a runtime upgrade can no longer read files verified by an
+     * older app; installed models of another format are kept until a replacement is verified.
+     */
+    val format: String = "litertlm-1",
 )
 
 /**
