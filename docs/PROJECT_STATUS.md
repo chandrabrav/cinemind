@@ -10,12 +10,12 @@ _Last updated: 2026-11-11_
 | | |
 |---|---|
 | **Stage** | Stage 1 — Project foundation (in progress) |
-| **Last completed milestone** | None verified yet. Foundation repair (this commit) is the first attempt at a green cloud build. |
-| **Current task** | Foundation repair: make the scaffold compile and produce a debug APK in GitHub Actions. |
+| **Last completed milestone** | Foundation repair: first green cloud build (2026-11-11). Project compiles, unit tests pass, debug APK produced. Not yet installed on a device. |
+| **Current task** | Foundation milestone features (import → preview → trim/reorder → export). |
 | **Next task** | Foundation milestone features (see "Next recommended task"). |
 | **Branch** | `dev-main` |
-| **Latest verified build** | _None yet — update with run number + link once CI is green._ |
-| **Latest verified APK** | _None yet._ |
+| **Latest verified build** | CI run 43011809441 (#6), commit `eb4fd87`, 2026-11-11 — https://github.com/chandrabrav/cinemind/actions/runs/43011809441 |
+| **Latest verified APK** | Artifact `cinemind-debug-6` (15.6 MB, expires 2026-12-11). Built, not yet device-tested. |
 
 ## Build environment (hard rule)
 
@@ -24,6 +24,7 @@ _Last updated: 2026-11-11_
 - Every push builds: `gradle testDebugUnitTest` then `gradle assembleDebug`; the debug APK is uploaded as artifact `cinemind-debug-<run>` (30-day retention).
 - Release APK: only on `main` and only when repo secrets `CINEMIND_KEYSTORE_BASE64`, `CINEMIND_KEYSTORE_PASSWORD`, `CINEMIND_KEY_ALIAS`, `CINEMIND_KEY_PASSWORD` exist.
 - Free tier for private repos: 2,000 Actions minutes/month; one build ≈ 5–10 min.
+- `gh` is authenticated inside **WSL (Ubuntu-24.04)**, not in Windows. Helper scripts (outside the repo) in `D:\projects\cinemind-local-tools\`: `ci-watch.sh <branch>` waits for the latest run and prints errors; `ci-verify.sh <run-id>` shows test results and artifacts. Run with `wsl -d Ubuntu-24.04 -- bash /mnt/d/projects/cinemind-local-tools/ci-watch.sh <branch>`.
 
 ## History recovered (2026-11-11 audit)
 
@@ -85,6 +86,7 @@ Scaffolded but **excluded** until they get code: `:feature:editor:{preview,effec
 - Domain module carries Room annotations (`room-common`) — acceptable for now; split entities from domain models when the project format is versioned.
 - Media library item click navigates to the editor with an **asset** id as the project id (placeholder wiring).
 - No Gradle wrapper committed.
+- CI actions are on deprecated Node 20 majors (`setup-java@v4` etc.); bump soon.
 - Updated master spec missing (captions / Hindi-Hinglish / STT / graphics requirements unknown).
 
 ## Next recommended task
