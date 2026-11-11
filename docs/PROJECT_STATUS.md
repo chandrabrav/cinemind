@@ -13,10 +13,11 @@ _Last updated: 2026-11-11_
 | **On-device AI (new)** | Gemma 4 E2B / E4B via Google LiteRT-LM, downloaded in-app (✦ on the home screen), SHA-256 verified; Smart edit uses it to read the brief and describe key frames, with fallback to measurement-only. Benchmark screen produces a copyable report. **Not run on a real phone yet** (CI can't download 2.6 GB or use a phone GPU). |
 | **Last completed milestone** | Smart edit + transitions + music + split (2026-11-11): the brief creates a real edit (on-device frame analysis + planner → new editable project); 7 clip transitions in preview and export; background music (offset, loop, volume, fades) + original-sound level; split at playhead; editor tools bar (Smart edit, Add clips, Transitions, Music, Export); emulator end-to-end export tests green in CI. |
 | **Owner feedback (device test of build #30)** | App installs and imports. Complaints: only two bottom options; no AI editing; no transitions; "AI brief not working" (its button was intentionally disabled). Addressed in this milestone. |
-| **Current task** | Owner installs build #61, downloads Gemma 4 E2B in-app (✦ on the home screen) and sends the benchmark report; then tries Smart edit with AI. |
-| **Branch** | `dev-main` (on-device AI work done on `on-device-ai`, fast-forwarded) |
-| **Latest verified build** | CI run 43049749268 (#61), commit `c60b388`: build + 118/118 unit tests + 2/2 emulator export tests — https://github.com/chandrabrav/cinemind/actions/runs/43049749268 |
-| **Latest verified APK** | Artifact `cinemind-debug-61` (43.6 MB zipped, 124 MB installed APK; LiteRT-LM's native runtime is most of the growth, already arm64 + x86_64 only). AI models download separately in the app. Not yet device-tested. |
+| **UI redesign (new, 2026-11-11)** | Whole app moved onto a central design system (light + dark tokens, contrast-tested), persistent Light / Dark / System theme in a new Settings screen, every screen redesigned, editor rebuilt around a time-scaled multitrack timeline with drag-to-trim. See "UI redesign & design system". |
+| **Current task** | Owner installs build #73: checks the redesign in both themes, then runs the AI benchmark (✦ on the home screen) and sends the report; then tries Smart edit with AI. |
+| **Branch** | `dev-main` (redesign done on `redesign`, fast-forwarded) |
+| **Latest verified build** | CI run 43061916979 (#73), commit `82f97fa`: build + 131 unit tests + 6 instrumented tests (2 export end-to-end, 4 screenshot tests: design system + editor × light/dark) — https://github.com/chandrabrav/cinemind/actions/runs/43061916979 |
+| **Latest verified APK** | Artifact `cinemind-debug-73` (43.7 MB zipped). Screenshots: artifact `ui-screenshots-73`. Not yet device-tested. |
 
 ## Build environment (hard rule)
 
@@ -133,6 +134,10 @@ Scaffolded but **excluded** until they get code: `:feature:editor:{preview,effec
 | 43046403672 | `cc23e32` | **all green** | LiteRT-LM + AI smart edit; 118 unit + 2 emulator tests |
 | 43047923600 | `cc23e32` | build ✗ (flaky) | KSP 2.3.13 parallel race "Cannot find required type element java.lang.Class" → KSP 2.3.12 |
 | **43049749268 (#61)** | `c60b388` | **all green** | KSP 2.3.12 + arm64/x86_64 only; 118 unit + 2 emulator tests |
+| 43052939565 | `85158c6` | unit ✗ | Contrast test caught light accent on backdrop (4.38:1) → light accent/highlight/success/music darkened |
+| 43055014562 | `6661629` | all green | Full redesign + editor timeline; 129 unit + 2 emulator |
+| 43057669226 | `92b2c59` | e2e ✗ | Dark screenshot capture timed out on the CPU-rendered emulator → retrying capture, `--continue` |
+| **43061916979 (#73)** | `82f97fa` | **all green** | Screenshot-review fixes; 131 unit + 6 instrumented (export ×2, screenshots ×4) |
 
 ## Music & audio (as built)
 
@@ -141,6 +146,30 @@ Scaffolded but **excluded** until they get code: `:feature:editor:{preview,effec
 - Preview: `MusicPreview` — a second ExoPlayer following the video timeline (re-seeks on >200 ms drift, volume from `gainAt` every tick).
 - Export: music is a second, audio-only `EditedMediaItemSequence` mixed by Transformer; `GainAudioProcessor` (16-bit PCM) applies the fade envelope and the original-sound volume.
 - Licensing: the dialog reminds users to use music they may publish; Spotify audio can't be exported (Stage 7 Spotify = discovery only).
+
+## UI redesign & design system (2026-11-11)
+
+Owner request: OriginOS-7-inspired redesign of the whole app + persistent Light/Dark/System theme. Original design (no copied assets).
+
+**Audit findings that drove it:** dark-only theme (light palette was a stub; window theme hard-wired dark); ~13 hard-coded colours in screens and fixed track colours; corner radii 6–16 dp mixed; duplicated Section/ChipRow/Card helpers per screen; mixed AlertDialogs and inline panels; nested Scaffolds; no transitions or haptics; editor clip strip not time-scaled, no playhead, music not visible.
+
+**Design system (`core/ui`):**
+- `theme/Tokens.kt`: `CineMindColors` semantic tokens (backdrop gradient, surface / glass / raised / sunken, hairline, text primary/secondary/tertiary, accent + gradient, highlight, success/warning/danger, video stage, timeline lane, track video/music, clip label, playhead) for **light and dark**; `Spacing`, `Radius`, `ThemeMode` (SYSTEM / LIGHT / DARK).
+- `theme/CineMindTheme.kt`: `CineMindTheme(mode)` + `CineMindTheme(colors)`; Material 3 colour scheme derived from tokens; type scale (system font, which is Vivo's UI font on the target phone); shapes. `CineMind.colors` accessor.
+- `components/Components.kt`: `AppBackground` (gradient + accent glow), `GlassCard` (translucent + hairline; true backdrop blur is not available in Compose without extra dependencies, so "glass" = layered translucency), `ScreenHeader`, `SectionHeader`, `ChoicePills`/`Pill`, `GradientButton`, `StatusPill`/`Tone`, `ToolButton`, `EmptyState`, `CineMindSheet` (bottom sheet), `SettingRow`, `pressScale` (spring press feedback) and `hapticClick` (haptic tick). All interactive pieces have ≥ 48 dp targets and semantics roles.
+- **Contrast is tested:** `ThemeContrastTest` checks every text/background pairing (incl. glass composited over both backdrop stops, pills, accent containers, gradient buttons, clip labels, stage controls, playhead 3:1) in both themes against WCAG AA. It caught 4 failing light-theme colours (accent, highlight, success, music track), which were darkened.
+
+**Theme system:** `feature/settings/appearance/AppearanceRepository` (SharedPreferences: read synchronously at start → no wrong-theme flash; observed as a Flow → whole app recomposes instantly). On Android 12+ it also calls `UiModeManager.setApplicationNightMode`, so window background / splash / system dialogs follow. `values` + `values-night` window themes. Status/navigation bar icon colours follow the app theme (`enableEdgeToEdge(SystemBarStyle.auto { dark })`). Settings screen (gear on home) shows three live mini-previews rendered with the real tokens (System = light|dark split).
+
+**Screens redesigned (all on the shared components, no raw colours):** app shell (transparent top bar over the gradient backdrop, AI + Settings actions, fade/slide navigation transitions), Home (header, New-project card, glass project cards with cover, aspect pill, menu; empty state), Media library (header with Import, rounded tiles with press/haptic, accessible selection, floating glass selection bar), Smart edit brief (glass prompt card, idea pills, choice pills, notices, pulsing processing state), On-device AI (model cards with status pills, options, benchmark card), Export (choice pills, estimate card, progress ring, success/failed cards), Settings (new), **Editor** (see below).
+
+**Editor:** compact header with undo/redo; large rounded black preview stage with a glass play/timecode control and the existing transition preview; themed scrubber; new **`MultiTrackTimeline`**: time ruler (tap to seek, adaptive tick spacing), video lane with time-proportional clip blocks (thumbnail, index/length, transition marker), music lane (song or "Add music"), playhead with knob that follows playback, zoom −/+ (8 levels), **drag handles on the selected clip to trim** (haptic on grab, committed on release, one undo step); `TimelineLayout` (pure geometry, `TimelineLayoutTest` 6). Clip inspector is a compact glass panel (move, split, remove, close; precise trim slider; transition pills). Transitions and Music are bottom sheets. Tools bar is a glass dock.
+
+**Verification:** unit tests (now 131) incl. contrast (+ selection token) + timeline geometry + compact time format; Compose **screenshot tests** on the CI emulator render the design-system gallery and the editor controls in light and dark (`DesignSystemScreenshotTest`, `EditorScreenshotTest`; PNGs uploaded as `ui-screenshots-<run>`), with assertions that key controls are displayed.
+
+**Screenshot review (CI emulator, 320 dp — narrower than the Vivo’s ~420 dp) found and fixed:** "Problem" status pill wrapping mid-word; inspector header squeezing the close button; crowded trim timecodes; muddy brown light-theme selection (new `selection` token); "Export" label clipped in the tools bar; selected clip label hidden under the trim handle. Remaining at 320 dp only: "Transitions" shortens to "Transitio…".
+
+**Not verified / not done:** full screens with live data were not rendered in tests (they need Hilt + database); nothing has been checked on the Vivo yet; no real backdrop blur; 120 Hz is supported by keeping animations GPU-only (scale/alpha/translation) but frame timing was not measured; the timeline has two lanes (video + music) — more video/overlay lanes and cross-dissolves need the Stage 3 multi-track engine; pinch-to-zoom not implemented (buttons instead); landscape/tablet layouts are usable but not specially tuned; `launch(NonCancellable)` usages now warn under coroutines 1.11 (behaviour unchanged; refactor pending).
 
 ## On-device AI (Stage 4, as built)
 

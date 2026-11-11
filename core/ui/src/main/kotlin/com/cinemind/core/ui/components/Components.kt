@@ -270,6 +270,9 @@ fun StatusPill(text: String, tone: Tone = Tone.Neutral, modifier: Modifier = Mod
         text = text,
         style = MaterialTheme.typography.labelMedium,
         color = color,
+        maxLines = 1,
+        softWrap = false,
+        overflow = TextOverflow.Ellipsis,
         modifier = modifier
             .clip(RoundedCornerShape(Radius.pill))
             .background(color.copy(alpha = 0.12f))
@@ -307,7 +310,7 @@ fun ToolButton(
             .clip(RoundedCornerShape(Radius.m))
             .background(if (selected) c.accentContainer else androidx.compose.ui.graphics.Color.Transparent)
             .clickable(interactionSource = interaction, indication = null, enabled = enabled, role = Role.Button, onClick = click)
-            .padding(horizontal = Spacing.s, vertical = Spacing.s),
+            .padding(horizontal = Spacing.xxs, vertical = Spacing.s),
     ) {
         Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(22.dp))
         Spacer(Modifier.height(Spacing.xxs))
