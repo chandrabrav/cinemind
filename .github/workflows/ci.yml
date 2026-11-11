@@ -160,17 +160,11 @@ jobs:
           name: cinemind-debug-${{ github.run_number }}
           path: new-apk
 
-      - name: Get the previous successful build's APK (update baseline)
+      - name: Get the previous build signed with the same key (update baseline)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          mkdir -p baseline
-          prev=$(gh api "repos/${{ github.repository }}/actions/workflows/ci.yml/runs?status=success&per_page=20" \
-            -q '[.workflow_runs[] | select(.id != ${{ github.run_id }})][0].id' || true)
-          if [ -n "$prev" ]; then
-            num=$(gh api "repos/${{ github.repository }}/actions/runs/$prev" -q .run_number)
-            gh run download "$prev" -R "${{ github.repository }}" -n "cinemind-debug-$num" -D baseline || echo "baseline artifact not available"
-          fi
+          bash .github/scripts/find-baseline.sh "${{ github.repository }}" "${{ github.run_id }}" "$(ls new-apk/*.apk | head -1)"
           echo "BASE_APK=$(ls baseline/*.apk 2>/dev/null | head -1)" >> "$GITHUB_ENV"
           echo "NEW_APK=$(ls new-apk/*.apk | head -1)" >> "$GITHUB_ENV"
           ls -la baseline new-apk
