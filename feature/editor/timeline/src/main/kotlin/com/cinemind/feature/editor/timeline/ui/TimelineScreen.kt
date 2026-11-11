@@ -21,6 +21,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.BottomAppBar
@@ -63,12 +64,15 @@ import com.cinemind.feature.editor.timeline.preview.PreviewState
 @Composable
 fun TimelineScreen(
     projectId: String,
+    onOpenBrief: () -> Unit,
     viewModel: TimelineViewModel = hiltViewModel(),
 ) {
     LaunchedEffect(projectId) { viewModel.loadProject(projectId) }
     val project by viewModel.project.collectAsStateWithLifecycle()
-    val clips by viewModel.clips.collectAsStateWithLifecycle()
+    val editor by viewModel.editor.collectAsStateWithLifecycle()
+    val clips = editor.clips
     val preview by viewModel.previewState.collectAsStateWithLifecycle()
+    val selected = clips.firstOrNull { it.clip.id == editor.selectedClipId }
 
     // Stop playback when the app goes to the background.
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -104,20 +108,48 @@ fun TimelineScreen(
             onScrubFinished = viewModel::scrubFinished,
         )
 
+        EditToolbar(
+            canUndo = editor.canUndo,
+            canRedo = editor.canRedo,
+            hasSelection = selected != null,
+            onUndo = viewModel::undo,
+            onRedo = viewModel::redo,
+        )
+
         ClipStrip(
             clips = clips,
             fps = fps,
             currentIndex = preview.currentIndex,
-            onClipClick = viewModel::seekToClip,
+            selectedClipId = editor.selectedClipId,
+            onClipClick = viewModel::onClipTapped,
         )
+
+        if (selected != null) {
+            val index = clips.indexOf(selected)
+            ClipInspector(
+                item = selected,
+                index = index,
+                clipCount = clips.size,
+                limits = viewModel.limitsFor(selected.clip),
+                fps = fps,
+                onTrim = viewModel::trimSelected,
+                onMove = viewModel::moveSelected,
+                onDelete = viewModel::deleteSelected,
+                onClose = viewModel::clearSelection,
+            )
+        }
 
         BottomAppBar(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                TextButton(onClick = { /* Add clip: next tasks */ }) { Text("Add Clip") }
-                TextButton(onClick = { /* Export: next tasks */ }) { Text("Export") }
+                TextButton(onClick = onOpenBrief) {
+                    Icon(Icons.Default.AutoAwesome, contentDescription = null)
+                    Text("AI brief", modifier = Modifier.padding(start = 6.dp))
+                }
+                // Export arrives with the Media3 Transformer task; disabled rather than a dead button.
+                TextButton(onClick = {}, enabled = false) { Text("Export (soon)") }
             }
         }
     }
@@ -263,6 +295,7 @@ private fun ClipStrip(
     clips: List<PreviewClip>,
     fps: Int,
     currentIndex: Int,
+    selectedClipId: String?,
     onClipClick: (Int) -> Unit,
 ) {
     val listState = rememberLazyListState()
@@ -303,6 +336,7 @@ private fun ClipStrip(
                     item = item,
                     fps = fps,
                     isCurrent = index == currentIndex,
+                    isSelected = item.clip.id == selectedClipId,
                     onClick = { onClipClick(index) },
                 )
             }
@@ -311,15 +345,27 @@ private fun ClipStrip(
 }
 
 @Composable
-private fun ClipTile(index: Int, item: PreviewClip, fps: Int, isCurrent: Boolean, onClick: () -> Unit) {
+private fun ClipTile(
+    index: Int,
+    item: PreviewClip,
+    fps: Int,
+    isCurrent: Boolean,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+) {
     val shape = RoundedCornerShape(8.dp)
+    val outline = when {
+        isSelected -> Modifier.border(3.dp, MaterialTheme.colorScheme.secondary, shape)
+        isCurrent -> Modifier.border(2.dp, MaterialTheme.colorScheme.primary, shape)
+        else -> Modifier
+    }
     Box(
         modifier = Modifier
             .width(96.dp)
             .height(64.dp)
             .clip(shape)
             .background(TrackVideoColor)
-            .then(if (isCurrent) Modifier.border(2.dp, MaterialTheme.colorScheme.primary, shape) else Modifier)
+            .then(outline)
             .clickable(onClick = onClick),
     ) {
         val asset = item.asset

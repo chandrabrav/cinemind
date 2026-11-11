@@ -83,6 +83,7 @@ dependencies {
     implementation(project(":feature:media"))
     implementation(project(":feature:editor:timeline"))
     implementation(project(":feature:project"))
+    implementation(project(":feature:ai:generation"))
     implementation(project(":feature:export"))
     implementation(project(":feature:settings"))
 

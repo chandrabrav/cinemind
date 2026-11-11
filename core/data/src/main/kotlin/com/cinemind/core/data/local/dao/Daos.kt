@@ -6,7 +6,9 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Update
+import androidx.room.Upsert
 import com.cinemind.core.domain.model.Clip
+import com.cinemind.core.domain.model.EditBrief
 import com.cinemind.core.domain.model.MediaAsset
 import com.cinemind.core.domain.model.Project
 import com.cinemind.core.domain.model.ProjectSummary
@@ -17,6 +19,9 @@ import kotlinx.coroutines.flow.Flow
 interface ProjectDao {
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insert(project: Project)
+
+    @Query("SELECT * FROM projects WHERE id = :id")
+    fun observeProject(id: String): Flow<Project?>
 
     @Query("SELECT * FROM projects WHERE id = :id")
     suspend fun getProject(id: String): Project?
@@ -128,4 +133,16 @@ interface MediaAssetDao {
 
     @Query("SELECT * FROM media_assets WHERE uri LIKE :query ORDER BY importDate DESC")
     fun searchAssets(query: String): Flow<List<MediaAsset>>
+}
+
+@Dao
+interface EditBriefDao {
+    @Upsert
+    suspend fun upsert(brief: EditBrief)
+
+    @Query("SELECT * FROM edit_briefs WHERE projectId = :projectId")
+    suspend fun get(projectId: String): EditBrief?
+
+    @Query("SELECT * FROM edit_briefs WHERE projectId = :projectId")
+    fun observe(projectId: String): Flow<EditBrief?>
 }

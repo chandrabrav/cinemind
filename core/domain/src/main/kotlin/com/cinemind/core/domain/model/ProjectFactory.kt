@@ -24,14 +24,14 @@ object ProjectFactory {
         require(assets.isNotEmpty()) { "A project needs at least one media item" }
 
         val first = assets.first()
-        val portrait = first.height >= first.width
+        val format = if (first.height >= first.width) ProjectFormat.VERTICAL_9_16 else ProjectFormat.LANDSCAPE_16_9
         val project = Project(
             name = name,
             createdAt = now,
             updatedAt = now,
-            aspectRatio = if (portrait) "9:16" else "16:9",
-            resolutionWidth = if (portrait) 1080 else 1920,
-            resolutionHeight = if (portrait) 1920 else 1080,
+            aspectRatio = format.ratio,
+            resolutionWidth = format.width,
+            resolutionHeight = format.height,
             frameRate = normalizeFrameRate(assets.firstOrNull { it.isVideo }?.frameRate),
         )
         val track = Track(

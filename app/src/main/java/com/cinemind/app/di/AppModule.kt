@@ -2,15 +2,18 @@ package com.cinemind.app.di
 
 import android.content.Context
 import com.cinemind.core.data.local.dao.ClipDao
+import com.cinemind.core.data.local.dao.EditBriefDao
 import com.cinemind.core.data.local.dao.MediaAssetDao
 import com.cinemind.core.data.local.dao.ProjectDao
 import com.cinemind.core.data.local.dao.TrackDao
 import com.cinemind.core.data.local.database.AppDatabase
 import com.cinemind.core.data.repository.ClipRepositoryImpl
+import com.cinemind.core.data.repository.EditBriefRepositoryImpl
 import com.cinemind.core.data.repository.MediaAssetRepositoryImpl
 import com.cinemind.core.data.repository.ProjectRepositoryImpl
 import com.cinemind.core.data.repository.TrackRepositoryImpl
 import com.cinemind.core.domain.repository.ClipRepository
+import com.cinemind.core.domain.repository.EditBriefRepository
 import com.cinemind.core.domain.repository.MediaAssetRepository
 import com.cinemind.core.domain.repository.ProjectRepository
 import com.cinemind.core.domain.repository.TrackRepository
@@ -41,6 +44,9 @@ object DatabaseModule {
 
     @Provides
     fun provideMediaAssetDao(database: AppDatabase): MediaAssetDao = database.mediaAssetDao()
+
+    @Provides
+    fun provideEditBriefDao(database: AppDatabase): EditBriefDao = database.editBriefDao()
 }
 
 @Module
@@ -62,4 +68,8 @@ object RepositoryModule {
     @Provides
     fun provideMediaAssetRepository(mediaAssetDao: MediaAssetDao): MediaAssetRepository =
         MediaAssetRepositoryImpl(mediaAssetDao)
+
+    @Provides
+    fun provideEditBriefRepository(editBriefDao: EditBriefDao): EditBriefRepository =
+        EditBriefRepositoryImpl(editBriefDao)
 }
