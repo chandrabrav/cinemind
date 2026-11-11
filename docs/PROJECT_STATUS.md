@@ -9,18 +9,19 @@ _Last updated: 2026-11-11_
 
 | | |
 |---|---|
-| **Stage** | Stage 1 foundation built; first Stage 3 (transitions) and Stage 5 (rule-based smart edit) features added after the owner's first device test |
+| **Stage** | Stage 1 foundation built; Stage 3 started (transitions, music, split); **Stage 4 on-device AI integrated (owner chose on-device first, 2026-11-11)** — awaiting the Vivo benchmark |
+| **On-device AI (new)** | Gemma 4 E2B / E4B via Google LiteRT-LM, downloaded in-app (✦ on the home screen), SHA-256 verified; Smart edit uses it to read the brief and describe key frames, with fallback to measurement-only. Benchmark screen produces a copyable report. **Not run on a real phone yet** (CI can't download 2.6 GB or use a phone GPU). |
 | **Last completed milestone** | Smart edit + transitions + music + split (2026-11-11): the brief creates a real edit (on-device frame analysis + planner → new editable project); 7 clip transitions in preview and export; background music (offset, loop, volume, fades) + original-sound level; split at playhead; editor tools bar (Smart edit, Add clips, Transitions, Music, Export); emulator end-to-end export tests green in CI. |
 | **Owner feedback (device test of build #30)** | App installs and imports. Complaints: only two bottom options; no AI editing; no transitions; "AI brief not working" (its button was intentionally disabled). Addressed in this milestone. |
-| **Current task** | Owner re-tests build #49 on the Vivo X200 Pro (smart edit, transitions, music, split, add clips, export). Pending owner decision: on-device vs cloud AI model route for Stage 4. |
-| **Branch** | `dev-main` (work done on `smart-edit`, fast-forwarded) |
-| **Latest verified build** | CI run 43041216232 (#49), commit `7bd69c6`: build + 101/101 unit tests + 2/2 emulator export tests — https://github.com/chandrabrav/cinemind/actions/runs/43041216232 |
-| **Latest verified APK** | Artifact `cinemind-debug-49` (19.9 MB zipped, expires 2026-12-11). Not yet device-tested. |
+| **Current task** | Owner installs build #61, downloads Gemma 4 E2B in-app (✦ on the home screen) and sends the benchmark report; then tries Smart edit with AI. |
+| **Branch** | `dev-main` (on-device AI work done on `on-device-ai`, fast-forwarded) |
+| **Latest verified build** | CI run 43049749268 (#61), commit `c60b388`: build + 118/118 unit tests + 2/2 emulator export tests — https://github.com/chandrabrav/cinemind/actions/runs/43049749268 |
+| **Latest verified APK** | Artifact `cinemind-debug-61` (43.6 MB zipped, 124 MB installed APK; LiteRT-LM's native runtime is most of the growth, already arm64 + x86_64 only). AI models download separately in the app. Not yet device-tested. |
 
 ## Build environment (hard rule)
 
 - All Android builds run in **GitHub Actions** (`.github/workflows/ci.yml`). Nothing Android-related is installed locally (owner's machine is Windows; no Android Studio / SDK / JDK / Gradle).
-- CI provisions **Gradle 8.11.1** via `gradle/actions/setup-gradle` (no wrapper committed yet) and Temurin **JDK 17**.
+- CI provisions **Gradle 8.14.3** via `gradle/actions/setup-gradle` (no wrapper committed yet) and Temurin **JDK 17**.
 - Jobs on every push:
   - `build`: `gradle testDebugUnitTest` then `gradle assembleDebug`. Artifacts: `cinemind-debug-<run>` (APK, 30 days), `test-reports-<run>`, `room-schemas-<run>`.
   - `export-e2e`: frees runner disk, boots an **API 30 x86_64 emulator** (KVM, swiftshader GL, 3 GB data disk), generates test media with **ffmpeg** into `feature/export/src/androidTest/assets/` (git-ignored), runs `ExportEndToEndTest`. ~15 min. (The first attempts failed only because the runner lacked disk for the emulator.)
@@ -42,9 +43,10 @@ _Last updated: 2026-11-11_
 
 ## Architecture (as built)
 
-- Kotlin 2.1.0, AGP 8.7.3, compileSdk/targetSdk 35, minSdk 30, Java 17.
+- **Toolchain (upgraded 2026-11-11 for LiteRT-LM, which is built with Kotlin 2.4):** Kotlin 2.4.21, KSP 2.3.12 (KSP2; 2.3.13 has a parallel-execution regression), AGP 8.13.2, Gradle 8.14.3 (CI), Hilt 2.58 (2.59+ require AGP 9) with `ksp(kotlin-metadata-jvm:2.4.21)` in every Hilt module so it can read Kotlin 2.4 metadata, Room 2.8.5, coroutines 1.11.0. compileSdk/targetSdk 35, minSdk 30, Java 17. All modules use `kotlin { compilerOptions { jvmTarget } }` (the old `kotlinOptions {}` is removed in Kotlin 2.2+). App ships `arm64-v8a` + `x86_64` native code only.
+  - Next toolchain step when needed: AGP 9 (built-in Kotlin, new DSL) would allow Hilt ≥2.59; not required now.
 - UI: Jetpack Compose + Material 3 (BOM 2024.12.01), Navigation Compose. Dark-first theme in `core/ui`.
-- DI: Hilt 2.54 (KSP). Storage: Room 2.6.1, DataStore Preferences.
+- DI: Hilt (KSP). Storage: Room, DataStore Preferences.
 - Room schema is **v4** (v2–v4 JSON committed): `MIGRATION_1_2` (`media_assets.displayName`, `sizeBytes`), `MIGRATION_2_3` (`edit_briefs`), `MIGRATION_3_4` (`clips.transitionInType`). **No destructive migration.** Exported schema JSON is committed in `core/data/schemas/` — after any schema change, fetch the new JSON from the `room-schemas-<run>` artifact, compare its `createSql` with the hand-written migration, and commit it.
 - Media: system Photo Picker for import; `MediaMetadataRetriever` + `MediaExtractor` for metadata; Coil 2.7 + `coil-video` for thumbnails.
 - **Transitions** (`core/domain/editing/Transitions.kt`): `ClipTransition` = CUT, FADE (dip to black), ZOOM_IN, ZOOM_OUT, SLIDE_LEFT/RIGHT/UP; stored per clip as `transitionInType` + `transitionInMs` (opening on the first clip) and `transitionOutMs` on the last clip (ending fade). There are no overlapping clips yet, so each transition is split: the outgoing clip animates out over half, the incoming clip animates in over half. `TransitionMath.animations()` + `lookAt()` produce a `FrameLook` (scale, translate, brightness) — the **single source of truth** for both preview and export. True cross-dissolves need multi-track compositing (Stage 3).
@@ -125,7 +127,12 @@ Scaffolded but **excluded** until they get code: `:feature:editor:{preview,effec
 | 43033497285, 43037440813 | `dcdcd74`, `3662adb` | e2e ✗ | `apt-get` couldn't resolve the Ubuntu mirror → ffmpeg install hung; fixed by `FedericoCarboni/setup-ffmpeg` (static build) |
 | 43037440813 | `3662adb` | build ✗ | Room KSP: computed `isAudio` looked like a getter for `hasAudio` → renamed `isAudioFile` |
 | 43039599346 | `883a9ef` | e2e: music ✓, transitions ✗ | Test read raw 1280×720: Media3 stores portrait as landscape + 90° rotation; test now compares displayed size |
-| **43041216232 (#49)** | `7bd69c6` | **all green** | 101 unit + 2 emulator tests; fade-to-black at the cut confirms effects see composition time |
+| 43041216232 (#49) | `7bd69c6` | all green | 101 unit + 2 emulator tests; fade-to-black at the cut confirms effects see composition time |
+| 43044100519 | `b567e69` | build ✗ | KSP 2.3.13 needs AGP ≥ 8.12 (`NoSuchMethodError addKspConfigurations`) → AGP 8.13.2 |
+| 43044790769 | `c98da7a` | build ✗ | Hilt 2.60.1 requires AGP 9 → Hilt 2.58 + pinned kotlin-metadata-jvm |
+| 43046403672 | `cc23e32` | **all green** | LiteRT-LM + AI smart edit; 118 unit + 2 emulator tests |
+| 43047923600 | `cc23e32` | build ✗ (flaky) | KSP 2.3.13 parallel race "Cannot find required type element java.lang.Class" → KSP 2.3.12 |
+| **43049749268 (#61)** | `c60b388` | **all green** | KSP 2.3.12 + arm64/x86_64 only; 118 unit + 2 emulator tests |
 
 ## Music & audio (as built)
 
@@ -135,13 +142,27 @@ Scaffolded but **excluded** until they get code: `:feature:editor:{preview,effec
 - Export: music is a second, audio-only `EditedMediaItemSequence` mixed by Transformer; `GainAudioProcessor` (16-bit PCM) applies the fade envelope and the original-sound volume.
 - Licensing: the dialog reminds users to use music they may publish; Spotify audio can't be exported (Stage 7 Spotify = discovery only).
 
+## On-device AI (Stage 4, as built)
+
+- **Runtime:** Google **LiteRT-LM** `litertlm-android` 0.19.1 (MediaPipe LLM Inference is in maintenance mode). `OnDeviceLlm` (`feature/ai/llm/ondevice`): one `Engine` kept loaded until `unload()`, GPU backend with automatic CPU fallback (user can force CPU), vision backend for image input, `maxNumImages = 1`, near-greedy sampling, a fresh `Conversation` per request, one request at a time (mutex). Manifest declares optional `libOpenCL.so` / `libvndksupport.so`.
+- **Models** (`ModelCatalog`): from `litert-community` on Hugging Face, Apache-2.0, ungated (no token):
+  - Gemma 4 E2B `gemma-4-E2B-it.litertlm`, 2,588,147,712 B, sha256 `181938…63c` (default).
+  - Gemma 4 E4B `gemma-4-E4B-it.litertlm`, 3,659,530,240 B, sha256 `0b2a89…2e0`.
+  - Spec's preferred Qwen2.5-VL-7B: no LiteRT-LM build and too heavy for a phone; replaced per spec §5 ("benchmark practical alternatives"). Decision to confirm with the Vivo benchmark.
+- **Model manager:** `ModelDownloadManager` + `ModelDownloadService` (foreground, dataSync): resumable HTTP Range download into `filesDir/models/*.part`, Wi-Fi-only default, free-space check (+500 MB margin), 5 retries with back-off, pause/resume/discard/delete, **SHA-256 verified before install** (mismatch deletes the file). `ModelStore` tracks verified files; `AiPreferences` (use AI in Smart edit, Wi-Fi only, prefer GPU, selected model).
+- **Benchmark** (`ModelBenchmark`): cold load, short text answer, one image analysis of a synthetic frame (no user media), free RAM before/after, thermal status; copyable report for the owner to send back.
+- **Smart edit with AI** (`feature/ai/generation/smartedit`): if a model is installed and enabled → load → `Prompts.brief` turns the prompt into JSON (style, pacing, target_seconds, order, transition, strict_quality), merged by `AiAssist.mergeBrief` (explicit brief settings win, then model, then keywords) → up to 3 key frames per source (best measured sample per third; max 24 total) sent to `Prompts.FRAME` → `ShotInsight` (subject, scene, shot size, people, quality, interest; tolerant JSON parsing) → planner multiplies window scores by `AiAssist.weight` and penalises the same scene from different clips → decisions list what the AI saw. Model is unloaded afterwards; any failure falls back to the measurement-only edit with a note. Results are named "… · AI edit".
+- Tests: `PromptsTest` (9), `AiAssistTest` (8). Not testable in CI: actual inference (needs the 2.6 GB model and a phone GPU).
+- Privacy: inference is fully on-device; only the model file is downloaded (from huggingface.co). No user media leaves the phone.
+
 ## Split
 
 - `TimelineEditing.split()` (pure, `SplitTest` 3): splits the selected clip at the playhead into two clips that play identically; the incoming transition stays on the first part, an ending fade moves to the second. Parts shorter than 0.2 s are refused.
 
 ## Next recommended task
 
-1. Owner device test of the new APK: Smart edit from the brief, transitions (preview + exported file), Add clips, export.
-2. Fix findings.
-3. Stage 3: multi-track timeline (enables real cross-dissolves), speed, audio track + music import, beat markers, color/LUTs.
-4. Stage 4: model manager + on-device VLM benchmark on the Vivo; replace `BriefInterpreter`/scoring with model output behind the same `EditIntent`/plan contract.
+1. **Owner runs the AI benchmark on the Vivo X200 Pro** (✦ on the home screen → download Gemma 4 E2B on Wi-Fi → Run benchmark → Copy report) and sends the report. Decide E2B vs E4B and GPU vs CPU from it.
+2. Owner tries Smart edit with the model installed (named "… · AI edit"); report quality, time and heat.
+3. Tune from real numbers: frames per source, image size (768 px), prompt wording; consider keeping the engine warm between runs if load time is high.
+4. Stage 3: multi-track timeline (real cross-dissolves), speed changes, beat markers / beat sync, color + LUTs, voice-over.
+5. Captions / Hindi-Hinglish speech-to-text: needs the updated master spec; Gemma 4 E2B/E4B also accept audio, so on-device transcription can reuse this runtime.
