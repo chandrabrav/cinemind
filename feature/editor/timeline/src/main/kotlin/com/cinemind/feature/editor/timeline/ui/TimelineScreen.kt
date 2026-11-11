@@ -65,6 +65,7 @@ import com.cinemind.feature.editor.timeline.preview.PreviewState
 fun TimelineScreen(
     projectId: String,
     onOpenBrief: () -> Unit,
+    onExport: () -> Unit,
     viewModel: TimelineViewModel = hiltViewModel(),
 ) {
     LaunchedEffect(projectId) { viewModel.loadProject(projectId) }
@@ -148,8 +149,7 @@ fun TimelineScreen(
                     Icon(Icons.Default.AutoAwesome, contentDescription = null)
                     Text("AI brief", modifier = Modifier.padding(start = 6.dp))
                 }
-                // Export arrives with the Media3 Transformer task; disabled rather than a dead button.
-                TextButton(onClick = {}, enabled = false) { Text("Export (soon)") }
+                TextButton(onClick = onExport, enabled = clips.isNotEmpty()) { Text("Export") }
             }
         }
     }
