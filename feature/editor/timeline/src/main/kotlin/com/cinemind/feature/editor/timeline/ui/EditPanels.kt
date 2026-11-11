@@ -1,36 +1,39 @@
 package com.cinemind.feature.editor.timeline.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.automirrored.filled.Redo
-import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.Animation
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCut
-import androidx.compose.material.icons.filled.FileUpload
-import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material3.AlertDialog
+import androidx.compose.material.icons.filled.FileUpload
+import androidx.compose.material.icons.filled.LibraryMusic
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.Switch
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RangeSlider
 import androidx.compose.material3.Slider
-import androidx.compose.material3.Surface
+import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -40,50 +43,30 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
-import java.util.Locale
 import com.cinemind.core.domain.audio.MusicSettings
 import com.cinemind.core.domain.editing.ClipLimits
 import com.cinemind.core.domain.editing.ClipTransition
 import com.cinemind.core.domain.editing.TimelineEditing
 import com.cinemind.core.domain.editing.TransitionMath
+import com.cinemind.core.ui.components.ChoicePills
+import com.cinemind.core.ui.components.CineMindSheet
+import com.cinemind.core.ui.components.GradientButton
+import com.cinemind.core.ui.components.SettingRow
+import com.cinemind.core.ui.components.StatusPill
+import com.cinemind.core.ui.components.ToolButton
+import com.cinemind.core.ui.components.hapticClick
+import com.cinemind.core.ui.theme.CineMind
+import com.cinemind.core.ui.theme.Radius
+import com.cinemind.core.ui.theme.Spacing
 import com.cinemind.core.ui.theme.formatTimecode
 import com.cinemind.feature.editor.timeline.preview.PreviewClip
+import java.util.Locale
 
-@Composable
-internal fun EditToolbar(
-    canUndo: Boolean,
-    canRedo: Boolean,
-    hasSelection: Boolean,
-    onUndo: () -> Unit,
-    onRedo: () -> Unit,
-) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surfaceContainer)
-            .padding(horizontal = 8.dp),
-    ) {
-        Text(
-            text = if (hasSelection) "Editing clip" else "Tap a clip to trim, move or delete it",
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier
-                .weight(1f)
-                .padding(start = 8.dp),
-        )
-        IconButton(onClick = onUndo, enabled = canUndo) {
-            Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Undo")
-        }
-        IconButton(onClick = onRedo, enabled = canRedo) {
-            Icon(Icons.AutoMirrored.Filled.Redo, contentDescription = "Redo")
-        }
-    }
-}
+private fun seconds(ms: Long) = String.format(Locale.ROOT, "%.1f s", ms / 1000f)
 
 /** Controls for the selected clip. Trims are committed when the finger lifts (one undo step each). */
 @Composable
@@ -100,182 +83,95 @@ internal fun ClipInspector(
     onClose: () -> Unit,
     onTransition: (ClipTransition, Long) -> Unit,
 ) {
-    Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh) {
-        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = "Clip ${index + 1} of $clipCount" + if (limits.isStill) " · photo" else "",
-                    style = MaterialTheme.typography.titleSmall,
-                    modifier = Modifier.weight(1f),
-                )
-                IconButton(onClick = { onMove(-1) }, enabled = index > 0) {
-                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "Move earlier")
-                }
-                IconButton(onClick = { onMove(1) }, enabled = index < clipCount - 1) {
-                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "Move later")
-                }
-                IconButton(onClick = onSplit) {
-                    Icon(Icons.Default.ContentCut, contentDescription = "Split at playhead")
-                }
-                IconButton(onClick = onDelete) {
-                    Icon(Icons.Default.Delete, contentDescription = "Remove clip from timeline", tint = MaterialTheme.colorScheme.error)
-                }
-                IconButton(onClick = onClose) {
-                    Icon(Icons.Default.Close, contentDescription = "Done")
-                }
-            }
+    val c = CineMind.colors
+    val shape = RoundedCornerShape(Radius.l)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = Spacing.gutter, vertical = Spacing.xs)
+            .clip(shape)
+            .background(c.surfaceGlass)
+            .border(1.dp, c.hairline, shape)
+            .padding(horizontal = Spacing.m, vertical = Spacing.xs),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = "Clip ${index + 1} of $clipCount",
+                style = MaterialTheme.typography.titleSmall,
+                color = c.textPrimary,
+            )
             if (limits.isStill) {
-                StillLength(item = item, fps = fps, onTrim = onTrim)
-            } else {
-                VideoTrim(item = item, limits = limits, fps = fps, onTrim = onTrim)
+                Spacer(Modifier.width(Spacing.s))
+                StatusPill("Photo")
             }
-            TransitionPicker(
-                title = if (index == 0) "Opening" else "Transition from clip $index",
-                current = ClipTransition.fromName(item.clip.transitionInType),
-                currentMs = item.clip.transitionInMs,
-                onPick = onTransition,
+            Spacer(Modifier.weight(1f))
+            InspectorAction(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Move earlier", enabled = index > 0) { onMove(-1) }
+            InspectorAction(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Move later", enabled = index < clipCount - 1) { onMove(1) }
+            InspectorAction(Icons.Default.ContentCut, "Split at playhead", onClick = onSplit)
+            InspectorAction(Icons.Default.Delete, "Remove clip from timeline", tint = c.danger, onClick = onDelete)
+            InspectorAction(Icons.Default.Close, "Done", onClick = onClose)
+        }
+        if (limits.isStill) {
+            StillLength(item = item, fps = fps, onTrim = onTrim)
+        } else {
+            VideoTrim(item = item, limits = limits, fps = fps, onTrim = onTrim)
+        }
+        val current = ClipTransition.fromName(item.clip.transitionInType)
+        val currentMs = item.clip.transitionInMs
+        val durationMs = if (current == ClipTransition.CUT || currentMs <= 0) 500L else currentMs
+        Text(
+            if (index == 0) "Opening" else "Transition from clip $index",
+            style = MaterialTheme.typography.labelMedium,
+            color = c.textSecondary,
+            modifier = Modifier.padding(top = Spacing.xs),
+        )
+        ChoicePills(
+            items = ClipTransition.entries,
+            selected = current,
+            label = { it.label },
+            onSelect = { onTransition(it, durationMs) },
+            contentPadding = PaddingValues(0.dp),
+        )
+        if (current != ClipTransition.CUT) {
+            ChoicePills(
+                items = TransitionMath.DURATION_OPTIONS_MS,
+                selected = currentMs,
+                label = { seconds(it) },
+                onSelect = { onTransition(current, it) },
+                contentPadding = PaddingValues(0.dp),
             )
         }
     }
 }
 
 @Composable
-private fun TransitionPicker(
-    title: String,
-    current: ClipTransition,
-    currentMs: Long,
-    onPick: (ClipTransition, Long) -> Unit,
+private fun InspectorAction(
+    icon: ImageVector,
+    description: String,
+    enabled: Boolean = true,
+    tint: androidx.compose.ui.graphics.Color = CineMind.colors.textPrimary,
+    onClick: () -> Unit,
 ) {
-    val durationMs = if (current == ClipTransition.CUT || currentMs <= 0) 500L else currentMs
-    Text(title, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(top = 4.dp))
-    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        items(ClipTransition.entries) { t ->
-            FilterChip(selected = current == t, onClick = { onPick(t, durationMs) }, label = { Text(t.label) })
-        }
-    }
-    if (current != ClipTransition.CUT) {
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            items(TransitionMath.DURATION_OPTIONS_MS) { ms ->
-                FilterChip(
-                    selected = currentMs == ms,
-                    onClick = { onPick(current, ms) },
-                    label = { Text(String.format(Locale.ROOT, "%.1f s", ms / 1000f)) },
-                )
-            }
-        }
-    }
-}
-
-/** Sets one transition for every cut, plus optional fade-in/out at the very start and end. */
-@Composable
-internal fun TransitionsDialog(
-    onDismiss: () -> Unit,
-    onApplyAll: (ClipTransition, Long) -> Unit,
-    onOpeningEnding: (Long, Long) -> Unit,
-) {
-    var type by remember { mutableStateOf(ClipTransition.FADE) }
-    var durationMs by remember { mutableLongStateOf(500L) }
-    var fadeIn by remember { mutableStateOf(true) }
-    var fadeOut by remember { mutableStateOf(true) }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Transitions") },
-        text = {
-            Column {
-                Text("Between every clip", style = MaterialTheme.typography.labelLarge)
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    items(ClipTransition.entries) { t ->
-                        FilterChip(selected = type == t, onClick = { type = t }, label = { Text(t.label) })
-                    }
-                }
-                if (type != ClipTransition.CUT) {
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        items(TransitionMath.DURATION_OPTIONS_MS) { ms ->
-                            FilterChip(
-                                selected = durationMs == ms,
-                                onClick = { durationMs = ms },
-                                label = { Text(String.format(Locale.ROOT, "%.1f s", ms / 1000f)) },
-                            )
-                        }
-                    }
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Fade in from black at the start", modifier = Modifier.weight(1f))
-                    Switch(checked = fadeIn, onCheckedChange = { fadeIn = it })
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Fade out to black at the end", modifier = Modifier.weight(1f))
-                    Switch(checked = fadeOut, onCheckedChange = { fadeOut = it })
-                }
-                Text(
-                    "Fades dip through black; true cross-dissolves need multi-track editing, which is coming later.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = {
-                onApplyAll(type, durationMs)
-                onOpeningEnding(if (fadeIn) 600L else 0L, if (fadeOut) 800L else 0L)
-                onDismiss()
-            }) { Text("Apply to all") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
-}
-
-/** Main editor tools. Clip-specific tools appear in the inspector after tapping a clip. */
-@Composable
-internal fun EditorToolsBar(
-    hasClips: Boolean,
-    onSmartEdit: () -> Unit,
-    onAddMedia: () -> Unit,
-    onTransitions: () -> Unit,
-    onMusic: () -> Unit,
-    onExport: () -> Unit,
-) {
-    Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh) {
-        Row(
-            horizontalArrangement = Arrangement.SpaceEvenly,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 4.dp),
-        ) {
-            ToolButton(Icons.Default.AutoAwesome, "Smart edit", enabled = hasClips, onClick = onSmartEdit)
-            ToolButton(Icons.Default.AddPhotoAlternate, "Add clips", enabled = true, onClick = onAddMedia)
-            ToolButton(Icons.Default.Animation, "Transitions", enabled = hasClips, onClick = onTransitions)
-            ToolButton(Icons.Default.MusicNote, "Music", enabled = hasClips, onClick = onMusic)
-            ToolButton(Icons.Default.FileUpload, "Export", enabled = hasClips, onClick = onExport)
-        }
-    }
-}
-
-@Composable
-private fun ToolButton(icon: ImageVector, label: String, enabled: Boolean, onClick: () -> Unit) {
-    TextButton(onClick = onClick, enabled = enabled) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(icon, contentDescription = null)
-            Text(label, style = MaterialTheme.typography.labelSmall)
-        }
+    IconButton(onClick = hapticClick(onClick = onClick), enabled = enabled) {
+        Icon(icon, contentDescription = description, tint = if (enabled) tint else CineMind.colors.textTertiary.copy(alpha = 0.4f))
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun VideoTrim(item: PreviewClip, limits: ClipLimits, fps: Int, onTrim: (Long, Long) -> Unit) {
+    val c = CineMind.colors
     val clip = item.clip
     val sourceEnd = (limits.sourceDurationUs ?: clip.sourceOutUs).coerceAtLeast(1)
     // Local value while dragging; reset whenever the stored clip changes (commit, undo, redo).
     var range by remember(clip.id, clip.sourceInUs, clip.sourceOutUs) {
         mutableStateOf(clip.sourceInUs.toFloat()..clip.sourceOutUs.toFloat())
     }
-
     RangeSlider(
         value = range,
         onValueChange = { range = it },
         valueRange = 0f..sourceEnd.toFloat(),
+        colors = SliderDefaults.colors(thumbColor = c.highlight, activeTrackColor = c.highlight, inactiveTrackColor = c.surfaceSunken),
         onValueChangeFinished = {
             val start = range.start.toLong()
             val end = range.endInclusive.toLong()
@@ -295,14 +191,15 @@ private fun VideoTrim(item: PreviewClip, limits: ClipLimits, fps: Int, onTrim: (
 
 @Composable
 private fun StillLength(item: PreviewClip, fps: Int, onTrim: (Long, Long) -> Unit) {
+    val c = CineMind.colors
     val clip = item.clip
     val stored = (clip.sourceOutUs - clip.sourceInUs).toFloat()
     var length by remember(clip.id, stored) { mutableFloatStateOf(stored) }
-
     Slider(
         value = length,
         onValueChange = { length = it },
         valueRange = TimelineEditing.MIN_CLIP_US.toFloat()..TimelineEditing.MAX_STILL_US.toFloat(),
+        colors = SliderDefaults.colors(thumbColor = c.highlight, activeTrackColor = c.highlight, inactiveTrackColor = c.surfaceSunken),
         onValueChangeFinished = {
             val chosen = length.toLong()
             length = stored
@@ -314,12 +211,53 @@ private fun StillLength(item: PreviewClip, fps: Int, onTrim: (Long, Long) -> Uni
 
 @Composable
 private fun Label(text: String) {
-    Text(text, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Text(text, style = MaterialTheme.typography.labelSmall, color = CineMind.colors.textTertiary)
+}
+
+/** Sets one transition for every cut, plus optional fade-in/out at the very start and end. */
+@Composable
+internal fun TransitionsSheet(
+    onDismiss: () -> Unit,
+    onApplyAll: (ClipTransition, Long) -> Unit,
+    onOpeningEnding: (Long, Long) -> Unit,
+) {
+    var type by remember { mutableStateOf(ClipTransition.FADE) }
+    var durationMs by remember { mutableLongStateOf(500L) }
+    var fadeIn by remember { mutableStateOf(true) }
+    var fadeOut by remember { mutableStateOf(true) }
+    val c = CineMind.colors
+
+    CineMindSheet(onDismiss = onDismiss, title = "Transitions") {
+        Text("Between every clip", style = MaterialTheme.typography.labelLarge, color = c.textSecondary)
+        ChoicePills(ClipTransition.entries, type, { it.label }, { type = it }, contentPadding = PaddingValues(0.dp))
+        if (type != ClipTransition.CUT) {
+            ChoicePills(TransitionMath.DURATION_OPTIONS_MS, durationMs, { seconds(it) }, { durationMs = it }, contentPadding = PaddingValues(0.dp))
+        }
+        SettingRow("Fade in from black at the start") { Switch(checked = fadeIn, onCheckedChange = { fadeIn = it }) }
+        SettingRow("Fade out to black at the end") { Switch(checked = fadeOut, onCheckedChange = { fadeOut = it }) }
+        Text(
+            "Fades dip through black; true cross-dissolves need multi-track editing, which is coming later. " +
+                "Tap a clip to give it its own transition.",
+            style = MaterialTheme.typography.bodySmall,
+            color = c.textTertiary,
+        )
+        Spacer(Modifier.height(Spacing.l))
+        GradientButton(
+            "Apply to all",
+            onClick = {
+                onApplyAll(type, durationMs)
+                onOpeningEnding(if (fadeIn) 600L else 0L, if (fadeOut) 800L else 0L)
+                onDismiss()
+            },
+            icon = Icons.Default.Animation,
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
 }
 
 /** Background music: choose a song, its volume, where it starts, fades; plus the clips' own sound level. */
 @Composable
-internal fun MusicDialog(
+internal fun MusicSheet(
     music: MusicUi?,
     originalVolume: Float,
     onChoose: () -> Unit,
@@ -328,65 +266,95 @@ internal fun MusicDialog(
     onOriginalVolume: (Float) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Music") },
-        text = {
-            Column {
-                if (music == null) {
-                    Text(
-                        "Add a song from your phone (MP3, M4A, WAV…). It plays under the whole video, " +
-                            "loops if it's shorter, and fades in and out.",
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                } else {
-                    val s = music.settings
-                    Text(music.name, style = MaterialTheme.typography.titleSmall, maxLines = 1)
-                    Text(formatTimecode(music.durationUs, 30), style = MaterialTheme.typography.labelSmall)
-
-                    var volume by remember(s.volume) { mutableFloatStateOf(s.volume) }
-                    Label("Music volume ${(volume * 100).toInt()}%")
-                    Slider(value = volume, onValueChange = { volume = it }, onValueChangeFinished = { onUpdate(s.copy(volume = volume)) })
-
-                    val maxStart = (music.durationUs - 1_000_000).coerceAtLeast(0).toFloat()
-                    var start by remember(s.startOffsetUs) { mutableFloatStateOf(s.startOffsetUs.toFloat().coerceAtMost(maxStart)) }
-                    Label("Start the song at ${formatTimecode(start.toLong(), 30)}")
-                    Slider(
-                        value = start,
-                        valueRange = 0f..maxOf(maxStart, 1f),
-                        enabled = maxStart > 0f,
-                        onValueChange = { start = it },
-                        onValueChangeFinished = { onUpdate(s.copy(startOffsetUs = start.toLong())) },
-                    )
-
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Fade in", modifier = Modifier.weight(1f))
-                        Switch(checked = s.fadeInMs > 0, onCheckedChange = { onUpdate(s.copy(fadeInMs = if (it) 1_000 else 0)) })
-                    }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Fade out", modifier = Modifier.weight(1f))
-                        Switch(checked = s.fadeOutMs > 0, onCheckedChange = { onUpdate(s.copy(fadeOutMs = if (it) 1_500 else 0)) })
-                    }
+    val c = CineMind.colors
+    val sliderColors = SliderDefaults.colors(thumbColor = c.accent, activeTrackColor = c.accent, inactiveTrackColor = c.surfaceSunken)
+    CineMindSheet(onDismiss = onDismiss, title = "Music") {
+        if (music == null) {
+            Text(
+                "Add a song from your phone (MP3, M4A, WAV…). It plays under the whole video, loops if it's shorter, and fades in and out.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = c.textSecondary,
+            )
+        } else {
+            val s = music.settings
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.MusicNote, contentDescription = null, tint = c.trackMusic)
+                Spacer(Modifier.width(Spacing.s))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(music.name, style = MaterialTheme.typography.titleSmall, color = c.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(formatTimecode(music.durationUs, 30), style = MaterialTheme.typography.labelSmall, color = c.textTertiary)
                 }
+            }
+            var volume by remember(s.volume) { mutableFloatStateOf(s.volume) }
+            Label("Music volume ${(volume * 100).toInt()}%")
+            Slider(value = volume, onValueChange = { volume = it }, colors = sliderColors, onValueChangeFinished = { onUpdate(s.copy(volume = volume)) })
 
-                var original by remember(originalVolume) { mutableFloatStateOf(originalVolume) }
-                Label("Original sound of the clips ${(original * 100).toInt()}%")
-                Slider(value = original, onValueChange = { original = it }, onValueChangeFinished = { onOriginalVolume(original) })
-                Text(
-                    "Use only music you're allowed to publish. Spotify songs can't be used in exported videos.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            val maxStart = (music.durationUs - 1_000_000).coerceAtLeast(0).toFloat()
+            var start by remember(s.startOffsetUs) { mutableFloatStateOf(s.startOffsetUs.toFloat().coerceAtMost(maxStart)) }
+            Label("Start the song at ${formatTimecode(start.toLong(), 30)}")
+            Slider(
+                value = start,
+                valueRange = 0f..maxOf(maxStart, 1f),
+                enabled = maxStart > 0f,
+                colors = sliderColors,
+                onValueChange = { start = it },
+                onValueChangeFinished = { onUpdate(s.copy(startOffsetUs = start.toLong())) },
+            )
+            SettingRow("Fade in") { Switch(checked = s.fadeInMs > 0, onCheckedChange = { onUpdate(s.copy(fadeInMs = if (it) 1_000 else 0)) }) }
+            SettingRow("Fade out") { Switch(checked = s.fadeOutMs > 0, onCheckedChange = { onUpdate(s.copy(fadeOutMs = if (it) 1_500 else 0)) }) }
+        }
+
+        var original by remember(originalVolume) { mutableFloatStateOf(originalVolume) }
+        Label("Original sound of the clips ${(original * 100).toInt()}%")
+        Slider(value = original, onValueChange = { original = it }, colors = sliderColors, onValueChangeFinished = { onOriginalVolume(original) })
+        Text(
+            "Use only music you're allowed to publish. Spotify songs can't be used in exported videos.",
+            style = MaterialTheme.typography.bodySmall,
+            color = c.textTertiary,
+        )
+        Spacer(Modifier.height(Spacing.l))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            GradientButton(
+                if (music == null) "Choose a song" else "Replace song",
+                onClick = onChoose,
+                icon = Icons.Default.LibraryMusic,
+                modifier = Modifier.weight(1f),
+            )
+            if (music != null) {
+                Spacer(Modifier.width(Spacing.s))
+                TextButton(onClick = onRemove) { Text("Remove", color = c.danger) }
             }
-        },
-        confirmButton = {
-            TextButton(onClick = onChoose) { Text(if (music == null) "Choose a song" else "Replace song") }
-        },
-        dismissButton = {
-            Row {
-                if (music != null) TextButton(onClick = onRemove) { Text("Remove") }
-                TextButton(onClick = onDismiss) { Text("Done") }
-            }
-        },
-    )
+        }
+    }
+}
+
+/** Main editor tools on a glass bar. Clip-specific tools appear in the inspector after tapping a clip. */
+@Composable
+internal fun EditorToolsBar(
+    hasClips: Boolean,
+    onSmartEdit: () -> Unit,
+    onAddMedia: () -> Unit,
+    onTransitions: () -> Unit,
+    onMusic: () -> Unit,
+    onExport: () -> Unit,
+) {
+    val c = CineMind.colors
+    val shape = RoundedCornerShape(Radius.xl)
+    Row(
+        horizontalArrangement = Arrangement.SpaceEvenly,
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = Spacing.m, vertical = Spacing.s)
+            .clip(shape)
+            .background(c.surfaceGlass)
+            .border(1.dp, c.hairline, shape)
+            .padding(vertical = Spacing.xs),
+    ) {
+        ToolButton(Icons.Default.AutoAwesome, "Smart edit", onClick = onSmartEdit, enabled = hasClips, minWidth = 56.dp)
+        ToolButton(Icons.Default.AddPhotoAlternate, "Add", onClick = onAddMedia, minWidth = 56.dp)
+        ToolButton(Icons.Default.Animation, "Transitions", onClick = onTransitions, enabled = hasClips, minWidth = 56.dp)
+        ToolButton(Icons.Default.MusicNote, "Music", onClick = onMusic, enabled = hasClips, minWidth = 56.dp)
+        ToolButton(Icons.Default.FileUpload, "Export", onClick = onExport, enabled = hasClips, minWidth = 56.dp)
+    }
 }

@@ -5,35 +5,39 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.OptIn
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.automirrored.filled.Redo
+import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material3.BottomAppBar
-import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -46,8 +50,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -60,11 +66,17 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import com.cinemind.core.domain.editing.FrameLook
+import com.cinemind.core.domain.editing.TimelineEditing
 import com.cinemind.core.domain.editing.TransitionMath
 import com.cinemind.core.domain.model.Project
-import com.cinemind.feature.editor.timeline.R
+import com.cinemind.core.ui.components.StatusPill
+import com.cinemind.core.ui.components.hapticClick
+import com.cinemind.core.ui.components.pressScale
 import com.cinemind.core.ui.theme.CineMind
+import com.cinemind.core.ui.theme.Radius
+import com.cinemind.core.ui.theme.Spacing
 import com.cinemind.core.ui.theme.formatTimecode
+import com.cinemind.feature.editor.timeline.R
 import com.cinemind.feature.editor.timeline.preview.PreviewClip
 import com.cinemind.feature.editor.timeline.preview.PreviewState
 
@@ -102,63 +114,72 @@ fun TimelineScreen(
         ActivityResultContracts.PickMultipleVisualMedia(maxItems = 50),
     ) { uris -> viewModel.addMedia(uris) }
 
+    val animations = remember(clips) { TransitionMath.animations(clips.map { it.clip }) }
+    val look = clips.getOrNull(preview.currentIndex)?.let { current ->
+        val clip = current.clip
+        val anim = animations.getOrNull(preview.currentIndex) ?: return@let null
+        TransitionMath.lookAt(preview.positionUs - clip.timelineInUs, clip.timelineOutUs - clip.timelineInUs, anim)
+    } ?: FrameLook.IDENTITY
+    val totalUs = TimelineEditing.durationUs(clips.map { it.clip })
+
     Column(modifier = Modifier.fillMaxSize()) {
-        ProjectHeader(project = project, clipCount = clips.size)
-
-        val animations = remember(clips) { TransitionMath.animations(clips.map { it.clip }) }
-        val look = clips.getOrNull(preview.currentIndex)?.let { current ->
-            val clip = current.clip
-            val anim = animations.getOrNull(preview.currentIndex) ?: return@let null
-            TransitionMath.lookAt(
-                preview.positionUs - clip.timelineInUs,
-                clip.timelineOutUs - clip.timelineInUs,
-                anim,
-            )
-        } ?: FrameLook.IDENTITY
-
-        PreviewArea(
-            player = viewModel.player,
+        EditorHeader(
             project = project,
-            currentClip = clips.getOrNull(preview.currentIndex),
-            look = look,
-            error = preview.error,
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f),
-        )
-
-        TransportControls(
-            state = preview,
-            fps = fps,
-            enabled = clips.isNotEmpty(),
-            onTogglePlay = viewModel::togglePlayPause,
-            onScrub = viewModel::scrubTo,
-            onScrubFinished = viewModel::scrubFinished,
-        )
-
-        EditToolbar(
+            clipCount = clips.size,
             canUndo = editor.canUndo,
             canRedo = editor.canRedo,
-            hasSelection = selected != null,
             onUndo = viewModel::undo,
             onRedo = viewModel::redo,
         )
 
-        ClipStrip(
-            clips = clips,
+        PreviewStage(
+            player = viewModel.player,
+            project = project,
+            currentClip = clips.getOrNull(preview.currentIndex),
+            look = look,
+            state = preview,
             fps = fps,
-            currentIndex = preview.currentIndex,
-            selectedClipId = editor.selectedClipId,
-            onClipClick = viewModel::onClipTapped,
+            enabled = clips.isNotEmpty(),
+            onTogglePlay = viewModel::togglePlayPause,
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .padding(horizontal = Spacing.gutter),
         )
 
-        if (selected != null) {
-            val index = clips.indexOf(selected)
+        Scrubber(
+            state = preview,
+            enabled = clips.isNotEmpty(),
+            onScrub = viewModel::scrubTo,
+            onScrubFinished = viewModel::scrubFinished,
+        )
+
+        MultiTrackTimeline(
+            clips = clips,
+            music = editor.music,
+            totalUs = totalUs,
+            positionUs = preview.positionUs,
+            isPlaying = preview.isPlaying,
+            selectedClipId = editor.selectedClipId,
+            limitsFor = viewModel::limitsFor,
+            onSeek = viewModel::scrubFinished,
+            onClipTap = viewModel::onClipTapped,
+            onTrim = viewModel::trimSelected,
+            onMusicTap = { showMusic = true },
+            modifier = Modifier.fillMaxWidth(),
+        )
+
+        AnimatedVisibility(
+            visible = selected != null,
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically(),
+        ) {
+            val item = selected ?: return@AnimatedVisibility
             ClipInspector(
-                item = selected,
-                index = index,
+                item = item,
+                index = clips.indexOf(item),
                 clipCount = clips.size,
-                limits = viewModel.limitsFor(selected.clip),
+                limits = viewModel.limitsFor(item.clip),
                 fps = fps,
                 onTrim = viewModel::trimSelected,
                 onMove = viewModel::moveSelected,
@@ -182,7 +203,7 @@ fun TimelineScreen(
     }
 
     if (showMusic) {
-        MusicDialog(
+        MusicSheet(
             music = editor.music,
             originalVolume = editor.originalVolume,
             onChoose = { musicPicker.launch(arrayOf("audio/*")) },
@@ -194,7 +215,7 @@ fun TimelineScreen(
     }
 
     if (showTransitions) {
-        TransitionsDialog(
+        TransitionsSheet(
             onDismiss = { showTransitions = false },
             onApplyAll = viewModel::applyTransitionToAll,
             onOpeningEnding = viewModel::setOpeningAndEnding,
@@ -203,43 +224,74 @@ fun TimelineScreen(
 }
 
 @Composable
-private fun ProjectHeader(project: Project?, clipCount: Int) {
-    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-        Text(
-            text = project?.name ?: "Timeline Editor",
-            style = MaterialTheme.typography.titleLarge,
-        )
-        project?.let {
+private fun EditorHeader(
+    project: Project?,
+    clipCount: Int,
+    canUndo: Boolean,
+    canRedo: Boolean,
+    onUndo: () -> Unit,
+    onRedo: () -> Unit,
+) {
+    val c = CineMind.colors
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = Spacing.gutter, end = Spacing.xs, bottom = Spacing.xs),
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = "$clipCount clips · ${it.aspectRatio} · ${it.resolutionWidth}×${it.resolutionHeight} · ${it.frameRate} fps",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                text = project?.name ?: "Editor",
+                style = MaterialTheme.typography.titleMedium,
+                color = c.textPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
+            project?.let {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    StatusPill(it.aspectRatio)
+                    Spacer(Modifier.width(Spacing.xs))
+                    Text("$clipCount clips · ${it.frameRate} fps", style = MaterialTheme.typography.labelSmall, color = c.textTertiary)
+                }
+            }
+        }
+        IconButton(onClick = hapticClick(onClick = onUndo), enabled = canUndo) {
+            Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Undo", tint = if (canUndo) c.textPrimary else c.textTertiary.copy(alpha = 0.4f))
+        }
+        IconButton(onClick = hapticClick(onClick = onRedo), enabled = canRedo) {
+            Icon(Icons.AutoMirrored.Filled.Redo, contentDescription = "Redo", tint = if (canRedo) c.textPrimary else c.textTertiary.copy(alpha = 0.4f))
         }
     }
 }
 
 @OptIn(UnstableApi::class)
 @Composable
-private fun PreviewArea(
+private fun PreviewStage(
     player: Player,
     project: Project?,
     currentClip: PreviewClip?,
     look: FrameLook,
-    error: String?,
+    state: PreviewState,
+    fps: Int,
+    enabled: Boolean,
+    onTogglePlay: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val c = CineMind.colors
     val ratio = project?.let { it.resolutionWidth.toFloat() / it.resolutionHeight } ?: (9f / 16f)
+    val stageShape = RoundedCornerShape(Radius.l)
     Box(
         contentAlignment = Alignment.Center,
-        modifier = modifier.background(Color.Black),
+        modifier = modifier
+            .clip(stageShape)
+            .background(c.stage),
     ) {
         // The frame shows the project's output shape; clips are fitted inside it.
         Box(
             modifier = Modifier
                 .aspectRatio(ratio, matchHeightConstraintsFirst = true)
                 .clipToBounds()
-                .background(Color.Black),
+                .background(c.stage),
         ) {
             // Picture (video or photo) moves as one layer, like the exported frame does.
             Box(
@@ -261,205 +313,124 @@ private fun PreviewArea(
                     onRelease = { it.player = null },
                     modifier = Modifier.fillMaxSize(),
                 )
-
                 val asset = currentClip?.asset
                 when {
-                    currentClip != null && asset == null -> CenterLabel("Missing media")
+                    currentClip != null && asset == null -> Box(Modifier.fillMaxSize().background(c.stage), contentAlignment = Alignment.Center) {
+                        Text("Missing media", color = c.onStage.copy(alpha = 0.7f))
+                    }
                     asset != null && asset.isImage -> AsyncImage(
                         model = asset.uri,
                         contentDescription = asset.displayName.ifEmpty { null },
                         contentScale = ContentScale.Fit,
                         modifier = Modifier
                             .fillMaxSize()
-                            .background(Color.Black),
+                            .background(c.stage),
                     )
                 }
             }
             // Fades dip through black.
             if (look.brightness < 1f) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.Black.copy(alpha = (1f - look.brightness).coerceIn(0f, 1f))),
-                )
+                Box(Modifier.fillMaxSize().background(c.stage.copy(alpha = (1f - look.brightness).coerceIn(0f, 1f))))
             }
         }
 
-        if (error != null) {
+        if (!enabled) {
+            Text("Add clips to start editing", color = c.onStage.copy(alpha = 0.7f), style = MaterialTheme.typography.bodyMedium)
+        }
+
+        // Glass playback control.
+        PlayControl(
+            isPlaying = state.isPlaying,
+            enabled = enabled,
+            timecode = "${formatTimecode(state.positionUs, fps)} / ${formatTimecode(state.durationUs, fps)}",
+            onToggle = onTogglePlay,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(Spacing.m),
+        )
+
+        state.error?.let { error ->
             Text(
                 text = error,
-                color = Color.White,
+                color = c.onStage,
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(8.dp)
-                    .background(MaterialTheme.colorScheme.error.copy(alpha = 0.85f), RoundedCornerShape(6.dp))
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                    .align(Alignment.TopCenter)
+                    .padding(Spacing.s)
+                    .clip(RoundedCornerShape(Radius.s))
+                    .background(c.danger.copy(alpha = 0.9f))
+                    .padding(horizontal = Spacing.s, vertical = Spacing.xs),
             )
         }
     }
 }
 
 @Composable
-private fun CenterLabel(text: String) {
-    Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize().background(Color.Black)) {
-        Text(text, color = Color.White.copy(alpha = 0.7f))
+private fun PlayControl(isPlaying: Boolean, enabled: Boolean, timecode: String, onToggle: () -> Unit, modifier: Modifier = Modifier) {
+    val c = CineMind.colors
+    val interaction = remember { MutableInteractionSource() }
+    val click = hapticClick(HapticFeedbackType.LongPress, onToggle)
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = modifier
+            .clip(RoundedCornerShape(Radius.pill))
+            .background(c.stageControl)
+            .border(1.dp, c.onStage.copy(alpha = 0.12f), RoundedCornerShape(Radius.pill))
+            .padding(start = Spacing.xs, end = Spacing.l, top = Spacing.xs, bottom = Spacing.xs),
+    ) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .size(44.dp)
+                .pressScale(interaction, 0.9f)
+                .clip(CircleShape)
+                .background(c.onStage)
+                .clickable(interactionSource = interaction, indication = null, enabled = enabled, role = Role.Button, onClick = click),
+        ) {
+            Icon(
+                imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                contentDescription = if (isPlaying) "Pause" else "Play",
+                tint = c.stage,
+            )
+        }
+        Spacer(Modifier.width(Spacing.m))
+        Text(timecode, color = c.onStage, style = MaterialTheme.typography.labelMedium)
     }
 }
 
 @Composable
-private fun TransportControls(
+private fun Scrubber(
     state: PreviewState,
-    fps: Int,
     enabled: Boolean,
-    onTogglePlay: () -> Unit,
     onScrub: (Long) -> Unit,
     onScrubFinished: (Long) -> Unit,
 ) {
+    val c = CineMind.colors
     // While dragging, the slider shows the finger position rather than the (lagging) player position.
     var dragPositionUs by remember { mutableStateOf<Long?>(null) }
     val shownUs = dragPositionUs ?: state.positionUs
     val durationUs = state.durationUs.coerceAtLeast(1)
-
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
+    Slider(
+        value = shownUs.coerceIn(0, durationUs).toFloat(),
+        valueRange = 0f..durationUs.toFloat(),
+        enabled = enabled,
+        onValueChange = { v ->
+            val us = v.toLong()
+            dragPositionUs = us
+            onScrub(us)
+        },
+        onValueChangeFinished = {
+            dragPositionUs?.let(onScrubFinished)
+            dragPositionUs = null
+        },
+        colors = SliderDefaults.colors(
+            thumbColor = c.accent,
+            activeTrackColor = c.accent,
+            inactiveTrackColor = c.surfaceSunken,
+        ),
         modifier = Modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surface)
-            .padding(horizontal = 12.dp, vertical = 4.dp),
-    ) {
-        FilledIconButton(onClick = onTogglePlay, enabled = enabled) {
-            Icon(
-                imageVector = if (state.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                contentDescription = if (state.isPlaying) "Pause" else "Play",
-            )
-        }
-        Column(modifier = Modifier.weight(1f).padding(start = 8.dp)) {
-            Slider(
-                value = shownUs.coerceIn(0, durationUs).toFloat(),
-                valueRange = 0f..durationUs.toFloat(),
-                enabled = enabled,
-                onValueChange = { v ->
-                    val us = v.toLong()
-                    dragPositionUs = us
-                    onScrub(us)
-                },
-                onValueChangeFinished = {
-                    dragPositionUs?.let(onScrubFinished)
-                    dragPositionUs = null
-                },
-            )
-            Text(
-                text = "${formatTimecode(shownUs, fps)} / ${formatTimecode(state.durationUs, fps)}",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
-}
-
-@Composable
-private fun ClipStrip(
-    clips: List<PreviewClip>,
-    fps: Int,
-    currentIndex: Int,
-    selectedClipId: String?,
-    onClipClick: (Int) -> Unit,
-) {
-    val listState = rememberLazyListState()
-    // Keep the playing clip in view as playback moves along the timeline.
-    LaunchedEffect(currentIndex, clips.size) {
-        if (currentIndex in clips.indices) listState.animateScrollToItem(currentIndex)
-    }
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surfaceContainer)
-            .padding(vertical = 10.dp),
-    ) {
-        Text(
-            text = "Video 1",
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(start = 16.dp, bottom = 6.dp),
-        )
-        if (clips.isEmpty()) {
-            Text(
-                text = "No clips on this track",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(16.dp),
-            )
-            return@Column
-        }
-        LazyRow(
-            state = listState,
-            contentPadding = PaddingValues(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            itemsIndexed(clips, key = { _, item -> item.clip.id }) { index, item ->
-                ClipTile(
-                    index = index,
-                    item = item,
-                    fps = fps,
-                    isCurrent = index == currentIndex,
-                    isSelected = item.clip.id == selectedClipId,
-                    onClick = { onClipClick(index) },
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun ClipTile(
-    index: Int,
-    item: PreviewClip,
-    fps: Int,
-    isCurrent: Boolean,
-    isSelected: Boolean,
-    onClick: () -> Unit,
-) {
-    val shape = RoundedCornerShape(8.dp)
-    val outline = when {
-        isSelected -> Modifier.border(3.dp, MaterialTheme.colorScheme.secondary, shape)
-        isCurrent -> Modifier.border(2.dp, MaterialTheme.colorScheme.primary, shape)
-        else -> Modifier
-    }
-    Box(
-        modifier = Modifier
-            .width(96.dp)
-            .height(64.dp)
-            .clip(shape)
-            .background(CineMind.colors.trackVideo)
-            .then(outline)
-            .clickable(onClick = onClick),
-    ) {
-        val asset = item.asset
-        if (asset != null) {
-            AsyncImage(
-                model = asset.uri,
-                contentDescription = asset.displayName.ifEmpty { null },
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
-            )
-        } else {
-            Text(
-                "Missing media",
-                color = Color.White,
-                style = MaterialTheme.typography.labelSmall,
-                modifier = Modifier.align(Alignment.Center),
-            )
-        }
-        Text(
-            text = "${index + 1} · ${formatTimecode(item.clip.timelineOutUs - item.clip.timelineInUs, fps)}",
-            color = Color.White,
-            style = MaterialTheme.typography.labelSmall,
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .background(Color.Black.copy(alpha = 0.6f))
-                .padding(horizontal = 4.dp, vertical = 1.dp),
-        )
-    }
+            .height(36.dp)
+            .padding(horizontal = Spacing.gutter),
+    )
 }
