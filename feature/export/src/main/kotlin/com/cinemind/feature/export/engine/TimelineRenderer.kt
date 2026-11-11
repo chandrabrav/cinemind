@@ -163,10 +163,12 @@ class TimelineRenderer(private val context: Context) {
         val items = OverlayEditing.pieces(track.map { it.clip }, totalUs).toMutableList()
         val covered = items.sumOf { it.durationUs }
         if (covered < totalUs) items += OverlayEditing.Piece.Gap(totalUs - covered)
-        val out = items.map { piece ->
+        // Empty time is a real gap (as in Media3's own picture-in-picture demo), shown at alpha 0.
+        val builder = EditedMediaItemSequence.Builder(setOf(C.TRACK_TYPE_VIDEO))
+        items.forEach { piece ->
             when (piece) {
-                is OverlayEditing.Piece.Gap -> transparentStill(piece.durationUs, fps)
-                is OverlayEditing.Piece.Item -> {
+                is OverlayEditing.Piece.Gap -> builder.addGap(piece.durationUs)
+                is OverlayEditing.Piece.Item -> builder.addItem(run {
                     val o = byId.getValue(piece.clip.id)
                     val c = piece.clip
                     if (o.source.isVideo) {
@@ -193,10 +195,10 @@ class TimelineRenderer(private val context: Context) {
                             .setFrameRate(fps)
                             .build()
                     }
-                }
+                })
             }
         }
-        return EditedMediaItemSequence.Builder(setOf(C.TRACK_TYPE_VIDEO)).addItems(out).build()
+        return builder.build()
     }
 
     private fun transparentStill(durationUs: Long, fps: Int): EditedMediaItem {
@@ -225,7 +227,9 @@ class TimelineRenderer(private val context: Context) {
      */
     private fun buildVoiceSequence(voice: RenderVoiceover, totalUs: Long): EditedMediaItemSequence {
         val byId = voice.clips.associateBy { it.clip.id }
-        val builder = EditedMediaItemSequence.Builder(setOf(C.TRACK_TYPE_AUDIO))
+        // A voiceover that starts after 0:00 begins with a gap; Media3 1.11 needs this flag to fill it with silence.
+        @Suppress("DEPRECATION")
+        val builder = EditedMediaItemSequence.Builder(setOf(C.TRACK_TYPE_AUDIO)).experimentalSetForceAudioTrack(true)
         for (piece in OverlayEditing.pieces(voice.clips.map { it.clip }, totalUs)) {
             when (piece) {
                 is OverlayEditing.Piece.Gap -> builder.addGap(piece.durationUs)

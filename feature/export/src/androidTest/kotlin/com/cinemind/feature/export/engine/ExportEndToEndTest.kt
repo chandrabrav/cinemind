@@ -29,6 +29,43 @@ import java.io.File
 @RunWith(AndroidJUnit4::class)
 class ExportEndToEndTest {
 
+    /** A render that stalls must fail (with its name) instead of hanging the whole CI job. */
+    @get:org.junit.Rule
+    val timeout: org.junit.rules.Timeout = org.junit.rules.Timeout.seconds(240)
+
+    /** Picture-in-picture with a VIDEO overlay (same colour format as the main video). */
+    @Test
+    fun compositesVideoOverlay() = runBlocking {
+        val black = asset("black.mp4")
+        val overlayVideo = asset("landscape_silent.mp4")
+        val main = TimelineEditing.relayout(listOf(clip("b", 0, 2_000_000)))
+        val sources = listOf(RenderSource(Uri.fromFile(black).toString(), isVideo = true, hasAudio = false, frameRate = 30f, durationUs = 2_000_000))
+        val overlayClip = Clip(
+            id = "ov", trackId = "ov", assetId = "ov", timelineInUs = 1_000_000, timelineOutUs = 2_000_000, sourceInUs = 0, sourceOutUs = 1_000_000,
+            transformX = 0.5f, transformY = 0.25f, scale = 0.8f,
+        )
+        val overlay = RenderOverlay(overlayClip, RenderSource(Uri.fromFile(overlayVideo).toString(), isVideo = true, hasAudio = false, frameRate = 60f, durationUs = 2_000_000), 1280, 720)
+        val out = File(context.cacheDir, "e2e-overlay-video.mp4").apply { delete() }
+        val progressScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+        withContext(Dispatchers.Main) {
+            val renderer = TimelineRenderer(context)
+            val composition = renderer.buildComposition(main.zip(sources), OutputSize(720, 1280), fps = 30, overlays = listOf(listOf(overlay)))
+            renderer.render(composition, out, videoBitrateBps = 4_000_000, progressScope = progressScope)
+        }
+        progressScope.cancel()
+        val r = MediaMetadataRetriever()
+        try {
+            r.setDataSource(out.absolutePath)
+            val during = r.getFrameAtTime(1_500_000, MediaMetadataRetriever.OPTION_CLOSEST)!!
+            saveForReview(during, "export_overlay_video_frame")
+            assertTrue("video overlay visible in its place", bandLuma(during, 0.18f, 0.32f) > 0.15f)
+            assertTrue("main video visible below", bandLuma(during, 0.6f, 0.9f) < 0.06f)
+            assertTrue("no overlay before its start", bandLuma(r.getFrameAtTime(500_000, MediaMetadataRetriever.OPTION_CLOSEST)!!, 0.18f, 0.32f) < 0.06f)
+        } finally {
+            r.release()
+        }
+    }
+
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private val context = instrumentation.targetContext
 
