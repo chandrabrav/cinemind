@@ -10,12 +10,12 @@ _Last updated: 2026-11-11_
 | | |
 |---|---|
 | **Stage** | Stage 1 — Project foundation (in progress) |
-| **Last completed milestone** | Media import (2026-11-11): Photo Picker multi-select, metadata, thumbnails, create project from selection. Built and unit-tested in CI; **not yet verified on a device**. |
-| **Previous milestone** | Foundation repair: first green cloud build (run 43011809441, 2026-11-11). |
-| **Current task** | Device check of media import, then ExoPlayer preview. |
+| **Last completed milestone** | Editor preview (2026-11-11): ExoPlayer playback of the clip sequence with play/pause, scrubbing, timecode, current-clip highlight. Built and unit-tested in CI; **not yet verified on a device**. |
+| **Previous milestones** | Media import (run 43013511655); foundation repair, first green build (run 43011809441). |
+| **Current task** | Device check of import + preview, then project list. |
 | **Branch** | `dev-main` |
-| **Latest verified build** | CI run 43013511655 (#9), commit `8070f04`, 22/22 unit tests passed — https://github.com/chandrabrav/cinemind/actions/runs/43013511655 |
-| **Latest verified APK** | Artifact `cinemind-debug-9` (16.3 MB, expires 2026-12-11). Built, not yet device-tested. |
+| **Latest verified build** | CI run 43015369603 (#14), commit `a3a732c`, 29/29 unit tests passed — https://github.com/chandrabrav/cinemind/actions/runs/43015369603 |
+| **Latest verified APK** | Artifact `cinemind-debug-14` (19.3 MB, expires 2026-12-11). Built, not yet device-tested. |
 
 ## Build environment (hard rule)
 
@@ -42,7 +42,8 @@ _Last updated: 2026-11-11_
 - UI: Jetpack Compose + Material 3 (BOM 2024.12.01), Navigation Compose. Dark-first theme in `core/ui`.
 - DI: Hilt 2.54 (KSP). Storage: Room 2.6.1, DataStore Preferences.
 - Room schema is **v2** (`MIGRATION_1_2` adds `media_assets.displayName`, `sizeBytes`). **No destructive migration.** Exported schema JSON is committed in `core/data/schemas/` — after any schema change, fetch the new JSON from the `room-schemas-<run>` artifact (`ci-verify.sh <run> /mnt/d/projects/cinemind/core/data/schemas`) and commit it.
-- Media: system Photo Picker for import; `MediaMetadataRetriever` + `MediaExtractor` for metadata; Coil 2.7 + `coil-video` for thumbnails (app-wide `ImageLoader` in `CineMindApplication`). Media3 1.5.1 is in the catalog but not used yet.
+- Media: system Photo Picker for import; `MediaMetadataRetriever` + `MediaExtractor` for metadata; Coil 2.7 + `coil-video` for thumbnails (app-wide `ImageLoader` in `CineMindApplication`).
+- Preview: Media3 1.5.1 ExoPlayer + `PlayerView` (via `AndroidView`). `PreviewPlayer` maps each clip to one playlist item — video clips use `ClippingConfiguration` (source in/out), stills and missing media use `SilenceMediaSource` of the clip duration with the image drawn on top in Compose. `TimelineMath` converts timeline positions ↔ (clip index, offset). Preview is playback only; it does not render effects/transitions or write files.
 
 Modules compiled in CI (`settings.gradle.kts`):
 
@@ -54,7 +55,7 @@ Modules compiled in CI (`settings.gradle.kts`):
 | `:core:data` | Room DB + migrations, DAOs, repository implementations (`createProjectWithTimeline` is one transaction) |
 | `:core:ui` | Theme, colors, typography, `formatTimecode` |
 | `:feature:media` | `MediaImporter` (picker URI → `MediaAsset`), `MediaLibraryViewModel`, library screen (grid, ordered multi-select, create project) |
-| `:feature:editor:timeline` | Editor screen: project info + read-only clip strip; preview area is a placeholder |
+| `:feature:editor:timeline` | Editor screen: `PreviewPlayer` + `TimelineMath` (preview), `TimelineViewModel` (owns/releases the player), transport controls, clip strip |
 | `:feature:export` | Export foreground service (stub) |
 | `:feature:settings` | Settings DataStore |
 | `:feature:ai:{analysis,llm,generation,cloud}` | Interfaces / data classes only |
@@ -68,14 +69,14 @@ Scaffolded but **excluded** until they get code: `:feature:editor:{preview,effec
 | Branding + dark theme | Partial (colors/typography, adaptive launcher icon; no full design system yet) |
 | Media import (Photo Picker, multi-select, thumbnails, metadata) | Implemented; pure logic unit-tested; **not device-verified** |
 | Create project from selection | Implemented; `ProjectFactory` unit-tested; **not device-verified** |
-| Video preview | Not started |
+| Video preview | Implemented (play/pause, scrub, timecode, current-clip highlight, tap clip to jump, pause on background); `TimelineMath` unit-tested; **not device-verified** |
 | AI prompt screen | Not started |
-| Editor workspace / timeline | Partial: clips in order with thumbnails/durations; no playhead, trim or reorder |
+| Editor workspace / timeline | Partial: preview + clip strip in order; no zoomable timeline, playhead on tracks, trim or reorder |
 | Trim / reorder | Not started |
 | Export (Media3 Transformer) | Stub service only |
 | Project storage | Partial: Room v2 with migration; atomic project creation; no project list, autosave, recovery or versioned project file |
 | AI (all) | Interfaces only |
-| Tests | 22 unit tests: `TimecodeTest` (5), `ProjectFactoryTest` (9), `MediaMetadataParsingTest` (6), `MediaLabelsTest` (2) |
+| Tests | 29 unit tests: `TimecodeTest` (5), `ProjectFactoryTest` (9), `MediaMetadataParsingTest` (6), `MediaLabelsTest` (2), `TimelineMathTest` (7). No instrumented/UI tests yet. |
 
 ## Architecture decisions
 
@@ -93,6 +94,8 @@ Scaffolded but **excluded** until they get code: `:feature:editor:{preview,effec
 - Photo EXIF orientation is not applied to stored width/height (thumbnails are still correct). Matters only when a rotated photo is the first item of a project.
 - If a provider refuses a persistable URI grant, that media is readable only until the app restarts (logged as a warning). Missing-media handling is not built yet.
 - No project list yet: after leaving the editor, a project can't be reopened from the UI.
+- Preview: switching between clips goes through ExoPlayer's playlist, so there may be a brief stall at cuts (not gapless-guaranteed). If a clip fails to decode, playback stops with an error label; pressing Play retries. No preview of transitions, speed, color or audio mixing yet.
+- Preview duration per clip comes from stored metadata; if a file's real duration is slightly shorter, the playhead may jump a few ms at that cut.
 - Assets can't be removed from the library yet (clips reference them with `RESTRICT`).
 - Only the v2 schema JSON exists (v1 was never exported), so a v1→v2 Room migration test can't be written. No device ever ran v1.
 - Domain module carries Room annotations (`room-common`) — split entities from domain models when the project format is versioned.
@@ -105,8 +108,8 @@ Scaffolded but **excluded** until they get code: `:feature:editor:{preview,effec
 Foundation milestone, each verified on the Vivo X200 Pro:
 1. ~~Photo Picker multi-select import with metadata + thumbnails~~ (done; needs device check)
 2. ~~Create project from selected clips~~ (done; needs device check)
-3. **Next:** ExoPlayer preview of the clip sequence in the editor (play/pause, scrub, current-clip highlight).
-4. Project list on the home screen (reopen / delete projects; never deletes source media).
+3. ~~ExoPlayer preview of the clip sequence~~ (done; needs device check)
+4. **Next:** Project list on the home screen (reopen / delete projects; never deletes source media).
 5. AI prompt input screen (UI + stored prompt; no AI yet).
 6. Timeline: trim + reorder with an undoable command model, unit-tested.
 7. Media3 Transformer export of the edited sequence to an MP4 in `Movies/CineMind`, playable in the gallery.
