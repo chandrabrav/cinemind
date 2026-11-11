@@ -60,7 +60,7 @@ fun CineMindNavHost(
     ) {
         composable("media_library") {
             MediaLibraryScreen(
-                onProjectSelected = { projectId ->
+                onProjectCreated = { projectId ->
                     navController.navigate("editor/$projectId")
                 },
             )

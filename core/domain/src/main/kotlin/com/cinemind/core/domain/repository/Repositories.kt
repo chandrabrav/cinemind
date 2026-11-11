@@ -3,11 +3,16 @@ package com.cinemind.core.domain.repository
 import com.cinemind.core.domain.model.Clip
 import com.cinemind.core.domain.model.MediaAsset
 import com.cinemind.core.domain.model.Project
+import com.cinemind.core.domain.model.ProjectTimeline
 import com.cinemind.core.domain.model.Track
 import kotlinx.coroutines.flow.Flow
 
 interface ProjectRepository {
     suspend fun createProject(project: Project): String
+
+    /** Atomically stores a project with its tracks and clips; returns the project id. */
+    suspend fun createProjectWithTimeline(timeline: ProjectTimeline): String
+
     suspend fun getProject(id: String): Project?
     fun getAllProjects(): Flow<List<Project>>
     suspend fun updateProject(project: Project)
@@ -35,6 +40,7 @@ interface ClipRepository {
 interface MediaAssetRepository {
     suspend fun createAsset(asset: MediaAsset): String
     suspend fun getAsset(id: String): MediaAsset?
+    suspend fun getAssetByUri(uri: String): MediaAsset?
     fun getAllAssets(): Flow<List<MediaAsset>>
     suspend fun updateAsset(asset: MediaAsset)
     suspend fun deleteAsset(id: String)

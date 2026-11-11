@@ -4,9 +4,12 @@ import com.cinemind.core.data.local.dao.ClipDao
 import com.cinemind.core.data.local.dao.MediaAssetDao
 import com.cinemind.core.data.local.dao.ProjectDao
 import com.cinemind.core.data.local.dao.TrackDao
+import com.cinemind.core.data.local.database.AppDatabase
+import androidx.room.withTransaction
 import com.cinemind.core.domain.model.Clip
 import com.cinemind.core.domain.model.MediaAsset
 import com.cinemind.core.domain.model.Project
+import com.cinemind.core.domain.model.ProjectTimeline
 import com.cinemind.core.domain.model.Track
 import com.cinemind.core.domain.repository.ClipRepository
 import com.cinemind.core.domain.repository.MediaAssetRepository
@@ -15,11 +18,22 @@ import com.cinemind.core.domain.repository.TrackRepository
 import kotlinx.coroutines.flow.Flow
 
 class ProjectRepositoryImpl(
-    private val projectDao: ProjectDao,
+    private val database: AppDatabase,
 ) : ProjectRepository {
+    private val projectDao: ProjectDao = database.projectDao()
+
     override suspend fun createProject(project: Project): String {
         projectDao.insert(project)
         return project.id
+    }
+
+    override suspend fun createProjectWithTimeline(timeline: ProjectTimeline): String {
+        database.withTransaction {
+            projectDao.insert(timeline.project)
+            timeline.tracks.forEach { database.trackDao().insert(it) }
+            timeline.clips.forEach { database.clipDao().insert(it) }
+        }
+        return timeline.project.id
     }
 
     override suspend fun getProject(id: String): Project? = projectDao.getProject(id)
@@ -82,6 +96,8 @@ class MediaAssetRepositoryImpl(
     }
 
     override suspend fun getAsset(id: String): MediaAsset? = mediaAssetDao.getAsset(id)
+
+    override suspend fun getAssetByUri(uri: String): MediaAsset? = mediaAssetDao.getAssetByUri(uri)
 
     override fun getAllAssets(): Flow<List<MediaAsset>> = mediaAssetDao.getAllAssets()
 

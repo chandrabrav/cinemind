@@ -81,6 +81,9 @@ interface MediaAssetDao {
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insert(asset: MediaAsset)
 
+    @Query("SELECT * FROM media_assets WHERE uri = :uri LIMIT 1")
+    suspend fun getAssetByUri(uri: String): MediaAsset?
+
     @Query("SELECT * FROM media_assets WHERE id = :id")
     suspend fun getAsset(id: String): MediaAsset?
 

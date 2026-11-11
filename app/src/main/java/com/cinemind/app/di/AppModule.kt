@@ -48,8 +48,8 @@ object DatabaseModule {
 object RepositoryModule {
 
     @Provides
-    fun provideProjectRepository(projectDao: ProjectDao): ProjectRepository =
-        ProjectRepositoryImpl(projectDao)
+    fun provideProjectRepository(database: AppDatabase): ProjectRepository =
+        ProjectRepositoryImpl(database)
 
     @Provides
     fun provideTrackRepository(trackDao: TrackDao): TrackRepository =
