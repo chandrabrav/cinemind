@@ -87,7 +87,7 @@ jobs:
 
       - name: Free disk space for the emulator
         run: |
-          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost /usr/local/lib/android/sdk/ndk "$AGENT_TOOLSDIRECTORY" || true
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost /usr/local/lib/android/sdk/ndk /usr/local/.ghcup /usr/share/swift || true
           df -h /
 
       - name: Enable KVM (hardware-accelerated emulator)
