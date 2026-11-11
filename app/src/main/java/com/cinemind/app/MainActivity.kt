@@ -63,6 +63,7 @@ private object Routes {
     const val EXPORT = "export/{projectId}"
     const val AI_MODELS = "ai_models"
     const val SETTINGS = "settings"
+    const val ABOUT = "about"
     fun editor(projectId: String) = "editor/$projectId"
     fun brief(projectId: String) = "brief/$projectId"
     fun export(projectId: String) = "export/$projectId"
@@ -101,7 +102,8 @@ class MainActivity : ComponentActivity() {
                         Routes.EXPORT -> "Export"
                         Routes.AI_MODELS -> "On-device AI"
                         Routes.SETTINGS -> ""
-                        else -> "CineMind"
+                        Routes.ABOUT -> "About"
+                        else -> com.cinemind.feature.settings.ui.Branding.APP_NAME
                     }
 
                     Scaffold(
@@ -139,6 +141,8 @@ class MainActivity : ComponentActivity() {
                         CineMindNavHost(navController = navController, modifier = Modifier.padding(paddingValues))
                     }
                 }
+                // Brand moment on a cold start only (not on rotation or theme change); tap to skip.
+                if (savedInstanceState == null) LaunchBrand()
             }
         }
     }
@@ -206,7 +210,13 @@ fun CineMindNavHost(
             )
         }
         composable(Routes.AI_MODELS) { AiModelsScreen() }
-        composable(Routes.SETTINGS) { SettingsScreen(onOpenAiModels = { navController.navigate(Routes.AI_MODELS) }) }
+        composable(Routes.SETTINGS) {
+            SettingsScreen(
+                onOpenAiModels = { navController.navigate(Routes.AI_MODELS) },
+                onOpenAbout = { navController.navigate(Routes.ABOUT) },
+            )
+        }
+        composable(Routes.ABOUT) { com.cinemind.feature.settings.ui.AboutScreen() }
         composable(Routes.EXPORT) { backStackEntry ->
             ExportScreen(projectId = backStackEntry.arguments?.getString("projectId").orEmpty())
         }
