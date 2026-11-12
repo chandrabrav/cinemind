@@ -9,8 +9,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -57,7 +55,7 @@ fun FeedbackSheet(onSend: (note: String, mood: String?, includeDiagnostics: Bool
             }
         }
         Spacer(Modifier.height(Spacing.m))
-        GradientButton("Choose how to send", onClick = { onSend(note, mood, diagnostics); onDismiss() }, icon = Icons.AutoMirrored.Filled.Send, modifier = Modifier.fillMaxWidth())
+        GradientButton("Choose how to send", onClick = { onSend(note, mood, diagnostics); onDismiss() }, modifier = Modifier.fillMaxWidth())
         TextButton(onClick = onDismiss, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("Not now") }
     }
 }
