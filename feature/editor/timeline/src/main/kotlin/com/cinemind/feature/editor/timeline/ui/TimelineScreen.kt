@@ -166,6 +166,7 @@ fun TimelineScreen(
     var showVoice by remember { mutableStateOf(false) }
     var showColor by remember { mutableStateOf(false) }
     var showSpeed by remember { mutableStateOf(false) }
+    var showFraming by remember { mutableStateOf(false) }
     var colorAllClips by remember { mutableStateOf(false) }
     var colorContext by remember { mutableStateOf<TimelineViewModel.ColorContext?>(null) }
     LaunchedEffect(showColor) { colorContext = if (showColor) viewModel.colorContext() else null }
@@ -352,7 +353,23 @@ fun TimelineScreen(
             onVoice = openVoice,
             onColor = { showColor = true },
             onSpeed = { showSpeed = true },
+            onFraming = { showFraming = true },
         )
+    }
+
+    if (showFraming) {
+        val target = remember(editor.clips, editor.selectedClipId) { viewModel.framingTarget() }
+        if (target == null) {
+            LaunchedEffect(Unit) { showFraming = false }
+        } else {
+            FramingSheet(
+                target = target,
+                playheadOffsetUs = remember(target.clip.id) { viewModel.playheadOffsetIn(target.clip) },
+                onSeek = { off, exact -> viewModel.seekInClip(target.clip, off, exact) },
+                onFraming = { f -> viewModel.setFraming(target.clip.id, f) },
+                onDismiss = { showFraming = false },
+            )
+        }
     }
 
     if (showSpeed) {

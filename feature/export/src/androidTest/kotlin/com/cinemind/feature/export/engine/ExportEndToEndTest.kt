@@ -179,6 +179,61 @@ class ExportEndToEndTest {
     }
 
     /**
+     * Framing: a 4:3 photo set to fill the 9:16 frame covers its top; the same photo zoomed to 0.5×
+     * leaves black above and below; a video cropped, turned and flipped still exports at its length.
+     */
+    @Test
+    fun exportsClipFraming() = runBlocking {
+        val photo = asset("photo.jpg")
+        val landscape = asset("landscape_silent.mp4")
+        val fill = com.cinemind.core.domain.editing.ClipFraming(fill = true)
+        val small = fill.copy(keys = listOf(com.cinemind.core.domain.editing.MotionKey(0, scale = 0.5f)))
+        val turned = com.cinemind.core.domain.editing.ClipFraming(
+            crop = com.cinemind.core.domain.editing.CropRect(left = 0.1f, right = 0.1f),
+            quarterTurns = 1,
+            flipH = true,
+        )
+        val clips = TimelineEditing.relayout(
+            listOf(
+                clip("a", 0, 2_000_000).copy(framing = fill.encode()),
+                clip("b", 0, 2_000_000).copy(framing = small.encode()),
+                clip("c", 0, 2_000_000).copy(framing = turned.encode()),
+            ),
+        )
+        val photoSource = RenderSource(Uri.fromFile(photo).toString(), isVideo = false, hasAudio = false, frameRate = 0f, durationUs = 0)
+        val sources = listOf(
+            photoSource,
+            photoSource,
+            RenderSource(Uri.fromFile(landscape).toString(), isVideo = true, hasAudio = false, frameRate = 60f, durationUs = 2_000_000),
+        )
+        val out = File(context.cacheDir, "e2e-framing.mp4").apply { delete() }
+        val progressScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+        withContext(Dispatchers.Main) {
+            val renderer = TimelineRenderer(context)
+            val composition = renderer.buildComposition(clips.zip(sources), OutputSize(720, 1280), fps = 30)
+            renderer.render(composition, out, videoBitrateBps = 3_000_000, progressScope = progressScope)
+        }
+        progressScope.cancel()
+        val r = MediaMetadataRetriever()
+        try {
+            r.setDataSource(out.absolutePath)
+            val durationMs = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)!!.toLong()
+            assertTrue("duration ~6 s, was $durationMs ms", durationMs in 5_700..6_300)
+            val filled = r.getFrameAtTime(1_000_000, MediaMetadataRetriever.OPTION_CLOSEST)!!
+            val zoomed = r.getFrameAtTime(3_000_000, MediaMetadataRetriever.OPTION_CLOSEST)!!
+            saveForReview(zoomed, "export_framing_zoomed")
+            val topFilled = bandLuma(filled, 0.03f, 0.12f)
+            val topZoomed = bandLuma(zoomed, 0.03f, 0.12f)
+            val midZoomed = bandLuma(zoomed, 0.45f, 0.55f)
+            assertTrue("fill covers the top ($topFilled)", topFilled > 0.08f)
+            assertTrue("0.5× zoom leaves black at the top ($topZoomed)", topZoomed < 0.04f)
+            assertTrue("0.5× zoom keeps the picture in the middle ($midZoomed)", midZoomed > 0.1f)
+        } finally {
+            r.release()
+        }
+    }
+
+    /**
      * Speed: a 2 s clip with sound at 2× plays for 1 s, and a 2 s clip with a speed ramp plays for
      * the length SpeedMath computes. The exported file must match the timeline length.
      */

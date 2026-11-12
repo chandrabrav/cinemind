@@ -309,6 +309,40 @@ class TimelineViewModel @Inject constructor(
         commit(next, selectAfter = clip.id)
     }
 
+    // ---- Framing (crop, rotate, flip, position, keyframes) -----------------------------------
+
+    /** What the framing tool edits: the selected clip (or the one under the playhead) and sizes. */
+    data class FramingTarget(val clip: Clip, val sourceWidth: Int, val sourceHeight: Int, val frameWidth: Int, val frameHeight: Int)
+
+    fun framingTarget(): FramingTarget? {
+        val clips = history?.present.orEmpty()
+        val pos = preview.currentPositionUs()
+        val clip = clips.firstOrNull { it.id == _editor.value.selectedClipId }
+            ?: clips.firstOrNull { pos >= it.timelineInUs && pos < it.timelineOutUs }
+            ?: return null
+        val asset = assets[clip.assetId]
+        val p = project.value
+        return FramingTarget(clip, asset?.width ?: 0, asset?.height ?: 0, p?.resolutionWidth ?: 1080, p?.resolutionHeight ?: 1920)
+    }
+
+    /** Playhead as an offset into [clip] (0 when the playhead is outside it). */
+    fun playheadOffsetIn(clip: Clip): Long =
+        (preview.currentPositionUs() - clip.timelineInUs).coerceIn(0, (clip.timelineOutUs - clip.timelineInUs - 1).coerceAtLeast(0))
+
+    /** Moves the playhead to [offsetUs] inside [clip] (keyframe editing). */
+    fun seekInClip(clip: Clip, offsetUs: Long, exact: Boolean) {
+        val at = clip.timelineInUs + offsetUs.coerceIn(0, (clip.timelineOutUs - clip.timelineInUs - 1).coerceAtLeast(0))
+        if (exact) scrubFinished(at) else scrubTo(at)
+    }
+
+    /** Framing for one clip (one undo step). */
+    fun setFraming(clipId: String, framing: com.cinemind.core.domain.editing.ClipFraming) {
+        val clips = history?.present ?: return
+        val encoded = framing.encode()
+        if (clips.none { it.id == clipId && it.framing != encoded }) return
+        commit(clips.map { if (it.id == clipId) it.copy(framing = encoded) else it }, selectAfter = clipId)
+    }
+
     // ---- Speed ------------------------------------------------------------------------------
 
     /** What the speed tool edits: the selected video clip (or the one under the playhead). */

@@ -13,6 +13,7 @@ import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.material.icons.filled.PictureInPicture
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.Crop
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -354,6 +355,7 @@ internal fun EditorToolsBar(
     onVoice: () -> Unit = {},
     onColor: () -> Unit = {},
     onSpeed: () -> Unit = {},
+    onFraming: () -> Unit = {},
 ) {
     val c = CineMind.colors
     val shape = RoundedCornerShape(Radius.xl)
@@ -362,6 +364,7 @@ internal fun EditorToolsBar(
         Tool(Icons.Default.AddPhotoAlternate, "Add", true, onAddMedia),
         Tool(Icons.Default.Animation, "Transitions", hasClips, onTransitions),
         Tool(Icons.Default.Palette, "Colour", hasClips, onColor),
+        Tool(Icons.Default.Crop, "Crop & move", hasClips, onFraming),
         Tool(Icons.Default.Speed, "Speed", hasClips, onSpeed),
         Tool(Icons.Default.MusicNote, "Music", hasClips, onMusic),
         Tool(Icons.Default.ClosedCaption, "Captions", hasClips, onCaptions),

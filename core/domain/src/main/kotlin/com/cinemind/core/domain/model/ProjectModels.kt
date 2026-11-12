@@ -110,6 +110,8 @@ data class Clip(
     @ColumnInfo(defaultValue = "''") val grade: String = "",
     /** Speed ramp keyframes ([com.cinemind.core.domain.editing.SpeedMath] encoded); "" = constant [speed]. Schema v7. */
     @ColumnInfo(defaultValue = "''") val speedCurve: String = "",
+    /** Crop, turns, flips, fill and motion keyframes ([com.cinemind.core.domain.editing.ClipFraming] encoded); "" = as filmed. Schema v8. */
+    @ColumnInfo(defaultValue = "''") val framing: String = "",
 )
 
 /**

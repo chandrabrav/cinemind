@@ -28,6 +28,7 @@ import com.cinemind.core.domain.audio.MusicLayout
 import com.cinemind.core.domain.audio.VoiceMix
 import com.cinemind.core.domain.audio.VoiceoverSettings
 import com.cinemind.core.domain.editing.ClipAnimation
+import com.cinemind.core.domain.editing.ClipFraming
 import com.cinemind.core.domain.editing.OverlayEditing
 import com.cinemind.core.domain.editing.TransitionMath
 import com.cinemind.core.domain.model.Clip
@@ -88,6 +89,7 @@ class TimelineRenderer(private val context: Context) {
         grades: Map<String, com.cinemind.core.domain.color.CubeLut> = emptyMap(),
     ): Composition {
         val fit = Presentation.createForWidthAndHeight(size.width, size.height, Presentation.LAYOUT_SCALE_TO_FIT)
+        val fill = Presentation.createForWidthAndHeight(size.width, size.height, Presentation.LAYOUT_SCALE_TO_FIT_WITH_CROP)
         val animations = TransitionMath.animations(clips.map { it.first })
         val totalUs = clips.maxOfOrNull { it.first.timelineOutUs } ?: 0L
         val voiceClips = voiceover?.clips?.map { it.clip }.orEmpty()
@@ -101,9 +103,17 @@ class TimelineRenderer(private val context: Context) {
             val lengthUs = clip.timelineOutUs - clip.timelineInUs
             val effects = buildList<Effect> {
                 if (source.isVideo && source.frameRate > fps + 1) add(FrameDropEffect.createDefaultFrameDropEffect(fps.toFloat()))
-                add(fit)
+                val framing = ClipFraming.decode(clip.framing)
+                // Crop, quarter turns and flips act on the source picture; then it is fitted (or filled) to the frame.
+                ClipFramingEffects.sourceEffects(framing).forEach { add(it) }
+                add(if (framing.fill) fill else fit)
                 // Colour grade (look + adjustments baked into one LUT), before transitions so fades dim the graded picture.
                 grades[clip.id]?.let { add(ColorLutEffect.create(it)) }
+                // Keyframed position / zoom / rotation / opacity, before transitions so those act on the moved picture.
+                if (framing.keys.any { !it.isIdentity }) {
+                    add(ClipMotion(clip, framing, clip.timelineInUs, size.width.toFloat() / size.height))
+                    if (framing.keys.any { it.opacity < 1f }) add(ClipOpacity(clip, framing, clip.timelineInUs))
+                }
                 val anim = animations[i]
                 if (!anim.isNone) {
                     add(TransitionMotion(clip.timelineInUs, lengthUs, anim))
