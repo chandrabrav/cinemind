@@ -85,7 +85,7 @@ class TransitionsTest {
 
     @Test
     fun unknownNamesFallBackToCutAndNoOpsReturnSameList() {
-        assertEquals(ClipTransition.CUT, ClipTransition.fromName("SPIN"))
+        assertEquals(ClipTransition.CUT, ClipTransition.fromName("WARP_DRIVE"))
         assertSame(clips, TransitionEditing.setTransition(clips, "missing", ClipTransition.FADE, 500))
         assertSame(clips, TransitionEditing.setTransition(clips, "b", ClipTransition.FADE, 1_000))
     }
