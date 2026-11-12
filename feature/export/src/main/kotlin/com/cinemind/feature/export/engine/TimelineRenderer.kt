@@ -234,7 +234,7 @@ class TimelineRenderer(private val context: Context) {
     ): EditedMediaItemSequence {
         val builder = EditedMediaItemSequence.Builder(setOf(C.TRACK_TYPE_VIDEO))
         var cursor = 0L
-        for (raw in pieces) {
+        for ((index, raw) in pieces.withIndex()) {
             // Very short clips can make two cuts' pieces overlap: start this one where the last ended.
             val skip = (cursor - raw.timelineStartUs).coerceAtLeast(0)
             val length = raw.lengthUs - skip
@@ -242,6 +242,12 @@ class TimelineRenderer(private val context: Context) {
             val start = raw.timelineStartUs + skip
             if (start > cursor) builder.addGap(start - cursor)
             val (clip, source) = clips[raw.clipIndex]
+            // Pad a few frames past the piece (hidden by the compositor after the piece ends): on the
+            // emulator the last part of a short item never reached the compositor.
+            val nextStart = pieces.getOrNull(index + 1)?.timelineStartUs ?: totalUs
+            val sourceLeft = if (source.isVideo && source.durationUs > 0) source.durationUs - (raw.sourceStartUs + skip + length) else Long.MAX_VALUE
+            val pad = minOf(250_000L, nextStart - (start + length), sourceLeft).coerceAtLeast(0)
+            val playLength = length + pad
             val item = if (source.isVideo) {
                 val from = raw.sourceStartUs + skip
                 val mediaItem = MediaItem.Builder()
@@ -249,24 +255,24 @@ class TimelineRenderer(private val context: Context) {
                     .setClippingConfiguration(
                         MediaItem.ClippingConfiguration.Builder()
                             .setStartPositionMs(from / 1_000)
-                            .setEndPositionMs((from + length) / 1_000)
+                            .setEndPositionMs((from + playLength) / 1_000)
                             .build(),
                     )
                     .build()
                 EditedMediaItem.Builder(mediaItem)
-                    .setDurationUs(knownDurationUs(source.durationUs, from + length))
+                    .setDurationUs(knownDurationUs(source.durationUs, from + playLength))
                     .setRemoveAudio(true)
                     .setEffects(Effects(emptyList(), pictureEffects(clip, source)))
                     .build()
             } else {
-                EditedMediaItem.Builder(MediaItem.Builder().setUri(source.uri).setImageDurationMs(length / 1_000).build())
-                    .setDurationUs(length / 1_000 * 1_000)
+                EditedMediaItem.Builder(MediaItem.Builder().setUri(source.uri).setImageDurationMs(playLength / 1_000).build())
+                    .setDurationUs(playLength / 1_000 * 1_000)
                     .setFrameRate(fps)
                     .setEffects(Effects(emptyList(), pictureEffects(clip, source)))
                     .build()
             }
             builder.addItem(item)
-            cursor = start + length
+            cursor = start + playLength
         }
         if (totalUs > cursor) builder.addGap(totalUs - cursor)
         return builder.build()

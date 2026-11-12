@@ -213,7 +213,7 @@ class ExportEndToEndTest {
             saveForReview(r.getFrameAtTime(1_450_000, MediaMetadataRetriever.OPTION_CLOSEST)!!, "export_dissolve_mid")
             assertTrue("black at the start ($start)", start < 0.05f)
             assertTrue("photo at the end ($end)", end > 0.12f)
-            val curve = listOf(1_000_000L, 1_250_000L, 1_450_000L, 1_600_000L, 1_750_000L, 1_950_000L, 2_300_000L).joinToString { t -> "${t / 1000}ms=" + String.format(java.util.Locale.ROOT, "%.3f", luma(r, t)) }
+            val curve = listOf(1_000_000L, 1_150_000L, 1_250_000L, 1_300_000L, 1_350_000L, 1_400_000L, 1_450_000L, 1_500_000L, 1_600_000L, 1_750_000L, 1_950_000L, 2_300_000L).joinToString { t -> "${t / 1000}ms=" + String.format(java.util.Locale.ROOT, "%.3f", luma(r, t)) }
             assertTrue("blend at the cut: between black ($start) and photo ($end), was $mid; curve $curve", mid > start + 0.03f && mid < end - 0.02f)
         } finally {
             r.release()
