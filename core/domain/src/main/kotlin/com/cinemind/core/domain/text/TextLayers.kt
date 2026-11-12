@@ -111,12 +111,10 @@ enum class TextPreset(val label: String, val style: TextStyle, val size: Float, 
     TYPEWRITER("Typewriter", TextStyle(font = CaptionFont.MONO, weight = 500, shadow = true, animIn = TextAnim.TYPEWRITER), 0.055f, 0.5f),
     HANDWRITTEN("Casual", TextStyle(font = CaptionFont.CASUAL, weight = 600, color = 0xFFFFF4E0.toInt(), shadow = true, animIn = TextAnim.SLIDE_UP), 0.08f, 0.6f),
     ;
-
-    companion object {
-        private const val BLACKISH = 0xFF111111.toInt()
-        private const val WHITEISH = 0xFFFAFAFA.toInt()
-    }
 }
+
+private const val BLACKISH = 0xFF111111.toInt()
+private const val WHITEISH = 0xFFFAFAFA.toInt()
 
 /** Sticker sets: emoji and symbols drawn with the phone's own emoji font (no downloads). */
 object Stickers {
