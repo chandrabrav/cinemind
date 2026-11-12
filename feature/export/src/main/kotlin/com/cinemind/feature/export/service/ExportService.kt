@@ -40,7 +40,16 @@ class ExportService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         ensureChannel()
-        ServiceCompat.startForeground(this, PROGRESS_ID, progressNotification(null), foregroundType())
+        // Android's own API, not ServiceCompat: ServiceCompat filters the type through a fixed
+        // list that lacks MEDIA_PROCESSING (Android 15+), turning it into "none", which Android
+        // 15+ rejects (InvalidForegroundServiceTypeException) — the export crash seen on the
+        // owner's Vivo X200 Pro (Android 17), 2026-11-12.
+        try {
+            startForeground(PROGRESS_ID, progressNotification(null), foregroundType())
+        } catch (e: Exception) {
+            // Never take the app down over the notification: the export itself keeps running.
+            CineMindLogger.w("Export notification/foreground start failed: ${e.message}")
+        }
 
         if (!observing) {
             observing = true

@@ -62,7 +62,14 @@ data class MusicPlayback(
 class PreviewPlayer(context: Context) {
 
     private val appContext = context.applicationContext
-    val player: CompositionPlayer = CompositionPlayer.Builder(appContext).build()
+    /**
+     * Multi-input video graph so overlay (picture-in-picture) tracks play: the default graph takes a
+     * single video input and only logs a warning for more (overlays then didn't play on the owner's
+     * phone). Same setup as Media3's composition demo.
+     */
+    val player: CompositionPlayer = CompositionPlayer.Builder(appContext)
+        .setVideoGraphFactory(androidx.media3.effect.MultipleInputVideoGraph.Factory())
+        .build()
     private val renderer = TimelineRenderer(appContext)
     private val main = Handler(Looper.getMainLooper())
 
@@ -124,6 +131,23 @@ class PreviewPlayer(context: Context) {
         scheduleRebuild()
     }
 
+    private var grades: Map<String, com.cinemind.core.domain.color.CubeLut> = emptyMap()
+    private var gradesEnabled = true
+
+    /** Baked colour grade per clip id (same LUTs the export uses). */
+    fun setGrades(next: Map<String, com.cinemind.core.domain.color.CubeLut>) {
+        if (next == grades) return
+        grades = next
+        scheduleRebuild()
+    }
+
+    /** Off while the user holds "compare" to see the original colour. */
+    fun setGradesEnabled(enabled: Boolean) {
+        if (enabled == gradesEnabled) return
+        gradesEnabled = enabled
+        scheduleRebuild()
+    }
+
     private var voiceClips: List<PreviewClip> = emptyList()
     private var voiceSettings = com.cinemind.core.domain.audio.VoiceoverSettings()
 
@@ -135,9 +159,19 @@ class PreviewPlayer(context: Context) {
         scheduleRebuild()
     }
 
+    private var listenVolume = 1f
+    private var silenced = false
+
     /** Silences the preview (while recording a voiceover, so the mic doesn't hear the speaker). */
     fun setMuted(muted: Boolean) {
-        player.volume = if (muted) 0f else 1f
+        silenced = muted
+        player.volume = if (silenced) 0f else listenVolume
+    }
+
+    /** How loud the preview plays (listening only; never changes the project). */
+    fun setListeningVolume(volume: Float) {
+        listenVolume = volume.coerceIn(0f, 1f)
+        player.volume = if (silenced) 0f else listenVolume
     }
 
     fun play() {
@@ -164,7 +198,7 @@ class PreviewPlayer(context: Context) {
     }
 
     private fun rebuild() {
-        val key = listOf(clips.map { it.clip to it.asset?.uri }, overlays.map { it.clip to it.asset?.uri }, voiceClips.map { it.clip to it.asset?.uri }, voiceSettings, musicPlayback, originalVolume, size, fps)
+        val key = listOf(clips.map { it.clip to it.asset?.uri }, overlays.map { it.clip to it.asset?.uri }, voiceClips.map { it.clip to it.asset?.uri }, voiceSettings, grades.keys.associateWith { grades[it]?.hashCode() }, gradesEnabled, musicPlayback, originalVolume, size, fps)
         if (key == builtKey) return
         builtKey = key
         lastError = null
@@ -181,7 +215,7 @@ class PreviewPlayer(context: Context) {
         }
         val composition = runCatching {
             val voice = voiceClips.mapNotNull { v -> v.asset?.let { a -> RenderVoiceClip(v.clip, a.uri, a.durationUs) } }
-            renderer.buildComposition(pairs, size, fps, music, originalVolume, overlays = listOf(overlayTrack), voiceover = RenderVoiceover(voice, voiceSettings))
+            renderer.buildComposition(pairs, size, fps, music, originalVolume, overlays = listOf(overlayTrack), voiceover = RenderVoiceover(voice, voiceSettings), grades = if (gradesEnabled) grades else emptyMap())
         }
             .getOrElse {
                 lastError = "Can't build the preview: ${it.message}"

@@ -106,6 +106,8 @@ data class Clip(
     val transitionOutMs: Long = 0,
     /** Name of a [com.cinemind.core.domain.editing.ClipTransition]; added in schema v4. */
     @ColumnInfo(defaultValue = "'CUT'") val transitionInType: String = "CUT",
+    /** Colour grade ([com.cinemind.core.domain.color.ColorGrade] encoded); "" = none. Added in schema v6. */
+    @ColumnInfo(defaultValue = "''") val grade: String = "",
 )
 
 /**

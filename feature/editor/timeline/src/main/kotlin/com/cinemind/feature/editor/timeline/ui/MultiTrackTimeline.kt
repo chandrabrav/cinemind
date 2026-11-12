@@ -33,6 +33,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -189,7 +190,8 @@ internal fun MultiTrackTimeline(
             }
         }
 
-        Box(modifier = Modifier.fillMaxWidth()) {
+        // Tracks scroll vertically when the editor gives the timeline less height than all lanes need.
+        Box(modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
             // Trailing room so the end of the timeline can scroll under the playhead.
             val contentPx = leadPx + TimelineLayout.xForUs(totalUs, pps) + viewportPx * 0.6f
             val playheadX = leadPx + TimelineLayout.xForUs(positionUs, pps)

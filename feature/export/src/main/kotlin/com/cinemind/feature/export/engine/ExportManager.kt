@@ -45,6 +45,7 @@ class ExportManager @Inject constructor(
     private val projectRepository: ProjectRepository,
     private val assetRepository: MediaAssetRepository,
     private val captionRepository: com.cinemind.core.domain.repository.CaptionRepository,
+    private val lutLibrary: com.cinemind.feature.color.library.LutLibrary,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val renderer = TimelineRenderer(context)
@@ -169,7 +170,9 @@ class ExportManager @Inject constructor(
         val captionList = captionRepository.getCaptions(projectId)
         val captions = if (captionList.isEmpty()) null else RenderCaptions(captionList, captionRepository.getStyle(projectId))
         Diagnostics.journalStage(context, "building composition", mapOf("output" to "${size.width}x${size.height}", "bitrate" to bitrate.toString(), "overlays" to overlays.sumOf { it.size }.toString(), "captions" to captionList.size.toString(), "music" to (music != null).toString()))
-        val composition = renderer.buildComposition(pairs, size, settings.frameRate, music, audio.originalVolume, captions, overlays, voiceover)
+        // Colour grades: each clip's look + adjustments baked into one LUT (same as the preview).
+        val grades = withContext(Dispatchers.Default) { lutLibrary.bakedForClips(clips.associate { it.id to it.grade }) }
+        val composition = renderer.buildComposition(pairs, size, settings.frameRate, music, audio.originalVolume, captions, overlays, voiceover, grades)
         _state.value = ExportState.Running(projectId, 0f)
         startForegroundService()
 

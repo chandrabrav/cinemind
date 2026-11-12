@@ -84,6 +84,8 @@ class TimelineRenderer(private val context: Context) {
         overlays: List<List<RenderOverlay>> = emptyList(),
         /** Recorded narration (one track), mixed under the video; can duck the music. */
         voiceover: RenderVoiceover? = null,
+        /** Baked colour grade per clip id (from the LUT library). */
+        grades: Map<String, com.cinemind.core.domain.color.CubeLut> = emptyMap(),
     ): Composition {
         val fit = Presentation.createForWidthAndHeight(size.width, size.height, Presentation.LAYOUT_SCALE_TO_FIT)
         val animations = TransitionMath.animations(clips.map { it.first })
@@ -100,6 +102,8 @@ class TimelineRenderer(private val context: Context) {
             val effects = buildList<Effect> {
                 if (source.isVideo && source.frameRate > fps + 1) add(FrameDropEffect.createDefaultFrameDropEffect(fps.toFloat()))
                 add(fit)
+                // Colour grade (look + adjustments baked into one LUT), before transitions so fades dim the graded picture.
+                grades[clip.id]?.let { add(ColorLutEffect.create(it)) }
                 val anim = animations[i]
                 if (!anim.isNone) {
                     add(TransitionMotion(clip.timelineInUs, lengthUs, anim))
@@ -163,10 +167,12 @@ class TimelineRenderer(private val context: Context) {
         val items = OverlayEditing.pieces(track.map { it.clip }, totalUs).toMutableList()
         val covered = items.sumOf { it.durationUs }
         if (covered < totalUs) items += OverlayEditing.Piece.Gap(totalUs - covered)
-        val out = items.map { piece ->
+        // Empty time is a real gap (as in Media3's own picture-in-picture demo), shown at alpha 0.
+        val builder = EditedMediaItemSequence.Builder(setOf(C.TRACK_TYPE_VIDEO))
+        items.forEach { piece ->
             when (piece) {
-                is OverlayEditing.Piece.Gap -> transparentStill(piece.durationUs, fps)
-                is OverlayEditing.Piece.Item -> {
+                is OverlayEditing.Piece.Gap -> builder.addGap(piece.durationUs)
+                is OverlayEditing.Piece.Item -> builder.addItem(run {
                     val o = byId.getValue(piece.clip.id)
                     val c = piece.clip
                     if (o.source.isVideo) {
@@ -193,10 +199,10 @@ class TimelineRenderer(private val context: Context) {
                             .setFrameRate(fps)
                             .build()
                     }
-                }
+                })
             }
         }
-        return EditedMediaItemSequence.Builder(setOf(C.TRACK_TYPE_VIDEO)).addItems(out).build()
+        return builder.build()
     }
 
     private fun transparentStill(durationUs: Long, fps: Int): EditedMediaItem {
@@ -225,6 +231,7 @@ class TimelineRenderer(private val context: Context) {
      */
     private fun buildVoiceSequence(voice: RenderVoiceover, totalUs: Long): EditedMediaItemSequence {
         val byId = voice.clips.associateBy { it.clip.id }
+        // Declaring the audio track type makes gaps (also a leading one) play as silence.
         val builder = EditedMediaItemSequence.Builder(setOf(C.TRACK_TYPE_AUDIO))
         for (piece in OverlayEditing.pieces(voice.clips.map { it.clip }, totalUs)) {
             when (piece) {

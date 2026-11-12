@@ -11,6 +11,7 @@ import com.google.ai.edge.litertlm.EngineConfig
 import com.google.ai.edge.litertlm.SamplerConfig
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -42,6 +43,42 @@ class OnDeviceLlm @Inject constructor(
     private var loadedId: String? = null
     private var loadedWithAudio = false
 
+    // A loaded model holds several GB (owner's phone: app killed for low memory at 5.1 GB PSS while
+    // the model stayed loaded after speech-to-text). So it is unloaded after a short idle time,
+    // and immediately when the app goes to the background.
+    private val idleScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.Default)
+    private var idleJob: kotlinx.coroutines.Job? = null
+
+    private fun scheduleIdleUnload() {
+        idleJob?.cancel()
+        idleJob = idleScope.launch {
+            kotlinx.coroutines.delay(IDLE_UNLOAD_MS)
+            // Waits for a running request: the lock is held for its whole duration.
+            lock.withLock {
+                if (engine != null) {
+                    unloadLocked()
+                    com.cinemind.core.common.Diagnostics.memoryNote(context, "AI model unloaded (idle)")
+                }
+            }
+        }
+    }
+
+    /** Frees the model now unless a request is running (then it is freed when that ends + idle). */
+    fun releaseIfIdle() {
+        idleScope.launch {
+            if (lock.tryLock()) {
+                try {
+                    if (engine != null) {
+                        unloadLocked()
+                        com.cinemind.core.common.Diagnostics.memoryNote(context, "AI model unloaded (app in background)")
+                    }
+                } finally {
+                    lock.unlock()
+                }
+            }
+        }
+    }
+
     /** "GPU" or "CPU" once loaded. */
     var backendName: String? = null
         private set
@@ -57,7 +94,12 @@ class OnDeviceLlm @Inject constructor(
     val supportsAudio: Boolean get() = installedModel()?.supportsAudio == true
 
     /** Loads the model if needed; returns load time in ms (0 if it was already loaded). */
-    suspend fun ensureLoaded(withAudio: Boolean = false): Long = lock.withLock { loadLocked(withAudio) }
+    suspend fun ensureLoaded(withAudio: Boolean = false): Long =
+        try {
+            lock.withLock { loadLocked(withAudio) }
+        } finally {
+            scheduleIdleUnload()
+        }
 
     private suspend fun loadLocked(withAudio: Boolean): Long = withContext(Dispatchers.Default) {
         val spec = installedModel() ?: throw ModelNotInstalledException()
@@ -88,6 +130,7 @@ class OnDeviceLlm @Inject constructor(
                 loadedId = spec.id
                 loadedWithAudio = withAudio
                 backendName = make().name
+                com.cinemind.core.common.Diagnostics.memoryNote(context, "AI model loaded: ${spec.id} on ${backendName}${if (withAudio) " + audio" else ""}")
                 return@withContext (System.nanoTime() - start) / 1_000_000
             } catch (t: Throwable) {
                 CineMindLogger.w("Model load on ${make().name} (audio=$withAudio) failed: ${t.message}")
@@ -107,7 +150,14 @@ class OnDeviceLlm @Inject constructor(
         imageFile: File? = null,
         maxOutputTokens: Int = 256,
         audioFile: File? = null,
-    ): String = lock.withLock {
+    ): String = try {
+        askLocked(prompt, imageFile, maxOutputTokens, audioFile)
+    } finally {
+        // Also after a failure: a failed request must not leave the model in memory.
+        scheduleIdleUnload()
+    }
+
+    private suspend fun askLocked(prompt: String, imageFile: File?, maxOutputTokens: Int, audioFile: File?): String = lock.withLock {
         loadLocked(withAudio = audioFile != null)
         withContext(Dispatchers.Default) {
             val e = engine ?: throw ModelNotInstalledException()
@@ -128,7 +178,11 @@ class OnDeviceLlm @Inject constructor(
         }
     }
 
-    suspend fun unload() = lock.withLock { unloadLocked() }
+    suspend fun unload() = lock.withLock {
+        idleJob?.cancel()
+        if (engine != null) com.cinemind.core.common.Diagnostics.memoryNote(context, "AI model unloaded")
+        unloadLocked()
+    }
 
     private fun unloadLocked() {
         runCatching { engine?.close() }
@@ -136,5 +190,10 @@ class OnDeviceLlm @Inject constructor(
         loadedId = null
         loadedWithAudio = false
         backendName = null
+    }
+
+    private companion object {
+        /** Unload after this long without requests (a reload takes a few seconds). */
+        const val IDLE_UNLOAD_MS = 60_000L
     }
 }

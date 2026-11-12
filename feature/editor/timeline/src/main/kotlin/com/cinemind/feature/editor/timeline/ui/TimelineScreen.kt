@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -29,6 +30,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Redo
+import androidx.compose.material.icons.automirrored.filled.VolumeOff
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.Pause
@@ -55,6 +58,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -108,6 +113,24 @@ fun TimelineScreen(
     val captionsUi by captionsViewModel.ui.collectAsStateWithLifecycle()
     var showCaptions by remember { mutableStateOf(false) }
     var fullscreen by rememberSaveable { mutableStateOf(false) }
+    // Only one PlayerView may hold the player: the old view is detached a couple of frames before the
+    // new one attaches (Media3 rejects clearing a surface it no longer uses: the "Back from full
+    // screen closes the app" crash on the owner's phone).
+    var stageViewAttached by remember { mutableStateOf(!fullscreen) }
+    var fullscreenShown by remember { mutableStateOf(fullscreen) }
+    LaunchedEffect(fullscreen) {
+        if (fullscreen) {
+            stageViewAttached = false
+            androidx.compose.runtime.withFrameNanos { }
+            androidx.compose.runtime.withFrameNanos { }
+            fullscreenShown = true
+        } else {
+            fullscreenShown = false
+            androidx.compose.runtime.withFrameNanos { }
+            androidx.compose.runtime.withFrameNanos { }
+            stageViewAttached = true
+        }
+    }
     val project by viewModel.project.collectAsStateWithLifecycle()
     val editor by viewModel.editor.collectAsStateWithLifecycle()
     val clips = editor.clips
@@ -141,6 +164,10 @@ fun TimelineScreen(
     val selectedVoice = editor.voiceClips.firstOrNull { it.clip.id == editor.selectedVoiceId }
     val recording by viewModel.recording.collectAsStateWithLifecycle()
     var showVoice by remember { mutableStateOf(false) }
+    var showColor by remember { mutableStateOf(false) }
+    var colorAllClips by remember { mutableStateOf(false) }
+    var colorContext by remember { mutableStateOf<TimelineViewModel.ColorContext?>(null) }
+    LaunchedEffect(showColor) { colorContext = if (showColor) viewModel.colorContext() else null }
     val context = androidx.compose.ui.platform.LocalContext.current
     // The microphone permission is asked only when the user wants to record.
     val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -189,11 +216,11 @@ fun TimelineScreen(
                 .fillMaxWidth()
                 .weight(1f)
                 .padding(horizontal = Spacing.gutter),
-            showPlayer = !fullscreen,
+            showPlayer = stageViewAttached,
             onFullscreen = { fullscreen = true },
         )
 
-        if (fullscreen) {
+        if (fullscreenShown) {
             FullscreenPreview(
                 player = viewModel.player,
                 state = preview,
@@ -208,6 +235,18 @@ fun TimelineScreen(
                 },
             )
         }
+
+        PlaybackBar(
+            state = preview,
+            fps = fps,
+            enabled = clips.isNotEmpty(),
+            muted = editor.previewMuted,
+            volume = editor.previewVolume,
+            onTogglePlay = viewModel::togglePlayPause,
+            onToggleMute = viewModel::togglePreviewMute,
+            onVolume = viewModel::setPreviewVolume,
+            onFullscreen = { fullscreen = true },
+        )
 
         Scrubber(
             state = preview,
@@ -228,7 +267,8 @@ fun TimelineScreen(
             onClipTap = viewModel::onClipTapped,
             onTrim = viewModel::trimSelected,
             onMusicTap = { showMusic = true },
-            modifier = Modifier.fillMaxWidth(),
+            // The tracks scroll vertically inside a bounded area, so the timeline never pushes the controls off screen.
+            modifier = Modifier.fillMaxWidth().heightIn(max = 236.dp),
             captions = captionsUi.captions,
             onCaptionsTap = { showCaptions = true },
             fps = fps,
@@ -309,7 +349,28 @@ fun TimelineScreen(
             onCaptions = { showCaptions = true },
             onOverlay = pickOverlay,
             onVoice = openVoice,
+            onColor = { showColor = true },
         )
+    }
+
+    if (showColor) {
+        val ctx = colorContext
+        if (ctx != null) {
+            val selectedIndex = clips.indexOfFirst { it.clip.id == editor.selectedClipId }
+            com.cinemind.feature.color.ui.ColorSheet(
+                grade = remember(editor.clips, editor.selectedClipId) { viewModel.currentGrade() },
+                targetLabel = if (colorAllClips || selectedIndex < 0) "Every clip in the video" else "Only clip ${selectedIndex + 1} (selected)",
+                allClips = colorAllClips || selectedIndex < 0,
+                onAllClipsChange = { colorAllClips = it },
+                frameUri = ctx.uri,
+                frameIsVideo = ctx.isVideo,
+                frameTimeUs = ctx.timeUs,
+                themeText = ctx.themeText,
+                onGrade = { g -> viewModel.setGrade(g, colorAllClips || selectedIndex < 0) },
+                onCompare = viewModel::compareOriginal,
+                onDismiss = { viewModel.compareOriginal(false); showColor = false },
+            )
+        }
     }
 
     if (showVoice) {
@@ -477,7 +538,7 @@ private fun PreviewStage(
                                 .apply { this.player = player }
                         },
                         update = { it.player = player },
-                        onRelease = { it.player = null },
+                        onRelease = { view -> runCatching { view.player = null } },
                         modifier = Modifier.fillMaxSize(),
                     )
                 }
@@ -501,29 +562,7 @@ private fun PreviewStage(
             Text("Add clips to start editing", color = c.onStage.copy(alpha = 0.7f), style = MaterialTheme.typography.bodyMedium)
         }
 
-        // Glass playback control.
-        if (onFullscreen != null && enabled) {
-            IconButton(
-                onClick = hapticClick(onClick = onFullscreen),
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(Spacing.s)
-                    .clip(CircleShape)
-                    .background(c.stageControl),
-            ) {
-                Icon(Icons.Default.Fullscreen, contentDescription = "Full screen preview", tint = c.onStage)
-            }
-        }
-
-        PlayControl(
-            isPlaying = state.isPlaying,
-            enabled = enabled,
-            timecode = "${formatTimecode(state.positionUs, fps)} / ${formatTimecode(state.durationUs, fps)}",
-            onToggle = onTogglePlay,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(Spacing.m),
-        )
+        // Playback controls live in the bar under the preview (PlaybackBar), so they never cover the video.
 
         state.error?.let { error ->
             Text(
@@ -537,6 +576,74 @@ private fun PreviewStage(
                     .background(c.danger.copy(alpha = 0.9f))
                     .padding(horizontal = Spacing.s, vertical = Spacing.xs),
             )
+        }
+    }
+}
+
+/**
+ * Playback bar under the preview: play/pause, time, preview mute + volume (listening only; the
+ * project's own volumes are set in Music/Voice) and full screen.
+ */
+@Composable
+private fun PlaybackBar(
+    state: PreviewState,
+    fps: Int,
+    enabled: Boolean,
+    muted: Boolean,
+    volume: Float,
+    onTogglePlay: () -> Unit,
+    onToggleMute: () -> Unit,
+    onVolume: (Float) -> Unit,
+    onFullscreen: () -> Unit,
+) {
+    val c = CineMind.colors
+    val interaction = remember { MutableInteractionSource() }
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = Spacing.gutter, vertical = Spacing.xs),
+    ) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .size(44.dp)
+                .pressScale(interaction, 0.9f)
+                .clip(CircleShape)
+                .background(c.accent)
+                .clickable(interactionSource = interaction, indication = null, enabled = enabled, role = Role.Button, onClick = hapticClick(HapticFeedbackType.LongPress, onTogglePlay)),
+        ) {
+            Icon(
+                imageVector = if (state.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                contentDescription = if (state.isPlaying) "Pause" else "Play",
+                tint = c.onAccent,
+            )
+        }
+        Spacer(Modifier.width(Spacing.s))
+        Text(
+            "${formatTimecode(state.positionUs, fps)} / ${formatTimecode(state.durationUs, fps)}",
+            color = c.textPrimary,
+            style = MaterialTheme.typography.labelMedium,
+            maxLines = 1,
+            modifier = Modifier.weight(1f),
+        )
+        IconButton(onClick = onToggleMute) {
+            Icon(
+                if (muted) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp,
+                contentDescription = if (muted) "Unmute preview" else "Mute preview",
+                tint = c.textSecondary,
+            )
+        }
+        androidx.compose.material3.Slider(
+            value = if (muted) 0f else volume,
+            onValueChange = onVolume,
+            colors = androidx.compose.material3.SliderDefaults.colors(thumbColor = c.accent, activeTrackColor = c.accent, inactiveTrackColor = c.surfaceSunken),
+            modifier = Modifier
+                .width(84.dp)
+                .semantics { contentDescription = "Preview volume" },
+        )
+        IconButton(onClick = hapticClick(onClick = onFullscreen), enabled = enabled) {
+            Icon(Icons.Default.Fullscreen, contentDescription = "Full screen preview", tint = c.textSecondary)
         }
     }
 }
