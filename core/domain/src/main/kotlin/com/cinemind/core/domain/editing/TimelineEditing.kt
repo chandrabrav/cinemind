@@ -10,7 +10,7 @@ data class ClipLimits(val sourceDurationUs: Long?, val isStill: Boolean)
  * back to back from 0 (ripple edit: no gaps, no overlaps), so the result is always a valid timeline.
  * Operations that would change nothing return a list equal to the input.
  *
- * Playback speed is 1× everywhere for now, so a clip's timeline length equals its source range.
+ * A clip's timeline length is its source range played at its speed ([SpeedMath]).
  */
 object TimelineEditing {
 
@@ -24,7 +24,7 @@ object TimelineEditing {
     fun relayout(clips: List<Clip>): List<Clip> {
         var cursor = 0L
         return clips.map { clip ->
-            val length = (clip.sourceOutUs - clip.sourceInUs).coerceAtLeast(0)
+            val length = SpeedMath.timelineDurationUs(clip).coerceAtLeast(0)
             clip.copy(timelineInUs = cursor, timelineOutUs = cursor + length).also { cursor += length }
         }
     }
@@ -102,7 +102,9 @@ fun TimelineEditing.split(
     val length = clip.timelineOutUs - clip.timelineInUs
     if (offset < MIN_SPLIT_PART_US || length - offset < MIN_SPLIT_PART_US) return clips
 
-    val cutSource = clip.sourceInUs + offset
+    // Ramp points are in source time, so both halves keep the same curve and play exactly as before.
+    val cutSource = clip.sourceInUs + SpeedMath.timelineToSource(clip, offset)
+    if (cutSource <= clip.sourceInUs || cutSource >= clip.sourceOutUs) return clips
     val first = clip.copy(sourceOutUs = cutSource, transitionOutMs = 0)
     val second = clip.copy(
         id = newId(),
@@ -113,5 +115,31 @@ fun TimelineEditing.split(
     val updated = clips.toMutableList()
     updated[index] = first
     updated.add(index + 1, second)
+    return relayout(updated)
+}
+
+/**
+ * Inserts [still] (a freeze frame) at timeline position [atTimelineUs] inside clip [clipId]: the clip
+ * is split there and the still goes between the halves. Near either edge (where a split isn't
+ * possible) the still goes before or after the clip instead.
+ */
+fun TimelineEditing.insertFreeze(
+    clips: List<Clip>,
+    clipId: String,
+    atTimelineUs: Long,
+    still: Clip,
+    newId: () -> String = { java.util.UUID.randomUUID().toString() },
+): List<Clip> {
+    val index = clips.indexOfFirst { it.id == clipId }
+    if (index == -1) return clips
+    val clip = clips[index]
+    val splitted = split(clips, clipId, atTimelineUs, newId)
+    val updated = splitted.toMutableList()
+    val insertAt = when {
+        splitted !== clips -> index + 1
+        atTimelineUs - clip.timelineInUs < (clip.timelineOutUs - clip.timelineInUs) / 2 -> index
+        else -> index + 1
+    }
+    updated.add(insertAt, still.copy(transitionInType = ClipTransition.CUT.name, transitionInMs = 0, transitionOutMs = 0))
     return relayout(updated)
 }

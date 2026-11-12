@@ -437,7 +437,7 @@ private fun ClipBlock(
             )
         }
         Text(
-            text = "${index + 1} · ${formatDuration(clip.timelineOutUs - clip.timelineInUs)}",
+            text = "${index + 1} · ${formatDuration(clip.timelineOutUs - clip.timelineInUs)}" + (speedBadge(clip)?.let { " · $it" } ?: ""),
             color = c.clipLabel,
             style = MaterialTheme.typography.labelSmall,
             maxLines = 1,
@@ -467,7 +467,10 @@ private fun ClipBlock(
                     if (limits.isStill) {
                         onTrim(0, clip.sourceOutUs - clip.sourceInUs + us(dragRight - dragLeft))
                     } else {
-                        onTrim(clip.sourceInUs + us(dragLeft), clip.sourceOutUs + us(dragRight))
+                        onTrim(
+                            clip.sourceInUs + (us(dragLeft) * com.cinemind.core.domain.editing.SpeedMath.edgeSpeed(clip, atStart = true)).toLong(),
+                            clip.sourceOutUs + (us(dragRight) * com.cinemind.core.domain.editing.SpeedMath.edgeSpeed(clip, atStart = false)).toLong(),
+                        )
                     }
                 }
             }

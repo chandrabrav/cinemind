@@ -179,6 +179,46 @@ class ExportEndToEndTest {
     }
 
     /**
+     * Speed: a 2 s clip with sound at 2× plays for 1 s, and a 2 s clip with a speed ramp plays for
+     * the length SpeedMath computes. The exported file must match the timeline length.
+     */
+    @Test
+    fun exportLengthFollowsClipSpeed() = runBlocking {
+        val portrait = asset("portrait.mp4")
+        val landscape = asset("landscape_silent.mp4")
+        val rampBase = clip("r", 0, 2_000_000)
+        val clips = TimelineEditing.relayout(
+            listOf(
+                clip("f", 0, 2_000_000).copy(speed = 2f),
+                rampBase.copy(speedCurve = com.cinemind.core.domain.editing.SpeedMath.encode(com.cinemind.core.domain.editing.SpeedRampPreset.CINEMATIC.pointsFor(rampBase))),
+            ),
+        )
+        val expectedMs = TimelineEditing.durationUs(clips) / 1_000
+        assertTrue("timeline between 1 s and 4 s ($expectedMs)", expectedMs in 1_100..3_900)
+        val sources = listOf(
+            RenderSource(Uri.fromFile(portrait).toString(), isVideo = true, hasAudio = true, frameRate = 30f, durationUs = 2_000_000),
+            RenderSource(Uri.fromFile(landscape).toString(), isVideo = true, hasAudio = false, frameRate = 60f, durationUs = 2_000_000),
+        )
+        val out = File(context.cacheDir, "e2e-speed.mp4").apply { delete() }
+        val progressScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+        withContext(Dispatchers.Main) {
+            val renderer = TimelineRenderer(context)
+            val composition = renderer.buildComposition(clips.zip(sources), OutputSize(720, 1280), fps = 30)
+            renderer.render(composition, out, videoBitrateBps = 3_000_000, progressScope = progressScope)
+        }
+        progressScope.cancel()
+        val r = MediaMetadataRetriever()
+        try {
+            r.setDataSource(out.absolutePath)
+            val durationMs = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)!!.toLong()
+            assertTrue("duration ~$expectedMs ms, was $durationMs ms", kotlin.math.abs(durationMs - expectedMs) <= 300)
+            assertEquals("yes", r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_AUDIO))
+        } finally {
+            r.release()
+        }
+    }
+
+    /**
      * Captions are burned in by the same painter as the preview: a white caption box must appear in
      * its band only while the caption is on, on an otherwise black video, at the right times.
      */

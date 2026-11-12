@@ -3,7 +3,7 @@
 > Handoff document for any Claude / Codex / ChatGPT session. Update after every milestone.
 > Never put API keys, keystore passwords or tokens in this file.
 
-_Last updated: 2026-11-11_
+_Last updated: 2026-11-12_
 
 ## Current position
 
@@ -16,8 +16,8 @@ _Last updated: 2026-11-11_
 | **UI redesign (new, 2026-11-11)** | Whole app moved onto a central design system (light + dark tokens, contrast-tested), persistent Light / Dark / System theme in a new Settings screen, every screen redesigned, editor rebuilt around a time-scaled multitrack timeline with drag-to-trim. See "UI redesign & design system". |
 | **Captions & speech (new, 2026-11-11)** | Editable caption layer (timeline lane, preview overlay, burned into export by the same painter), 7 style presets + full styling, sentence/phrase/word modes, karaoke highlight, animations; on-device speech-to-text with Gemma 4's audio encoder: Hinglish / Roman / native script / English translation as separate operations; Devanagari→Roman transliterator. See "Captions & speech-to-text". **Speech recognition itself is not yet run on a phone.** |
 | **Branding (new)** | "CineMind AI" on launch (wordmark after the system splash), home title and Settings → About CineMind AI (logo, version + build, "Developed by Gautam", description, privacy facts, open-source licences). |
-| **Current task** | Owner tests build #82 on the Vivo (captions by hand, export with captions, About; speech-to-text with Gemma 4 E2B installed) and sends the AI benchmark report. Next milestone: see "Audit for the professional-editor brief". |
-| **Branch** | `captions` (from `dev-main` = `main` at `110e809`; PR #16 merged dev-main → main and fixed main's red CI) |
+| **Current task** | Owner tests the colour build (#113/#114) and then the speed build together; dev continues the listed features in order: transforms + keyframes, text/title layers + stickers, audio (SFX, tracks, waveforms, beat sync), transitions library, Teleprompter Studio, templates, music discovery, cloud AI + BYOK, AI graphics, masks/chroma/stabilisation, design research, release. |
+| **Branch** | `speed` (from `color-luts`, from `voiceover`); PRs merged by the owner |
 | **Latest verified build** | CI run 43071502601 (#82), commit `baa29f9`: **all green** — 164 unit tests + 12 instrumented (export e2e ×3 incl. caption burn-in, speech audio ×3, screenshots ×6) — https://github.com/chandrabrav/cinemind/actions/runs/43071502601 — artifact `cinemind-debug-82` |
 | **Previous fully verified build** | CI run 43061916979 (#73), commit `82f97fa`: build + 131 unit + 6 instrumented tests. |
 
@@ -98,7 +98,9 @@ Scaffolded but **excluded** until they get code: `:feature:editor:{preview,effec
 | Contextual graphics / text layers | Not started |
 | Music | Implemented: one background song (start point, loop, volume, fades) + original-sound level; preview + export; emulator-tested mixing. No beat detection, no multiple audio tracks, no voice-over yet |
 | Split clip | Implemented (split at playhead), unit-tested |
-| Beat sync, color/LUTs, speed, multi-track, cross-dissolves | Not started (Stage 3) |
+| Colour grading / LUTs | Implemented (branch `color-luts`): 31 CineMind looks, search, AI suggestions, .cube import, optional film pack; see "Colour grading & LUTs" |
+| Speed | Implemented (branch `speed`): constant 0.1×–8×, ramps with curve editor and 7 presets, freeze frame; no reverse yet; see "Speed" |
+| Beat sync, cross-dissolves, text layers, keyframed transforms | Not started (Stage 3) |
 
 ## Architecture decisions
 
@@ -189,6 +191,23 @@ Owner request: OriginOS-7-inspired redesign of the whole app + persistent Light/
 - **Editor**: Captions tool (and caption lane tap) opens a sheet: speech-to-text (language, script, progress, cancel, summary), add at playhead, edit text, ±0.1 s start/end, split, delete, translate all, clear, undo/redo; Style tab with live animated sample and safe-area guides. Captions draw over the preview with `CaptionPainter` (`core/ui`). Export is also in the editor header; the tools bar scrolls when 6 tools don't fit.
 - **Export**: `CaptionBitmapOverlay` (Media3 `BitmapOverlay`, lazily allocated frame-sized bitmap, redrawn only when the frame changes) added last to each clip's effects.
 - **Tests**: `TransliteratorTest`, `WordTimesTest`, `CaptionLayoutTest`, `CaptionEditingTest` (domain); `PcmTest`, `SpeechSegmenterTest`, `SpeechPromptsTest` (captions); emulator: `SpeechAudioTest` (real AAC decode, trimmed range, burst timing, unreadable file) and `ExportEndToEndTest.burnsInCaptionsAtTheirTimes` (pixels in the caption band only while the caption is on; frame saved as `export_caption_frame.png`).
+
+## Speed (2026-11-12, branch `speed` from `color-luts`)
+
+- **Model** (`core/domain/editing/Speed.kt`, Room **v7**: `clips.speedCurve`, `MIGRATION_6_7`; constant speed uses the existing `clips.speed`): 0.1×–8×. Ramps are keyframes stored in **source time** with an ease per point (linear, ease in/out, smooth), so trimming or splitting keeps the ramp on the same moment of the footage. A ramp plays as 40 ms constant-speed steps — exactly what Media3's `SpeedProvider` does — so the timeline length computed by `SpeedMath` equals the exported length.
+- **Editing:** timeline length, split (timeline → source through the speed), trim handles (drag × edge speed) and caption-from-speech times all honour speed. **Freeze frame** grabs the full-size frame under the playhead (`MediaMetadataRetriever`, `files/freeze/*.jpg`), splits the clip and inserts a 2 s still that keeps the clip's grade.
+- **Preview + export:** `EditedMediaItem.setSpeed(ClipSpeedProvider)` on main-track video clips (Media3 1.11.1 supports it in `CompositionPlayer` and `Transformer`). Overlay/secondary tracks have no speed (Media3 limit). Sound follows the speed (pitch changes).
+- **UI:** Speed tool → sheet: *Constant* (log slider, 0.25×–4× presets, "apply to every video clip", footage-vs-played length) · *Speed ramp* (7 ready-made: Cinematic slow, Hero moment, Montage, Smooth slow-mo, Fast in/slow out, Slow in/fast out, Velocity; curve editor: drag points, tap to add, remove, ease per point) · freeze frame · warning when slow motion will repeat frames (from the clip's fps vs the project's). Clip labels show "2×" / "Ramp". Every change is one undo step.
+- **Not done:** reverse playback (Media3 can't decode backwards; needs a reversed proxy render — planned with proxies), frame interpolation (optical flow) for smooth slow motion of 30 fps footage, pitch-preserving option.
+- **Tests:** `SpeedTest` (11: constant length, encoding, clamping, ramp integral vs ln 2, mapping inverse, step merging, split of ramped/constant clips, freeze placement, smoothness); emulator `ExportEndToEndTest.exportLengthFollowsClipSpeed` (2× clip with sound + ramped clip → file length = timeline length ±0.3 s).
+
+## Colour grading & LUTs (2026-11-12, branch `color-luts`, build #113/#114)
+
+- **Domain** (`core/domain/color`): `CubeLut` (.cube parser/writer: 3D only, size 2–65, DOMAIN_MIN/MAX, clear rejection reasons; trilinear sampling), `ColorGrade` (look + intensity + exposure/contrast/highlights/shadows/saturation/vibrance/temperature/tint/fade, stored per clip in `clips.grade`, Room **v6**), `ColorMath` (everything baked into one 33³ LUT per clip), **31 original CineMind looks** tagged by scene and mood, `LutAdvisor` (suggestions from scene words — incl. Indian terms like shaadi/diwali — project theme and measured brightness/saturation/warmth, each with a reason).
+- **feature/color:** `LutLibrary` (search; CineMind looks; `.cube` import ≤ 8 MB, validated; optional **G'MIC film pack**: 296 LUTs catalogued from a pinned commit, downloaded one at a time on demand and verified by git blob hash; shown with a licence notice because the upstream collection's origin is mixed), `SceneProbe` (frame stats, optional on-device AI scene words, thumbnails of each look on the real frame), Colour sheet (search, filters, AI suggestions with reasons, live thumbnails, intensity, adjustments, hold to compare, this clip / all clips).
+- Preview and export apply the same baked LUT per clip (Media3 `SingleColorLut`), after framing and before transitions; one undo step per change.
+- **Tests:** LUT parse/round-trip/rejections, grade codec + maths, looks, advisor, git blob hash; emulator `appliesColorGradeInExport` (mono grade removes colour).
+- **CI:** #113/#114 unit tests + APK ✓; emulator run was still in progress when the speed branch was pushed. Not yet tried on the phone.
 
 ## Memory (build #109, 2026-11-12)
 

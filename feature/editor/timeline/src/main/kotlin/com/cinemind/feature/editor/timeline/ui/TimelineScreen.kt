@@ -165,6 +165,7 @@ fun TimelineScreen(
     val recording by viewModel.recording.collectAsStateWithLifecycle()
     var showVoice by remember { mutableStateOf(false) }
     var showColor by remember { mutableStateOf(false) }
+    var showSpeed by remember { mutableStateOf(false) }
     var colorAllClips by remember { mutableStateOf(false) }
     var colorContext by remember { mutableStateOf<TimelineViewModel.ColorContext?>(null) }
     LaunchedEffect(showColor) { colorContext = if (showColor) viewModel.colorContext() else null }
@@ -350,7 +351,29 @@ fun TimelineScreen(
             onOverlay = pickOverlay,
             onVoice = openVoice,
             onColor = { showColor = true },
+            onSpeed = { showSpeed = true },
         )
+    }
+
+    if (showSpeed) {
+        val target = remember(editor.clips, editor.selectedClipId) { viewModel.speedTarget() }
+        if (target == null) {
+            LaunchedEffect(Unit) {
+                android.widget.Toast.makeText(context, "Select a video clip (or move the playhead onto one) to change its speed", android.widget.Toast.LENGTH_SHORT).show()
+                showSpeed = false
+            }
+        } else {
+            SpeedSheet(
+                target = target,
+                onConstant = { s, all -> viewModel.setClipSpeed(target.clip.id, s, all) },
+                onRamp = { pts -> viewModel.setClipRamp(target.clip.id, pts) },
+                onFreeze = {
+                    viewModel.freezeFrameAtPlayhead()
+                    showSpeed = false
+                },
+                onDismiss = { showSpeed = false },
+            )
+        }
     }
 
     if (showColor) {
@@ -401,7 +424,7 @@ fun TimelineScreen(
             clips.mapNotNull { pc ->
                 val a = pc.asset ?: return@mapNotNull null
                 if (!a.isVideo || !a.hasAudio) return@mapNotNull null
-                SpeechSource(a.uri, pc.clip.sourceInUs, pc.clip.sourceOutUs, pc.clip.timelineInUs)
+                SpeechSource(a.uri, pc.clip.sourceInUs, pc.clip.sourceOutUs, pc.clip.timelineInUs) { off -> com.cinemind.core.domain.editing.SpeedMath.sourceToTimeline(pc.clip, off) }
             }
         }
         CaptionsSheet(
