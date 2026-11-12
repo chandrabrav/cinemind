@@ -45,7 +45,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.cinemind.core.domain.editing.ClipFraming
 import com.cinemind.core.domain.editing.CropRect
-import com.cinemind.core.domain.editing.FrameLook
+import com.cinemind.core.domain.editing.MotionLook
 import com.cinemind.core.domain.editing.MotionPreset
 import com.cinemind.core.domain.editing.SpeedMath
 import com.cinemind.core.domain.editing.TransformMath
@@ -197,7 +197,7 @@ private fun MotionTab(
     val sourceHere = sourceAt(clip, here)
     val look = TransformMath.lookAtTimeline(clip, framing, here)
     val keyHere = framing.keys.any { abs(it.sourceUs - sourceHere) <= 100_000 }
-    val set = { l: FrameLook -> onFraming(TransformMath.setLook(framing, sourceHere, l, animate)) }
+    val set = { l: MotionLook -> onFraming(TransformMath.setLook(framing, sourceHere, l, animate)) }
 
     Text("Ready-made moves", style = MaterialTheme.typography.labelLarge, color = c.textSecondary)
     Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs), modifier = Modifier.horizontalScroll(rememberScrollState())) {

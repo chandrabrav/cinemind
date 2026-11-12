@@ -78,7 +78,7 @@ class TransformTest {
     @Test
     fun setLookStaticReplacesAllKeys() {
         val f = ClipFraming(keys = listOf(MotionKey(0), MotionKey(1_000_000, scale = 2f)))
-        val out = TransformMath.setLook(f, 500_000, FrameLook(scale = 1.3f), animate = false)
+        val out = TransformMath.setLook(f, 500_000, MotionLook(scale = 1.3f), animate = false)
         assertEquals(1, out.keys.size)
         assertEquals(1.3f, out.keys.single().scale, 1e-4f)
     }
@@ -86,11 +86,11 @@ class TransformTest {
     @Test
     fun setLookAnimatedAddsOrReplacesNearKey() {
         var f = ClipFraming()
-        f = TransformMath.setLook(f, 0, FrameLook(scale = 1f), animate = true)
-        f = TransformMath.setLook(f, 2_000_000, FrameLook(scale = 1.5f), animate = true)
+        f = TransformMath.setLook(f, 0, MotionLook(scale = 1f), animate = true)
+        f = TransformMath.setLook(f, 2_000_000, MotionLook(scale = 1.5f), animate = true)
         assertEquals(2, f.keys.size)
         assertTrue(f.hasMotion)
-        f = TransformMath.setLook(f, 2_050_000, FrameLook(scale = 1.8f), animate = true)
+        f = TransformMath.setLook(f, 2_050_000, MotionLook(scale = 1.8f), animate = true)
         assertEquals(2, f.keys.size)
         assertEquals(2_000_000L, f.keys[1].sourceUs)
         assertEquals(1.8f, f.keys[1].scale, 1e-4f)

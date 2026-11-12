@@ -56,7 +56,7 @@ data class MotionKey(
 }
 
 /** Look of the picture at one instant (what a renderer needs). */
-data class FrameLook(val x: Float = 0f, val y: Float = 0f, val scale: Float = 1f, val rotation: Float = 0f, val opacity: Float = 1f) {
+data class MotionLook(val x: Float = 0f, val y: Float = 0f, val scale: Float = 1f, val rotation: Float = 0f, val opacity: Float = 1f) {
     val isIdentity: Boolean get() = x == 0f && y == 0f && scale == 1f && rotation == 0f && opacity == 1f
 }
 
@@ -143,29 +143,29 @@ object TransformMath {
 
     private fun lerp(a: Float, b: Float, t: Float) = a + (b - a) * t
 
-    private fun look(k: MotionKey) = FrameLook(k.x, k.y, k.scale, k.rotation, k.opacity)
+    private fun look(k: MotionKey) = MotionLook(k.x, k.y, k.scale, k.rotation, k.opacity)
 
     /** Look at absolute source time [sourceUs] (held before the first / after the last key). */
-    fun lookAt(keys: List<MotionKey>, sourceUs: Long): FrameLook {
-        if (keys.isEmpty()) return FrameLook()
+    fun lookAt(keys: List<MotionKey>, sourceUs: Long): MotionLook {
+        if (keys.isEmpty()) return MotionLook()
         if (keys.size == 1 || sourceUs <= keys.first().sourceUs) return look(keys.first())
         if (sourceUs >= keys.last().sourceUs) return look(keys.last())
         val i = keys.indexOfLast { it.sourceUs <= sourceUs }
         val a = keys[i]
         val b = keys[i + 1]
         val t = ease(((sourceUs - a.sourceUs).toFloat() / (b.sourceUs - a.sourceUs).coerceAtLeast(1)).coerceIn(0f, 1f), a.ease)
-        return FrameLook(lerp(a.x, b.x, t), lerp(a.y, b.y, t), lerp(a.scale, b.scale, t), lerp(a.rotation, b.rotation, t), lerp(a.opacity, b.opacity, t))
+        return MotionLook(lerp(a.x, b.x, t), lerp(a.y, b.y, t), lerp(a.scale, b.scale, t), lerp(a.rotation, b.rotation, t), lerp(a.opacity, b.opacity, t))
     }
 
     /** Look at [timelineOffsetUs] into [clip] (goes through the clip's speed to footage time). */
-    fun lookAtTimeline(clip: Clip, framing: ClipFraming, timelineOffsetUs: Long): FrameLook =
+    fun lookAtTimeline(clip: Clip, framing: ClipFraming, timelineOffsetUs: Long): MotionLook =
         lookAt(framing.keys, clip.sourceInUs + SpeedMath.timelineToSource(clip, timelineOffsetUs.coerceAtLeast(0)))
 
     /**
      * Sets the look at [sourceUs]. [animate] on: replaces the key within [snapUs] of it, else adds
      * a key there (so the look animates between keys). Off: the clip gets one static look.
      */
-    fun setLook(framing: ClipFraming, sourceUs: Long, look: FrameLook, animate: Boolean, snapUs: Long = 100_000): ClipFraming {
+    fun setLook(framing: ClipFraming, sourceUs: Long, look: MotionLook, animate: Boolean, snapUs: Long = 100_000): ClipFraming {
         val key = { t: Long, ease: SpeedEase -> MotionKey(t, look.x, look.y, look.scale.coerceIn(ClipFraming.MIN_SCALE, ClipFraming.MAX_SCALE), look.rotation, look.opacity.coerceIn(0f, 1f), ease) }
         if (!animate) return framing.copy(keys = listOf(key(sourceUs, SpeedEase.EASE_IN_OUT)))
         val i = framing.keys.indexOfFirst { kotlin.math.abs(it.sourceUs - sourceUs) <= snapUs }
@@ -189,15 +189,15 @@ object TransformMath {
 }
 
 /** Ready-made moves over the whole clip (from its in-point to out-point); all stay editable. */
-enum class MotionPreset(val label: String, private val from: FrameLook, private val to: FrameLook) {
-    ZOOM_IN("Slow zoom in", FrameLook(scale = 1f), FrameLook(scale = 1.25f)),
-    ZOOM_OUT("Slow zoom out", FrameLook(scale = 1.25f), FrameLook(scale = 1f)),
-    PAN_RIGHT("Pan to the right", FrameLook(x = 0.08f, scale = 1.2f), FrameLook(x = -0.08f, scale = 1.2f)),
-    PAN_LEFT("Pan to the left", FrameLook(x = -0.08f, scale = 1.2f), FrameLook(x = 0.08f, scale = 1.2f)),
-    RISE("Rise", FrameLook(y = 0.06f, scale = 1.15f), FrameLook(y = -0.06f, scale = 1.15f)),
-    PUNCH_IN("Punch in", FrameLook(scale = 1f), FrameLook(scale = 1.6f)),
-    TILT("Dutch tilt", FrameLook(scale = 1.15f, rotation = -4f), FrameLook(scale = 1.15f, rotation = 4f)),
-    FADE_IN("Fade up from black", FrameLook(opacity = 0f), FrameLook(opacity = 1f)),
+enum class MotionPreset(val label: String, private val from: MotionLook, private val to: MotionLook) {
+    ZOOM_IN("Slow zoom in", MotionLook(scale = 1f), MotionLook(scale = 1.25f)),
+    ZOOM_OUT("Slow zoom out", MotionLook(scale = 1.25f), MotionLook(scale = 1f)),
+    PAN_RIGHT("Pan to the right", MotionLook(x = 0.08f, scale = 1.2f), MotionLook(x = -0.08f, scale = 1.2f)),
+    PAN_LEFT("Pan to the left", MotionLook(x = -0.08f, scale = 1.2f), MotionLook(x = 0.08f, scale = 1.2f)),
+    RISE("Rise", MotionLook(y = 0.06f, scale = 1.15f), MotionLook(y = -0.06f, scale = 1.15f)),
+    PUNCH_IN("Punch in", MotionLook(scale = 1f), MotionLook(scale = 1.6f)),
+    TILT("Dutch tilt", MotionLook(scale = 1.15f, rotation = -4f), MotionLook(scale = 1.15f, rotation = 4f)),
+    FADE_IN("Fade up from black", MotionLook(opacity = 0f), MotionLook(opacity = 1f)),
     ;
 
     fun keysFor(clip: Clip): List<MotionKey> {
@@ -205,7 +205,7 @@ enum class MotionPreset(val label: String, private val from: FrameLook, private 
         val end = if (this == FADE_IN) clip.sourceInUs + ((clip.sourceOutUs - clip.sourceInUs) / 3) else clip.sourceOutUs
         val start = clip.sourceInUs
         val punchEnd = if (this == PUNCH_IN) start + ((clip.sourceOutUs - start) * 0.15).roundToLong().coerceAtLeast(1) else end
-        fun k(t: Long, l: FrameLook) = MotionKey(t, l.x, l.y, l.scale, l.rotation, l.opacity, ease)
+        fun k(t: Long, l: MotionLook) = MotionKey(t, l.x, l.y, l.scale, l.rotation, l.opacity, ease)
         return listOf(k(start, from), k(punchEnd, to))
     }
 }
