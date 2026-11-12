@@ -1,5 +1,6 @@
 package com.cinemind.feature.editor.timeline.ui
 
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.ui.Modifier
