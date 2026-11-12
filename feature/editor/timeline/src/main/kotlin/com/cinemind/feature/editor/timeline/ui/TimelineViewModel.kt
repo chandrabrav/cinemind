@@ -42,6 +42,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
@@ -95,6 +96,8 @@ class TimelineViewModel @Inject constructor(
     private val projectRepository: ProjectRepository,
     private val assetRepository: MediaAssetRepository,
     private val importer: MediaImporter,
+    private val lutLibrary: com.cinemind.feature.color.library.LutLibrary,
+    private val briefRepository: com.cinemind.core.domain.repository.EditBriefRepository,
 ) : ViewModel() {
 
     private val preview = PreviewPlayer(appContext)
@@ -179,6 +182,46 @@ class TimelineViewModel @Inject constructor(
     fun pause() {
         preview.pause()
         refreshPreview()
+    }
+
+    // ---- Colour -----------------------------------------------------------------------------
+
+    /** The grade shown in the colour tool: the selected clip's, else the first clip's. */
+    fun currentGrade(): com.cinemind.core.domain.color.ColorGrade {
+        val clips = history?.present.orEmpty()
+        val clip = clips.firstOrNull { it.id == _editor.value.selectedClipId } ?: clips.firstOrNull()
+        return com.cinemind.core.domain.color.ColorGrade.decode(clip?.grade)
+    }
+
+    /**
+     * Applies a grade to the selected clip, or to every clip when [allClips] (or nothing is
+     * selected). One undo step; saved with the project; used identically by preview and export.
+     */
+    fun setGrade(grade: com.cinemind.core.domain.color.ColorGrade, allClips: Boolean) {
+        val clips = history?.present ?: return
+        val selected = _editor.value.selectedClipId
+        val encoded = grade.encode()
+        val next = clips.map { c -> if (allClips || selected == null || c.id == selected) c.copy(grade = encoded) else c }
+        commit(next, selectAfter = selected)
+    }
+
+    /** While the user holds "compare": show the original colour. */
+    fun compareOriginal(showOriginal: Boolean) = preview.setGradesEnabled(!showOriginal)
+
+    /** Frame for the colour tool (current clip at the playhead) and words describing the project. */
+    data class ColorContext(val uri: String?, val isVideo: Boolean, val timeUs: Long, val themeText: String)
+
+    suspend fun colorContext(): ColorContext {
+        val clips = _editor.value.clips
+        val pos = preview.currentPositionUs()
+        val item = clips.firstOrNull { it.clip.id == _editor.value.selectedClipId }
+            ?: clips.firstOrNull { pos >= it.clip.timelineInUs && pos < it.clip.timelineOutUs }
+            ?: clips.firstOrNull()
+        val asset = item?.asset
+        val timeUs = item?.let { (it.clip.sourceInUs + (pos - it.clip.timelineInUs).coerceIn(0, it.clip.timelineOutUs - it.clip.timelineInUs)) } ?: 0L
+        val brief = projectId.value?.let { id -> runCatching { briefRepository.observeBrief(id).first() }.getOrNull() }
+        val theme = listOfNotNull(project.value?.name, brief?.prompt, brief?.style?.label).joinToString(" ")
+        return ColorContext(asset?.uri, asset?.isVideo == true, timeUs, theme)
     }
 
     fun togglePreviewMute() {
@@ -763,6 +806,8 @@ class TimelineViewModel @Inject constructor(
             canRedo = redoKinds.isNotEmpty(),
         )
         preview.setClips(clips)
+        // Colour grades for the preview (the same baked LUTs the export uses; cached per grade).
+        preview.setGrades(lutLibrary.bakedForClips(h.present.associate { it.id to it.grade }))
         publishOverlays()
         publishVoice()
         refreshMusicPlayback()

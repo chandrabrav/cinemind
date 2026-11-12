@@ -32,6 +32,7 @@ dependencies {
     implementation(project(":core:ui"))
     implementation(project(":feature:media"))
     implementation(project(":feature:captions"))
+    implementation(project(":feature:color"))
     implementation(project(":feature:export"))
     implementation(libs.media3.transformer)
     implementation(libs.media3.effect)

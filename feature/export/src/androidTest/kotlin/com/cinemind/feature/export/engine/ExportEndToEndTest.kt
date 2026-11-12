@@ -338,6 +338,51 @@ class ExportEndToEndTest {
         }
     }
 
+    /** A colour grade (CineMind look baked into one LUT) changes the exported pixels: mono = no colour. */
+    @Test
+    fun appliesColorGradeInExport() = runBlocking {
+        val video = asset("portrait.mp4") // colourful test pattern
+        val clips = TimelineEditing.relayout(listOf(clip("v", 0, 1_000_000)))
+        val src = listOf(RenderSource(Uri.fromFile(video).toString(), isVideo = true, hasAudio = true, frameRate = 30f, durationUs = 2_000_000))
+        val mono = com.cinemind.core.domain.color.ColorMath.bake(
+            com.cinemind.core.domain.color.ColorGrade(lutId = "builtin:classic_mono"),
+            com.cinemind.core.domain.color.BuiltInLooks.byKey("classic_mono")!!.toLut(),
+        )!!
+        suspend fun export(name: String, grades: Map<String, com.cinemind.core.domain.color.CubeLut>): Float {
+            val out = File(context.cacheDir, name).apply { delete() }
+            val progressScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+            withContext(Dispatchers.Main) {
+                val renderer = TimelineRenderer(context)
+                renderer.render(renderer.buildComposition(clips.zip(src), OutputSize(720, 1280), fps = 30, grades = grades), out, 4_000_000, progressScope)
+            }
+            progressScope.cancel()
+            val r = MediaMetadataRetriever()
+            try {
+                r.setDataSource(out.absolutePath)
+                val frame = r.getFrameAtTime(500_000, MediaMetadataRetriever.OPTION_CLOSEST)!!
+                if (grades.isNotEmpty()) saveForReview(frame, "export_grade_mono_frame")
+                return colourfulness(frame)
+            } finally {
+                r.release()
+            }
+        }
+        val plain = export("e2e-grade-none.mp4", emptyMap())
+        val graded = export("e2e-grade-mono.mp4", mapOf("v" to mono))
+        assertTrue("the test pattern is colourful without a grade ($plain)", plain > 0.15f)
+        assertTrue("mono grade removed the colour ($graded vs $plain)", graded < 0.04f)
+    }
+
+    /** Mean (max − min) of RGB over the frame: 0 for grey, higher for colourful. */
+    private fun colourfulness(frame: Bitmap): Float {
+        val small = Bitmap.createScaledBitmap(frame, 36, 64, true)
+        val px = IntArray(small.width * small.height)
+        small.getPixels(px, 0, small.width, 0, 0, small.width, small.height)
+        return px.map { c ->
+            val r = (c shr 16) and 0xFF; val g = (c shr 8) and 0xFF; val b = c and 0xFF
+            (maxOf(r, g, b) - minOf(r, g, b)) / 255.0
+        }.average().toFloat()
+    }
+
     /** Mean luma (0..1) of the horizontal band between [y0] and [y1] (fractions of the height). */
     private fun bandLuma(raw: Bitmap, y0: Float, y1: Float): Float {
         // Media3 may store portrait as landscape + rotation flag; measure the upright picture.

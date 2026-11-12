@@ -84,6 +84,8 @@ class TimelineRenderer(private val context: Context) {
         overlays: List<List<RenderOverlay>> = emptyList(),
         /** Recorded narration (one track), mixed under the video; can duck the music. */
         voiceover: RenderVoiceover? = null,
+        /** Baked colour grade per clip id (from the LUT library). */
+        grades: Map<String, com.cinemind.core.domain.color.CubeLut> = emptyMap(),
     ): Composition {
         val fit = Presentation.createForWidthAndHeight(size.width, size.height, Presentation.LAYOUT_SCALE_TO_FIT)
         val animations = TransitionMath.animations(clips.map { it.first })
@@ -100,6 +102,8 @@ class TimelineRenderer(private val context: Context) {
             val effects = buildList<Effect> {
                 if (source.isVideo && source.frameRate > fps + 1) add(FrameDropEffect.createDefaultFrameDropEffect(fps.toFloat()))
                 add(fit)
+                // Colour grade (look + adjustments baked into one LUT), before transitions so fades dim the graded picture.
+                grades[clip.id]?.let { add(ColorLutEffect.create(it)) }
                 val anim = animations[i]
                 if (!anim.isNone) {
                     add(TransitionMotion(clip.timelineInUs, lengthUs, anim))

@@ -11,6 +11,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.material.icons.filled.PictureInPicture
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -350,6 +351,7 @@ internal fun EditorToolsBar(
     onCaptions: () -> Unit = {},
     onOverlay: () -> Unit = {},
     onVoice: () -> Unit = {},
+    onColor: () -> Unit = {},
 ) {
     val c = CineMind.colors
     val shape = RoundedCornerShape(Radius.xl)
@@ -357,6 +359,7 @@ internal fun EditorToolsBar(
         Tool(Icons.Default.AutoAwesome, "Smart edit", hasClips, onSmartEdit),
         Tool(Icons.Default.AddPhotoAlternate, "Add", true, onAddMedia),
         Tool(Icons.Default.Animation, "Transitions", hasClips, onTransitions),
+        Tool(Icons.Default.Palette, "Colour", hasClips, onColor),
         Tool(Icons.Default.MusicNote, "Music", hasClips, onMusic),
         Tool(Icons.Default.ClosedCaption, "Captions", hasClips, onCaptions),
         Tool(Icons.Default.PictureInPicture, "Overlay", hasClips, onOverlay),

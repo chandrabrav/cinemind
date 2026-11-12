@@ -131,6 +131,23 @@ class PreviewPlayer(context: Context) {
         scheduleRebuild()
     }
 
+    private var grades: Map<String, com.cinemind.core.domain.color.CubeLut> = emptyMap()
+    private var gradesEnabled = true
+
+    /** Baked colour grade per clip id (same LUTs the export uses). */
+    fun setGrades(next: Map<String, com.cinemind.core.domain.color.CubeLut>) {
+        if (next == grades) return
+        grades = next
+        scheduleRebuild()
+    }
+
+    /** Off while the user holds "compare" to see the original colour. */
+    fun setGradesEnabled(enabled: Boolean) {
+        if (enabled == gradesEnabled) return
+        gradesEnabled = enabled
+        scheduleRebuild()
+    }
+
     private var voiceClips: List<PreviewClip> = emptyList()
     private var voiceSettings = com.cinemind.core.domain.audio.VoiceoverSettings()
 
@@ -181,7 +198,7 @@ class PreviewPlayer(context: Context) {
     }
 
     private fun rebuild() {
-        val key = listOf(clips.map { it.clip to it.asset?.uri }, overlays.map { it.clip to it.asset?.uri }, voiceClips.map { it.clip to it.asset?.uri }, voiceSettings, musicPlayback, originalVolume, size, fps)
+        val key = listOf(clips.map { it.clip to it.asset?.uri }, overlays.map { it.clip to it.asset?.uri }, voiceClips.map { it.clip to it.asset?.uri }, voiceSettings, grades.keys.associateWith { grades[it]?.hashCode() }, gradesEnabled, musicPlayback, originalVolume, size, fps)
         if (key == builtKey) return
         builtKey = key
         lastError = null
@@ -198,7 +215,7 @@ class PreviewPlayer(context: Context) {
         }
         val composition = runCatching {
             val voice = voiceClips.mapNotNull { v -> v.asset?.let { a -> RenderVoiceClip(v.clip, a.uri, a.durationUs) } }
-            renderer.buildComposition(pairs, size, fps, music, originalVolume, overlays = listOf(overlayTrack), voiceover = RenderVoiceover(voice, voiceSettings))
+            renderer.buildComposition(pairs, size, fps, music, originalVolume, overlays = listOf(overlayTrack), voiceover = RenderVoiceover(voice, voiceSettings), grades = if (gradesEnabled) grades else emptyMap())
         }
             .getOrElse {
                 lastError = "Can't build the preview: ${it.message}"

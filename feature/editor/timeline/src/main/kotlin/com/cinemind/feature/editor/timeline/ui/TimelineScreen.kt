@@ -164,6 +164,10 @@ fun TimelineScreen(
     val selectedVoice = editor.voiceClips.firstOrNull { it.clip.id == editor.selectedVoiceId }
     val recording by viewModel.recording.collectAsStateWithLifecycle()
     var showVoice by remember { mutableStateOf(false) }
+    var showColor by remember { mutableStateOf(false) }
+    var colorAllClips by remember { mutableStateOf(false) }
+    var colorContext by remember { mutableStateOf<TimelineViewModel.ColorContext?>(null) }
+    LaunchedEffect(showColor) { colorContext = if (showColor) viewModel.colorContext() else null }
     val context = androidx.compose.ui.platform.LocalContext.current
     // The microphone permission is asked only when the user wants to record.
     val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -345,7 +349,28 @@ fun TimelineScreen(
             onCaptions = { showCaptions = true },
             onOverlay = pickOverlay,
             onVoice = openVoice,
+            onColor = { showColor = true },
         )
+    }
+
+    if (showColor) {
+        val ctx = colorContext
+        if (ctx != null) {
+            val selectedIndex = clips.indexOfFirst { it.clip.id == editor.selectedClipId }
+            com.cinemind.feature.color.ui.ColorSheet(
+                grade = remember(editor.clips, editor.selectedClipId) { viewModel.currentGrade() },
+                targetLabel = if (colorAllClips || selectedIndex < 0) "Every clip in the video" else "Only clip ${selectedIndex + 1} (selected)",
+                allClips = colorAllClips || selectedIndex < 0,
+                onAllClipsChange = { colorAllClips = it },
+                frameUri = ctx.uri,
+                frameIsVideo = ctx.isVideo,
+                frameTimeUs = ctx.timeUs,
+                themeText = ctx.themeText,
+                onGrade = { g -> viewModel.setGrade(g, colorAllClips || selectedIndex < 0) },
+                onCompare = viewModel::compareOriginal,
+                onDismiss = { viewModel.compareOriginal(false); showColor = false },
+            )
+        }
     }
 
     if (showVoice) {
