@@ -175,7 +175,7 @@ class ColorViewModel @Inject constructor(
         thumbJob?.cancel()
         thumbJob = viewModelScope.launch {
             withContext(Dispatchers.Default) {
-                list.filter { it.id !in thumbs }.forEach { e ->
+                list.filter { !thumbs.containsKey(it.id) }.forEach { e ->
                     val lut = library.load(e.id) ?: return@forEach
                     thumbs[e.id] = probe.preview(f, lut)
                 }

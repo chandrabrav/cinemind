@@ -9,6 +9,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -326,7 +327,7 @@ private fun LookTile(
             .border(if (selected) 2.dp else 1.dp, if (selected) c.accent else c.hairline, shape)
             .then(
                 if (onLongClick != null) Modifier.pointerInput(onLongClick) {
-                    androidx.compose.foundation.gestures.detectTapGestures(onTap = { onClick() }, onLongPress = { onLongClick() })
+                    detectTapGestures(onTap = { onClick() }, onLongPress = { onLongClick() })
                 } else Modifier.clickable(onClick = onClick),
             )
             .semantics { contentDescription = "$name look" + (if (selected) ", selected" else "") + (if (!available) ", tap to download" else "") },
