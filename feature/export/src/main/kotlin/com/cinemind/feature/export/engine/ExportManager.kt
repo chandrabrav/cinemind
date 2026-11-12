@@ -45,6 +45,7 @@ class ExportManager @Inject constructor(
     private val projectRepository: ProjectRepository,
     private val assetRepository: MediaAssetRepository,
     private val captionRepository: com.cinemind.core.domain.repository.CaptionRepository,
+    private val textLayerRepository: com.cinemind.core.domain.repository.TextLayerRepository,
     private val lutLibrary: com.cinemind.feature.color.library.LutLibrary,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -141,6 +142,13 @@ class ExportManager @Inject constructor(
             }
             RenderVoiceover(recordings, com.cinemind.core.domain.audio.VoiceoverSettings(t.volume, t.opacity, muted = !t.isEnabled))
         }
+        // Sound-effect tracks: track volume / mute in the track, per-sound volume in each clip.
+        val sfx = timeline.tracks.filter { it.type == TrackType.SFX }.sortedBy { it.index }.map { t ->
+            val sounds = timeline.clips.filter { it.trackId == t.id }.mapNotNull { c ->
+                assetRepository.getAsset(c.assetId)?.let { a -> RenderVoiceClip(c, a.uri, a.durationUs) }
+            }
+            RenderVoiceover(sounds, com.cinemind.core.domain.audio.VoiceoverSettings(t.volume, 0f, muted = !t.isEnabled))
+        }
         val sourceInfo = withContext(Dispatchers.IO) { SourceProbe.describe(context, assets.filterNotNull()) }
         Diagnostics.journalStage(context, "loading media", mapOf("clips" to clips.size.toString(), "sources" to sourceInfo))
         val project = timeline.project
@@ -168,11 +176,12 @@ class ExportManager @Inject constructor(
         val outFile = File(workDir, "export.mp4")
 
         val captionList = captionRepository.getCaptions(projectId)
+        val texts = com.cinemind.core.domain.text.TextLayerEditing.fitTo(textLayerRepository.get(projectId), durationUs)
         val captions = if (captionList.isEmpty()) null else RenderCaptions(captionList, captionRepository.getStyle(projectId))
-        Diagnostics.journalStage(context, "building composition", mapOf("output" to "${size.width}x${size.height}", "bitrate" to bitrate.toString(), "overlays" to overlays.sumOf { it.size }.toString(), "captions" to captionList.size.toString(), "music" to (music != null).toString()))
+        Diagnostics.journalStage(context, "building composition", mapOf("output" to "${size.width}x${size.height}", "bitrate" to bitrate.toString(), "overlays" to overlays.sumOf { it.size }.toString(), "captions" to captionList.size.toString(), "texts" to texts.size.toString(), "music" to (music != null).toString()))
         // Colour grades: each clip's look + adjustments baked into one LUT (same as the preview).
         val grades = withContext(Dispatchers.Default) { lutLibrary.bakedForClips(clips.associate { it.id to it.grade }) }
-        val composition = renderer.buildComposition(pairs, size, settings.frameRate, music, audio.originalVolume, captions, overlays, voiceover, grades)
+        val composition = renderer.buildComposition(pairs, size, settings.frameRate, music, audio.originalVolume, captions, overlays, voiceover, grades, texts, sfx)
         _state.value = ExportState.Running(projectId, 0f)
         startForegroundService()
 

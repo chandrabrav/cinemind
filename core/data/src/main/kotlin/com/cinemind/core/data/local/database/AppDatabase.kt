@@ -30,8 +30,9 @@ import com.cinemind.core.domain.model.Track
         EditBrief::class,
         com.cinemind.core.domain.captions.Caption::class,
         com.cinemind.core.domain.captions.CaptionStyle::class,
+        com.cinemind.core.domain.text.TextLayer::class,
     ],
-    version = 7,
+    version = 9,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -41,6 +42,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun mediaAssetDao(): MediaAssetDao
     abstract fun editBriefDao(): EditBriefDao
     abstract fun captionDao(): com.cinemind.core.data.local.dao.CaptionDao
+    abstract fun textLayerDao(): com.cinemind.core.data.local.dao.TextLayerDao
 
     companion object {
         @Volatile private var instance: AppDatabase? = null
@@ -127,4 +129,25 @@ val MIGRATION_6_7 = object : Migration(6, 7) {
     }
 }
 
-val ALL_MIGRATIONS: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+/** v7 → v8: clip framing (crop, rotation, flips, fill, motion keyframes). */
+val MIGRATION_7_8 = object : Migration(7, 8) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE clips ADD COLUMN framing TEXT NOT NULL DEFAULT ''")
+    }
+}
+
+/** v8 → v9: free text / title / sticker layers. */
+val MIGRATION_8_9 = object : Migration(8, 9) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `text_layers` (" +
+                "`id` TEXT NOT NULL, `projectId` TEXT NOT NULL, `startUs` INTEGER NOT NULL, `endUs` INTEGER NOT NULL, " +
+                "`kind` TEXT NOT NULL, `text` TEXT NOT NULL, `x` REAL NOT NULL, `y` REAL NOT NULL, `size` REAL NOT NULL, " +
+                "`rotation` REAL NOT NULL, `style` TEXT NOT NULL, `lane` INTEGER NOT NULL, PRIMARY KEY(`id`), " +
+                "FOREIGN KEY(`projectId`) REFERENCES `projects`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_text_layers_projectId` ON `text_layers` (`projectId`)")
+    }
+}
+
+val ALL_MIGRATIONS: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)

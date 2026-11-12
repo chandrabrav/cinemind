@@ -111,7 +111,8 @@ class MainActivity : ComponentActivity() {
                     Scaffold(
                         containerColor = Color.Transparent,
                         topBar = {
-                            TopAppBar(
+                            // The editor has its own compact header (more room for the video and timeline).
+                            if (route != Routes.EDITOR) TopAppBar(
                                 title = {
                                     Text(
                                         text = title,
@@ -202,6 +203,7 @@ fun CineMindNavHost(
                 onOpenBrief = { navController.navigate(Routes.brief(projectId)) },
                 onExport = { navController.navigate(Routes.export(projectId)) },
                 onOpenAiModels = { navController.navigate(Routes.AI_MODELS) },
+                onBack = { navController.navigateUp() },
             )
         }
         composable(Routes.BRIEF) { backStackEntry ->

@@ -179,6 +179,133 @@ class ExportEndToEndTest {
     }
 
     /**
+     * Sound effects: a CineMind-made whoosh on an SFX track gives a silent video an audio track,
+     * and the video keeps its length.
+     */
+    @Test
+    fun mixesSoundEffectsIntoExport() = runBlocking {
+        val black = asset("black.mp4")
+        val samples = com.cinemind.core.domain.audio.SfxSynth.render(com.cinemind.core.domain.audio.SoundEffect.WHOOSH)
+        val wav = File(context.cacheDir, "e2e-whoosh.wav").apply { writeBytes(com.cinemind.core.domain.audio.SfxSynth.wav(samples)) }
+        val wavUs = com.cinemind.core.domain.audio.SfxSynth.durationUs(samples.size)
+        val clips = TimelineEditing.relayout(listOf(clip("v", 0, 2_000_000)))
+        val sources = listOf(RenderSource(Uri.fromFile(black).toString(), isVideo = true, hasAudio = false, frameRate = 30f, durationUs = 2_000_000))
+        val sound = Clip(id = "s", trackId = "sfx", assetId = "s", timelineInUs = 500_000, timelineOutUs = 500_000 + wavUs,
+            sourceInUs = 0, sourceOutUs = wavUs, opacity = 1.5f)
+        val sfx = RenderVoiceover(listOf(RenderVoiceClip(sound, Uri.fromFile(wav).toString(), wavUs)), com.cinemind.core.domain.audio.VoiceoverSettings())
+        val out = File(context.cacheDir, "e2e-sfx.mp4").apply { delete() }
+        val progressScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+        withContext(Dispatchers.Main) {
+            val renderer = TimelineRenderer(context)
+            val composition = renderer.buildComposition(clips.zip(sources), OutputSize(720, 1280), fps = 30, sfx = listOf(sfx))
+            renderer.render(composition, out, videoBitrateBps = 3_000_000, progressScope = progressScope)
+        }
+        progressScope.cancel()
+        val r = MediaMetadataRetriever()
+        try {
+            r.setDataSource(out.absolutePath)
+            assertEquals("yes", r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_AUDIO))
+            val durationMs = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)!!.toLong()
+            assertTrue("video length unchanged (~2 s, was $durationMs ms)", durationMs in 1_800..2_300)
+        } finally {
+            r.release()
+        }
+    }
+
+    /**
+     * Text layers are drawn after compositing: a white "Label" title near the top of a black video
+     * appears only while it is on, and nothing is drawn elsewhere.
+     */
+    @Test
+    fun burnsInTextLayers() = runBlocking {
+        val black = asset("black.mp4")
+        val clips = TimelineEditing.relayout(listOf(clip("v", 0, 2_000_000)))
+        val sources = listOf(RenderSource(Uri.fromFile(black).toString(), isVideo = true, hasAudio = false, frameRate = 30f, durationUs = 2_000_000))
+        val p = com.cinemind.core.domain.text.TextPreset.LABEL
+        val title = com.cinemind.core.domain.text.TextLayer(
+            projectId = "p", startUs = 800_000, endUs = 2_000_000, text = "HELLO CINEMIND",
+            x = 0.5f, y = 0.2f, size = 0.09f, style = p.style.copy(animIn = com.cinemind.core.domain.text.TextAnim.NONE).encode(),
+        )
+        val out = File(context.cacheDir, "e2e-text.mp4").apply { delete() }
+        val progressScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+        withContext(Dispatchers.Main) {
+            val renderer = TimelineRenderer(context)
+            val composition = renderer.buildComposition(clips.zip(sources), OutputSize(720, 1280), fps = 30, texts = listOf(title))
+            renderer.render(composition, out, videoBitrateBps = 3_000_000, progressScope = progressScope)
+        }
+        progressScope.cancel()
+        val r = MediaMetadataRetriever()
+        try {
+            r.setDataSource(out.absolutePath)
+            val during = r.getFrameAtTime(1_300_000, MediaMetadataRetriever.OPTION_CLOSEST)!!
+            saveForReview(during, "export_text_frame")
+            val band = bandLuma(during, 0.17f, 0.23f)
+            val elsewhere = bandLuma(during, 0.6f, 0.9f)
+            val before = bandLuma(r.getFrameAtTime(400_000, MediaMetadataRetriever.OPTION_CLOSEST)!!, 0.17f, 0.23f)
+            assertTrue("title box visible in its band ($band)", band > 0.2f)
+            assertTrue("nothing drawn elsewhere ($elsewhere)", elsewhere < 0.06f)
+            assertTrue("title not shown before its start ($before)", before < 0.06f)
+        } finally {
+            r.release()
+        }
+    }
+
+    /**
+     * Framing: a 4:3 photo set to fill the 9:16 frame covers its top; the same photo zoomed to 0.5×
+     * leaves black above and below; a video cropped, turned and flipped still exports at its length.
+     */
+    @Test
+    fun exportsClipFraming() = runBlocking {
+        val photo = asset("photo.jpg")
+        val landscape = asset("landscape_silent.mp4")
+        val fill = com.cinemind.core.domain.editing.ClipFraming(fill = true)
+        val small = fill.copy(keys = listOf(com.cinemind.core.domain.editing.MotionKey(0, scale = 0.5f)))
+        val turned = com.cinemind.core.domain.editing.ClipFraming(
+            crop = com.cinemind.core.domain.editing.CropRect(left = 0.1f, right = 0.1f),
+            quarterTurns = 1,
+            flipH = true,
+        )
+        val clips = TimelineEditing.relayout(
+            listOf(
+                clip("a", 0, 2_000_000).copy(framing = fill.encode()),
+                clip("b", 0, 2_000_000).copy(framing = small.encode()),
+                clip("c", 0, 2_000_000).copy(framing = turned.encode()),
+            ),
+        )
+        val photoSource = RenderSource(Uri.fromFile(photo).toString(), isVideo = false, hasAudio = false, frameRate = 0f, durationUs = 0)
+        val sources = listOf(
+            photoSource,
+            photoSource,
+            RenderSource(Uri.fromFile(landscape).toString(), isVideo = true, hasAudio = false, frameRate = 60f, durationUs = 2_000_000),
+        )
+        val out = File(context.cacheDir, "e2e-framing.mp4").apply { delete() }
+        val progressScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+        withContext(Dispatchers.Main) {
+            val renderer = TimelineRenderer(context)
+            val composition = renderer.buildComposition(clips.zip(sources), OutputSize(720, 1280), fps = 30)
+            renderer.render(composition, out, videoBitrateBps = 3_000_000, progressScope = progressScope)
+        }
+        progressScope.cancel()
+        val r = MediaMetadataRetriever()
+        try {
+            r.setDataSource(out.absolutePath)
+            val durationMs = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)!!.toLong()
+            assertTrue("duration ~6 s, was $durationMs ms", durationMs in 5_700..6_300)
+            val filled = r.getFrameAtTime(1_000_000, MediaMetadataRetriever.OPTION_CLOSEST)!!
+            val zoomed = r.getFrameAtTime(3_000_000, MediaMetadataRetriever.OPTION_CLOSEST)!!
+            saveForReview(zoomed, "export_framing_zoomed")
+            val topFilled = bandLuma(filled, 0.03f, 0.12f)
+            val topZoomed = bandLuma(zoomed, 0.03f, 0.12f)
+            val midZoomed = bandLuma(zoomed, 0.45f, 0.55f)
+            assertTrue("fill covers the top ($topFilled)", topFilled > 0.08f)
+            assertTrue("0.5× zoom leaves black at the top ($topZoomed)", topZoomed < 0.04f)
+            assertTrue("0.5× zoom keeps the picture in the middle ($midZoomed)", midZoomed > 0.1f)
+        } finally {
+            r.release()
+        }
+    }
+
+    /**
      * Speed: a 2 s clip with sound at 2× plays for 1 s, and a 2 s clip with a speed ramp plays for
      * the length SpeedMath computes. The exported file must match the timeline length.
      */
@@ -194,7 +321,8 @@ class ExportEndToEndTest {
             ),
         )
         val expectedMs = TimelineEditing.durationUs(clips) / 1_000
-        assertTrue("timeline between 1 s and 4 s ($expectedMs)", expectedMs in 1_100..3_900)
+        // 1 s (2× clip) + ~3.2 s (2 s of footage dipping to 0.5×); not the 4 s it would be at 1×.
+        assertTrue("timeline length from speed ($expectedMs)", expectedMs in 3_600..4_800 && kotlin.math.abs(expectedMs - 4_000) > 100)
         val sources = listOf(
             RenderSource(Uri.fromFile(portrait).toString(), isVideo = true, hasAudio = true, frameRate = 30f, durationUs = 2_000_000),
             RenderSource(Uri.fromFile(landscape).toString(), isVideo = true, hasAudio = false, frameRate = 60f, durationUs = 2_000_000),

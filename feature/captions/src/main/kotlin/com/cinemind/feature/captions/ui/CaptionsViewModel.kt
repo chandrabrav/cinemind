@@ -54,6 +54,7 @@ data class CaptionsUi(
  */
 @HiltViewModel
 class CaptionsViewModel @Inject constructor(
+    @dagger.hilt.android.qualifiers.ApplicationContext private val appContext: android.content.Context,
     private val repository: CaptionRepository,
     private val transcriber: SpeechTranscriber,
     private val llm: OnDeviceLlm,
@@ -97,8 +98,11 @@ class CaptionsViewModel @Inject constructor(
         job = viewModelScope.launch {
             _ui.value = _ui.value.copy(job = SpeechJobUi(running = true, message = "Starting…"))
             try {
-                val result = transcriber.transcribe(id, sources, state.language, state.script) { p ->
-                    _ui.value = _ui.value.copy(job = _ui.value.job.copy(progress = p.fraction, message = p.message))
+                // Kept alive by a foreground service, so it finishes even if the user switches apps.
+                val result = com.cinemind.core.common.BackgroundWork.run(appContext, "Writing captions from speech") {
+                    transcriber.transcribe(id, sources, state.language, state.script) { p ->
+                        _ui.value = _ui.value.copy(job = _ui.value.job.copy(progress = p.fraction, message = p.message))
+                    }
                 }
                 val summary = buildString {
                     append("${result.captions.size} caption${if (result.captions.size == 1) "" else "s"}")
@@ -131,8 +135,10 @@ class CaptionsViewModel @Inject constructor(
         job = viewModelScope.launch {
             _ui.value = _ui.value.copy(job = SpeechJobUi(running = true, message = "Translating…"))
             try {
-                val out = transcriber.translateToEnglish(_ui.value.captions) { p ->
-                    _ui.value = _ui.value.copy(job = _ui.value.job.copy(progress = p.fraction, message = p.message))
+                val out = com.cinemind.core.common.BackgroundWork.run(appContext, "Translating captions") {
+                    transcriber.translateToEnglish(_ui.value.captions) { p ->
+                        _ui.value = _ui.value.copy(job = _ui.value.job.copy(progress = p.fraction, message = p.message))
+                    }
                 }
                 commit(out)
                 _ui.value = _ui.value.copy(job = SpeechJobUi(summary = "Translated to English. Undo to get the original back."))

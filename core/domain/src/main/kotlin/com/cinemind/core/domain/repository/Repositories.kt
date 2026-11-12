@@ -53,6 +53,9 @@ interface ProjectRepository {
     /** The project's voiceover track, created on first use (see [com.cinemind.core.domain.audio.VoiceoverSettings]). */
     suspend fun ensureVoiceoverTrack(projectId: String): Track
 
+    /** Adds a new sound-effects track (projects can have several). */
+    suspend fun addSfxTrack(projectId: String): Track
+
     suspend fun updateTrack(track: Track)
 
     /** Copies a project with all tracks and clips; returns the new id, or null if [id] doesn't exist. */
@@ -106,4 +109,12 @@ interface CaptionRepository {
     fun observeStyle(projectId: String): Flow<com.cinemind.core.domain.captions.CaptionStyle>
     suspend fun getStyle(projectId: String): com.cinemind.core.domain.captions.CaptionStyle
     suspend fun saveStyle(style: com.cinemind.core.domain.captions.CaptionStyle)
+}
+
+/** Free text / title / sticker layers of a project. */
+interface TextLayerRepository {
+    fun observe(projectId: String): Flow<List<com.cinemind.core.domain.text.TextLayer>>
+    suspend fun get(projectId: String): List<com.cinemind.core.domain.text.TextLayer>
+    /** Replaces every text layer of the project (one transaction). */
+    suspend fun save(projectId: String, layers: List<com.cinemind.core.domain.text.TextLayer>)
 }

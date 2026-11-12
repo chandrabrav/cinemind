@@ -177,3 +177,25 @@ interface CaptionDao {
     @Query("SELECT * FROM caption_styles WHERE projectId = :projectId")
     suspend fun getStyle(projectId: String): com.cinemind.core.domain.captions.CaptionStyle?
 }
+
+@Dao
+interface TextLayerDao {
+    @Query("SELECT * FROM text_layers WHERE projectId = :projectId ORDER BY lane, startUs")
+    fun observe(projectId: String): Flow<List<com.cinemind.core.domain.text.TextLayer>>
+
+    @Query("SELECT * FROM text_layers WHERE projectId = :projectId ORDER BY lane, startUs")
+    suspend fun get(projectId: String): List<com.cinemind.core.domain.text.TextLayer>
+
+    @Query("DELETE FROM text_layers WHERE projectId = :projectId")
+    suspend fun deleteForProject(projectId: String)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAll(layers: List<com.cinemind.core.domain.text.TextLayer>)
+
+    /** Replaces all text layers of a project in one transaction. */
+    @androidx.room.Transaction
+    suspend fun replaceAll(projectId: String, layers: List<com.cinemind.core.domain.text.TextLayer>) {
+        deleteForProject(projectId)
+        insertAll(layers.map { it.copy(projectId = projectId) })
+    }
+}

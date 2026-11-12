@@ -54,6 +54,7 @@ sealed interface SmartEditUi {
 @OptIn(FlowPreview::class, kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class EditBriefViewModel @Inject constructor(
+    @dagger.hilt.android.qualifiers.ApplicationContext private val appContext: android.content.Context,
     private val briefRepository: EditBriefRepository,
     private val projectRepository: ProjectRepository,
     private val smartEditor: SmartEditor,
@@ -75,7 +76,8 @@ class EditBriefViewModel @Inject constructor(
             _state.value.brief?.let { if (!_state.value.saved) briefRepository.saveBrief(it) }
             _smartEdit.value = SmartEditUi.Working("Reading your brief…", null)
             try {
-                val result = smartEditor.create(id) { p ->
+                // Kept alive by a foreground service, so it finishes even if the user switches apps.
+                val result = com.cinemind.core.common.BackgroundWork.run(appContext, "Making your Smart edit") { smartEditor.create(id) { p ->
                     _smartEdit.value = when (p) {
                         is SmartEditProgress.Analyzing ->
                             SmartEditUi.Working("Analysing clip ${p.index} of ${p.count}…", (p.index - 1f) / p.count)
@@ -85,7 +87,7 @@ class EditBriefViewModel @Inject constructor(
                             SmartEditUi.Working("AI is looking at moment ${p.index} of ${p.count}…", (p.index - 1f) / p.count)
                         SmartEditProgress.Planning -> SmartEditUi.Working("Choosing shots and building the edit…", 1f)
                     }
-                }
+                } }
                 _smartEdit.value = SmartEditUi.Idle
                 created.send(result)
             } catch (e: CancellationException) {

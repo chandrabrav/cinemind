@@ -40,6 +40,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Animation
 import androidx.compose.material.icons.filled.ClosedCaption
+import androidx.compose.material.icons.filled.TextFields
+import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PictureInPicture
@@ -60,6 +62,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -129,6 +132,17 @@ internal fun MultiTrackTimeline(
     selectedVoiceId: String? = null,
     onVoiceTap: (String) -> Unit = {},
     onAddVoice: () -> Unit = {},
+    texts: List<com.cinemind.core.domain.text.TextLayer> = emptyList(),
+    selectedTextId: String? = null,
+    onTextTap: (String) -> Unit = {},
+    onAddText: () -> Unit = {},
+    musicPeaks: FloatArray? = null,
+    beatsUs: List<Long> = emptyList(),
+    waves: Map<String, FloatArray> = emptyMap(),
+    sfx: List<List<PreviewClip>> = emptyList(),
+    selectedSfxId: String? = null,
+    onSfxTap: (String) -> Unit = {},
+    onAddSfx: () -> Unit = {},
 ) {
     val c = CineMind.colors
     val density = LocalDensity.current
@@ -287,6 +301,10 @@ internal fun MultiTrackTimeline(
                             music = music,
                             xPx = leadPx,
                             widthPx = if (music != null) TimelineLayout.xForUs(totalUs, pps) else viewportPx - leadPx * 2,
+                            peaks = musicPeaks,
+                            beatsUs = beatsUs,
+                            totalUs = totalUs,
+                            pps = pps,
                             onTap = onMusicTap,
                         )
                     }
@@ -308,11 +326,40 @@ internal fun MultiTrackTimeline(
                                     widthPx = TimelineLayout.xForUs(v.clip.timelineOutUs - v.clip.timelineInUs, pps),
                                     selected = v.clip.id == selectedVoiceId,
                                     onTap = { onVoiceTap(v.clip.id) },
+                                    wave = v.asset?.id?.let { waves[it] },
                                 )
                             }
                         }
                     }
                     Spacer(Modifier.height(LANE_GAP))
+                    // Sound-effect lanes (one per SFX track; a hint lane when there are none).
+                    val sfxLanes = if (sfx.isEmpty()) listOf(emptyList()) else sfx
+                    sfxLanes.forEach { lane ->
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(VOICE_LANE)
+                                .background(c.timelineLane),
+                        ) {
+                            if (lane.isEmpty() && sfx.isEmpty()) {
+                                VoiceBlock(null, leadPx, viewportPx - leadPx * 2, selected = false, onTap = onAddSfx, emptyLabel = "Add sound effects", icon = Icons.Default.GraphicEq)
+                            } else {
+                                lane.forEach { s ->
+                                    VoiceBlock(
+                                        item = s,
+                                        xPx = leadPx + TimelineLayout.xForUs(s.clip.timelineInUs, pps),
+                                        widthPx = TimelineLayout.xForUs(s.clip.timelineOutUs - s.clip.timelineInUs, pps),
+                                        selected = s.clip.id == selectedSfxId,
+                                        onTap = { onSfxTap(s.clip.id) },
+                                        wave = s.asset?.id?.let { waves[it] },
+                                        icon = Icons.Default.GraphicEq,
+                                        itemFallback = "Sound",
+                                    )
+                                }
+                            }
+                        }
+                        Spacer(Modifier.height(LANE_GAP))
+                    }
                     // Caption lane: one block per caption, at its timeline time.
                     Box(
                         modifier = Modifier
@@ -333,8 +380,30 @@ internal fun MultiTrackTimeline(
                             }
                         }
                     }
+                    Spacer(Modifier.height(LANE_GAP))
+                    // Text lane: titles and stickers at their timeline time (overlapping ones share the lane).
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(CAPTION_LANE)
+                            .background(c.timelineLane),
+                    ) {
+                        if (texts.isEmpty()) {
+                            TextBlock(null, leadPx, viewportPx - leadPx * 2, selected = false, onTap = onAddText)
+                        } else {
+                            texts.sortedBy { it.id == selectedTextId }.forEach { t ->
+                                TextBlock(
+                                    layer = t,
+                                    xPx = leadPx + TimelineLayout.xForUs(t.startUs, pps),
+                                    widthPx = TimelineLayout.xForUs(t.endUs - t.startUs, pps),
+                                    selected = t.id == selectedTextId,
+                                    onTap = { onTextTap(t.id) },
+                                )
+                            }
+                        }
+                    }
                 }
-                Playhead(xPx = playheadX)
+                Playhead(xPx = playheadX, extraLanes = 1 + maxOf(1, sfx.size))
             }
         }
     }
@@ -526,7 +595,21 @@ private fun TrimHandle(alignStart: Boolean, modifier: Modifier) {
 }
 
 @Composable
-private fun MusicBlock(music: MusicUi?, xPx: Float, widthPx: Float, onTap: () -> Unit) {
+private fun MusicBlock(
+    music: MusicUi?,
+    xPx: Float,
+    widthPx: Float,
+    onTap: () -> Unit,
+    peaks: FloatArray? = null,
+    beatsUs: List<Long> = emptyList(),
+    totalUs: Long = 0,
+    pps: Float = 1f,
+) {
+    val waveColor = CineMind.colors.clipLabel.copy(alpha = 0.35f)
+    val beatColor = CineMind.colors.clipLabel.copy(alpha = 0.7f)
+    val segments = remember(music, totalUs) {
+        music?.let { com.cinemind.core.domain.audio.MusicLayout.segments(it.durationUs, it.settings.startOffsetUs, totalUs) }.orEmpty()
+    }
     val c = CineMind.colors
     val density = LocalDensity.current
     val shape = RoundedCornerShape(Radius.s)
@@ -542,6 +625,29 @@ private fun MusicBlock(music: MusicUi?, xPx: Float, widthPx: Float, onTap: () ->
                 if (music != null) Modifier.background(c.trackMusic)
                 else Modifier.border(1.dp, c.textTertiary.copy(alpha = 0.6f), shape),
             )
+            .drawBehind {
+                if (music == null) return@drawBehind
+                val p = peaks
+                if (p != null && p.isNotEmpty()) {
+                    val step = 3f
+                    var x = 0f
+                    while (x < size.width) {
+                        val t = (x / pps * 1_000_000f).toLong()
+                        val seg = segments.firstOrNull { t >= it.timelineStartUs && t < it.timelineStartUs + it.lengthUs }
+                        if (seg != null) {
+                            val src = seg.sourceInUs + (t - seg.timelineStartUs)
+                            val v = p[(src / com.cinemind.core.domain.audio.Waveform.BUCKET_US).toInt().coerceIn(0, p.lastIndex)]
+                            val h = size.height * 0.8f * v.coerceAtLeast(0.04f)
+                            drawLine(waveColor, Offset(x, (size.height - h) / 2f), Offset(x, (size.height + h) / 2f), strokeWidth = 2f)
+                        }
+                        x += step
+                    }
+                }
+                beatsUs.forEach { b ->
+                    val bx = TimelineLayout.xForUs(b, pps)
+                    if (bx in 0f..size.width) drawLine(beatColor, Offset(bx, size.height * 0.62f), Offset(bx, size.height), strokeWidth = 2f)
+                }
+            }
             .clickable(onClick = hapticClick(onClick = onTap))
             .padding(horizontal = Spacing.s),
     ) {
@@ -564,8 +670,19 @@ private fun MusicBlock(music: MusicUi?, xPx: Float, widthPx: Float, onTap: () ->
 
 /** A recording on the voiceover lane (or, with null, the "Record voiceover" hint). */
 @Composable
-private fun VoiceBlock(item: PreviewClip?, xPx: Float, widthPx: Float, selected: Boolean, onTap: () -> Unit) {
+private fun VoiceBlock(
+    item: PreviewClip?,
+    xPx: Float,
+    widthPx: Float,
+    selected: Boolean,
+    onTap: () -> Unit,
+    wave: FloatArray? = null,
+    emptyLabel: String = "Record voiceover",
+    icon: androidx.compose.ui.graphics.vector.ImageVector = Icons.Default.Mic,
+    itemFallback: String = "Voiceover",
+) {
     val c = CineMind.colors
+    val waveColor = c.clipLabel.copy(alpha = 0.4f)
     val density = LocalDensity.current
     val shape = RoundedCornerShape(Radius.xs)
     Row(
@@ -577,18 +694,29 @@ private fun VoiceBlock(item: PreviewClip?, xPx: Float, widthPx: Float, selected:
             .padding(vertical = Spacing.xxs, horizontal = 1.dp)
             .clip(shape)
             .then(if (item != null) Modifier.background(c.trackMusic) else Modifier.border(1.dp, c.textTertiary.copy(alpha = 0.6f), shape))
+            .drawBehind {
+                val w = wave ?: return@drawBehind
+                val clip = item?.clip ?: return@drawBehind
+                val count = (size.width / 3f).toInt().coerceAtLeast(1)
+                val vals = com.cinemind.core.domain.audio.Waveform.slice(w, clip.sourceInUs, clip.sourceOutUs, count)
+                vals.forEachIndexed { i, v ->
+                    val x = i * 3f
+                    val h = size.height * 0.8f * v.coerceAtLeast(0.04f)
+                    drawLine(waveColor, Offset(x, (size.height - h) / 2f), Offset(x, (size.height + h) / 2f), strokeWidth = 2f)
+                }
+            }
             .then(if (selected) Modifier.border(2.dp, c.selection, shape) else Modifier)
             .semantics {
-                contentDescription = if (item == null) "Record a voiceover"
-                else "Voiceover, ${formatDuration(item.clip.timelineOutUs - item.clip.timelineInUs)}" + if (selected) ", selected" else ""
+                contentDescription = if (item == null) emptyLabel
+                else "$itemFallback, ${formatDuration(item.clip.timelineOutUs - item.clip.timelineInUs)}" + if (selected) ", selected" else ""
             }
             .clickable(onClick = hapticClick(onClick = onTap))
             .padding(horizontal = Spacing.xs),
     ) {
-        Icon(Icons.Default.Mic, contentDescription = null, tint = if (item != null) c.clipLabel else c.textTertiary, modifier = Modifier.size(14.dp))
+        Icon(icon, contentDescription = null, tint = if (item != null) c.clipLabel else c.textTertiary, modifier = Modifier.size(14.dp))
         Spacer(Modifier.width(Spacing.xs))
         Text(
-            text = if (item == null) "Record voiceover" else (item.asset?.displayName?.ifEmpty { null } ?: "Voiceover"),
+            text = if (item == null) emptyLabel else (item.asset?.displayName?.ifEmpty { null } ?: itemFallback),
             color = if (item != null) c.clipLabel else c.textTertiary,
             style = MaterialTheme.typography.labelSmall,
             maxLines = 1,
@@ -669,9 +797,45 @@ private fun CaptionBlock(caption: com.cinemind.core.domain.captions.Caption?, xP
     }
 }
 
+/** A title or sticker on the text lane (or, with null, the "Add text" hint). */
+@Composable
+private fun TextBlock(layer: com.cinemind.core.domain.text.TextLayer?, xPx: Float, widthPx: Float, selected: Boolean, onTap: () -> Unit) {
+    val c = CineMind.colors
+    val density = LocalDensity.current
+    val shape = RoundedCornerShape(Radius.xs)
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .offset { IntOffset(xPx.roundToInt(), 0) }
+            .width(with(density) { widthPx.coerceAtLeast(6.dp.toPx()).toDp() })
+            .fillMaxHeight()
+            .padding(vertical = Spacing.xxs, horizontal = 1.dp)
+            .clip(shape)
+            .then(
+                if (layer != null) Modifier.background(c.highlight.copy(alpha = 0.85f))
+                else Modifier.border(1.dp, c.textTertiary.copy(alpha = 0.6f), shape),
+            )
+            .then(if (selected) Modifier.border(2.dp, c.selection, shape) else Modifier)
+            .clickable(onClick = hapticClick(onClick = onTap))
+            .padding(horizontal = Spacing.xs),
+    ) {
+        if (layer == null) {
+            Icon(Icons.Default.TextFields, contentDescription = null, tint = c.textTertiary, modifier = Modifier.size(14.dp))
+            Spacer(Modifier.width(Spacing.xs))
+        }
+        Text(
+            text = layer?.text?.replace('\n', ' ') ?: "Add text or stickers",
+            color = if (layer != null) c.onAccent else c.textTertiary,
+            style = MaterialTheme.typography.labelSmall,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
 /** 2 dp line with a knob, drawn over all lanes. */
 @Composable
-private fun Playhead(xPx: Float) {
+private fun Playhead(xPx: Float, extraLanes: Int = 0) {
     val c = CineMind.colors
     val density = LocalDensity.current
     val knob = 10.dp
@@ -679,7 +843,7 @@ private fun Playhead(xPx: Float) {
         modifier = Modifier
             .offset { IntOffset((xPx - with(density) { (knob / 2).toPx() }).roundToInt(), 0) }
             .width(knob)
-            .height(RULER + Spacing.xs + VIDEO_LANE + LANE_GAP + OVERLAY_LANE + LANE_GAP + MUSIC_LANE + LANE_GAP + VOICE_LANE + LANE_GAP + CAPTION_LANE),
+            .height(RULER + Spacing.xs + VIDEO_LANE + LANE_GAP + OVERLAY_LANE + LANE_GAP + MUSIC_LANE + LANE_GAP + VOICE_LANE + LANE_GAP + CAPTION_LANE + (LANE_GAP + CAPTION_LANE) * extraLanes),
     ) {
         Box(
             Modifier

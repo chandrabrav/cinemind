@@ -68,20 +68,19 @@ class EditorScreenshotTest {
                             modifier = Modifier.fillMaxWidth(),
                             captions = captions,
                         )
-                        ClipInspector(
-                            item = clips[1],
-                            index = 1,
-                            clipCount = clips.size,
-                            limits = limits,
-                            fps = 30,
-                            onTrim = { _, _ -> },
-                            onMove = {},
-                            onDelete = {},
-                            onSplit = {},
+                        // Clip selected: the bottom bar shows only that clip's actions.
+                        EditorBottomBar(
+                            title = "Clip 2",
                             onClose = {},
-                            onTransition = { _, _ -> },
+                            actions = listOf("Trim", "Split", "Speed", "Crop & move", "Colour", "Delete")
+                                .map { EditorAction(androidx.compose.material.icons.Icons.Default.Tune, it) {} },
                         )
-                        EditorToolsBar(hasClips = true, onSmartEdit = {}, onAddMedia = {}, onTransitions = {}, onMusic = {}, onExport = {})
+                        // Nothing selected: the main tools.
+                        EditorBottomBar(
+                            title = null,
+                            actions = listOf("Add", "Audio", "Text", "Captions", "Overlay", "Colour")
+                                .map { EditorAction(androidx.compose.material.icons.Icons.Default.Tune, it) {} },
+                        )
                     }
                 }
             }
@@ -91,8 +90,8 @@ class EditorScreenshotTest {
     private fun assertKeyControls() {
         compose.onNodeWithText("Sunset Drive.mp3").assertIsDisplayed()
         compose.onNodeWithContentDescription("Trim end handle").assertIsDisplayed()
-        compose.onNodeWithContentDescription("Split at playhead").assertIsDisplayed()
-        compose.onNodeWithText("Export").assertExists()
+        compose.onNodeWithText("Split").assertIsDisplayed()
+        compose.onNodeWithText("Audio").assertExists()
         compose.onNodeWithText("Captions").assertExists()
         compose.onNodeWithText("Bhai, yeh jagah sach mein").assertIsDisplayed()
     }

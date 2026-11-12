@@ -152,7 +152,8 @@ class ProjectRepositoryImpl(
             // Only the main video track sets the video's length; overlay tracks sit on top of it.
             val track = database.trackDao().getTracksForProjectOnce(projectId).firstOrNull { it.id == trackId }
             val isOverlay = track?.type == com.cinemind.core.domain.model.TrackType.OVERLAY ||
-                track?.type == com.cinemind.core.domain.model.TrackType.VOICEOVER
+                track?.type == com.cinemind.core.domain.model.TrackType.VOICEOVER ||
+                track?.type == com.cinemind.core.domain.model.TrackType.SFX
             projectDao.update(
                 project.copy(
                     durationUs = if (isOverlay) project.durationUs else clips.maxOfOrNull { it.timelineOutUs } ?: 0L,
@@ -187,6 +188,19 @@ class ProjectRepositoryImpl(
                     volume = 1f,
                     opacity = com.cinemind.core.domain.audio.VoiceoverSettings().duckMusic,
                 ).also { database.trackDao().insert(it) }
+        }
+
+    override suspend fun addSfxTrack(projectId: String): com.cinemind.core.domain.model.Track =
+        database.withTransaction {
+            val tracks = database.trackDao().getTracksForProjectOnce(projectId)
+            val n = tracks.count { it.type == com.cinemind.core.domain.model.TrackType.SFX } + 1
+            com.cinemind.core.domain.model.Track(
+                projectId = projectId,
+                type = com.cinemind.core.domain.model.TrackType.SFX,
+                index = (tracks.maxOfOrNull { it.index } ?: 0) + 1,
+                name = "Sound effects $n",
+                volume = 1f,
+            ).also { database.trackDao().insert(it) }
         }
 
     override suspend fun updateTrack(track: com.cinemind.core.domain.model.Track) = database.trackDao().update(track)
@@ -303,4 +317,12 @@ class CaptionRepositoryImpl(
         captionDao.getStyle(projectId) ?: com.cinemind.core.domain.captions.CaptionStyle.default(projectId)
 
     override suspend fun saveStyle(style: com.cinemind.core.domain.captions.CaptionStyle) = captionDao.upsertStyle(style)
+}
+
+class TextLayerRepositoryImpl(
+    private val dao: com.cinemind.core.data.local.dao.TextLayerDao,
+) : com.cinemind.core.domain.repository.TextLayerRepository {
+    override fun observe(projectId: String) = dao.observe(projectId)
+    override suspend fun get(projectId: String) = dao.get(projectId)
+    override suspend fun save(projectId: String, layers: List<com.cinemind.core.domain.text.TextLayer>) = dao.replaceAll(projectId, layers)
 }

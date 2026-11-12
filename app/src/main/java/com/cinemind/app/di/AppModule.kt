@@ -50,6 +50,9 @@ object DatabaseModule {
 
     @Provides
     fun provideCaptionDao(database: AppDatabase): com.cinemind.core.data.local.dao.CaptionDao = database.captionDao()
+
+    @Provides
+    fun provideTextLayerDao(database: AppDatabase): com.cinemind.core.data.local.dao.TextLayerDao = database.textLayerDao()
 }
 
 @Module
@@ -79,4 +82,8 @@ object RepositoryModule {
     @Provides
     fun provideCaptionRepository(dao: com.cinemind.core.data.local.dao.CaptionDao): com.cinemind.core.domain.repository.CaptionRepository =
         com.cinemind.core.data.repository.CaptionRepositoryImpl(dao)
+
+    @Provides
+    fun provideTextLayerRepository(dao: com.cinemind.core.data.local.dao.TextLayerDao): com.cinemind.core.domain.repository.TextLayerRepository =
+        com.cinemind.core.data.repository.TextLayerRepositoryImpl(dao)
 }

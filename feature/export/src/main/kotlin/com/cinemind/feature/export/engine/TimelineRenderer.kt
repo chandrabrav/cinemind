@@ -28,6 +28,7 @@ import com.cinemind.core.domain.audio.MusicLayout
 import com.cinemind.core.domain.audio.VoiceMix
 import com.cinemind.core.domain.audio.VoiceoverSettings
 import com.cinemind.core.domain.editing.ClipAnimation
+import com.cinemind.core.domain.editing.ClipFraming
 import com.cinemind.core.domain.editing.OverlayEditing
 import com.cinemind.core.domain.editing.TransitionMath
 import com.cinemind.core.domain.model.Clip
@@ -86,24 +87,38 @@ class TimelineRenderer(private val context: Context) {
         voiceover: RenderVoiceover? = null,
         /** Baked colour grade per clip id (from the LUT library). */
         grades: Map<String, com.cinemind.core.domain.color.CubeLut> = emptyMap(),
+        /** Text / title / sticker layers, drawn over everything (export only; the preview draws them itself). */
+        texts: List<com.cinemind.core.domain.text.TextLayer> = emptyList(),
+        /** Sound-effect tracks (each clip's volume is its opacity field). */
+        sfx: List<RenderVoiceover> = emptyList(),
     ): Composition {
         val fit = Presentation.createForWidthAndHeight(size.width, size.height, Presentation.LAYOUT_SCALE_TO_FIT)
+        val fill = Presentation.createForWidthAndHeight(size.width, size.height, Presentation.LAYOUT_SCALE_TO_FIT_WITH_CROP)
         val animations = TransitionMath.animations(clips.map { it.first })
         val totalUs = clips.maxOfOrNull { it.first.timelineOutUs } ?: 0L
         val voiceClips = voiceover?.clips?.map { it.clip }.orEmpty()
         val voiceSettings = voiceover?.settings ?: VoiceoverSettings()
         val musicItems = music?.let { buildMusicItems(it, totalUs, voiceClips, voiceSettings) }.orEmpty()
         val voiceSequence = voiceover?.takeIf { it.clips.isNotEmpty() && !it.settings.muted }?.let { buildVoiceSequence(it, totalUs) }
-        val hasAudio = voiceSequence != null || clips.any { (_, s) -> s.isVideo && s.hasAudio } || musicItems.isNotEmpty()
+        val sfxSequences = sfx.filter { it.clips.isNotEmpty() && !it.settings.muted }.map { buildVoiceSequence(it, totalUs, perClipVolume = true) }
+        val hasAudio = voiceSequence != null || sfxSequences.isNotEmpty() || clips.any { (_, s) -> s.isVideo && s.hasAudio } || musicItems.isNotEmpty()
         val clipAudio = if (originalVolume < 0.999f) listOf(GainAudioProcessor { originalVolume.coerceIn(0f, 1f) }) else emptyList()
 
         val items = clips.mapIndexed { i, (clip, source) ->
             val lengthUs = clip.timelineOutUs - clip.timelineInUs
             val effects = buildList<Effect> {
                 if (source.isVideo && source.frameRate > fps + 1) add(FrameDropEffect.createDefaultFrameDropEffect(fps.toFloat()))
-                add(fit)
+                val framing = ClipFraming.decode(clip.framing)
+                // Crop, quarter turns and flips act on the source picture; then it is fitted (or filled) to the frame.
+                ClipFramingEffects.sourceEffects(framing).forEach { add(it) }
+                add(if (framing.fill) fill else fit)
                 // Colour grade (look + adjustments baked into one LUT), before transitions so fades dim the graded picture.
                 grades[clip.id]?.let { add(ColorLutEffect.create(it)) }
+                // Keyframed position / zoom / rotation / opacity, before transitions so those act on the moved picture.
+                if (framing.keys.any { !it.isIdentity }) {
+                    add(ClipMotion(clip, framing, clip.timelineInUs, size.width.toFloat() / size.height))
+                    if (framing.keys.any { it.opacity < 1f }) add(ClipOpacity(clip, framing, clip.timelineInUs))
+                }
                 val anim = animations[i]
                 if (!anim.isNone) {
                     add(TransitionMotion(clip.timelineInUs, lengthUs, anim))
@@ -154,12 +169,15 @@ class TimelineRenderer(private val context: Context) {
             add(EditedMediaItemSequence.Builder(mainTracks).addItems(items).build())
             if (musicItems.isNotEmpty()) add(EditedMediaItemSequence.Builder(setOf(C.TRACK_TYPE_AUDIO)).addItems(musicItems).build())
             if (voiceSequence != null) add(voiceSequence)
+            addAll(sfxSequences)
         }
         val builder = Composition.Builder(sequences)
             .setHdrMode(Composition.HDR_MODE_TONE_MAP_HDR_TO_SDR_USING_OPEN_GL)
         if (overlayTracks.isNotEmpty()) {
             builder.setVideoCompositorSettings(OverlayCompositorSettings(overlayTracks, mainIndex, size))
         }
+        // Titles and stickers after compositing: on top of overlay tracks too.
+        TextBitmapOverlay.effectFor(texts, size)?.let { builder.setEffects(Effects(emptyList(), listOf(it))) }
         return builder.build()
     }
 
@@ -230,7 +248,7 @@ class TimelineRenderer(private val context: Context) {
      * Narration as an audio-only sequence: recordings at their timeline times with silent gaps in
      * between, each with its volume and fades ([VoiceMix.voiceGain]).
      */
-    private fun buildVoiceSequence(voice: RenderVoiceover, totalUs: Long): EditedMediaItemSequence {
+    private fun buildVoiceSequence(voice: RenderVoiceover, totalUs: Long, perClipVolume: Boolean = false): EditedMediaItemSequence {
         val byId = voice.clips.associateBy { it.clip.id }
         // Declaring the audio track type makes gaps (also a leading one) play as silence.
         val builder = EditedMediaItemSequence.Builder(setOf(C.TRACK_TYPE_AUDIO))
@@ -249,7 +267,8 @@ class TimelineRenderer(private val context: Context) {
                                 .build(),
                         )
                         .build()
-                    val gain = GainAudioProcessor { localUs -> VoiceMix.voiceGain(c, localUs, voice.settings) }
+                    val settings = if (perClipVolume) voice.settings.copy(volume = voice.settings.volume * c.opacity.coerceIn(0f, 2f)) else voice.settings
+                    val gain = GainAudioProcessor { localUs -> VoiceMix.voiceGain(c, localUs, settings) }
                     builder.addItem(
                         EditedMediaItem.Builder(mediaItem)
                             .setDurationUs(knownDurationUs(src.durationUs, c.sourceOutUs))

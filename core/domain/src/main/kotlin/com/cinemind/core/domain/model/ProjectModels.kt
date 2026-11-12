@@ -62,6 +62,9 @@ enum class TrackType {
 
     /** Recorded narration (added 2026-11-12; stored by name, so no schema change). */
     VOICEOVER,
+
+    /** Sound effects (added 2026-11-12; stored by name, no schema change). A project can have several. */
+    SFX,
 }
 
 /**
@@ -110,6 +113,8 @@ data class Clip(
     @ColumnInfo(defaultValue = "''") val grade: String = "",
     /** Speed ramp keyframes ([com.cinemind.core.domain.editing.SpeedMath] encoded); "" = constant [speed]. Schema v7. */
     @ColumnInfo(defaultValue = "''") val speedCurve: String = "",
+    /** Crop, turns, flips, fill and motion keyframes ([com.cinemind.core.domain.editing.ClipFraming] encoded); "" = as filmed. Schema v8. */
+    @ColumnInfo(defaultValue = "''") val framing: String = "",
 )
 
 /**
