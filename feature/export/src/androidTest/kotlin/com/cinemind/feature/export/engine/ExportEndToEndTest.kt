@@ -179,6 +179,40 @@ class ExportEndToEndTest {
     }
 
     /**
+     * Sound effects: a CineMind-made whoosh on an SFX track gives a silent video an audio track,
+     * and the video keeps its length.
+     */
+    @Test
+    fun mixesSoundEffectsIntoExport() = runBlocking {
+        val black = asset("black.mp4")
+        val samples = com.cinemind.core.domain.audio.SfxSynth.render(com.cinemind.core.domain.audio.SoundEffect.WHOOSH)
+        val wav = File(context.cacheDir, "e2e-whoosh.wav").apply { writeBytes(com.cinemind.core.domain.audio.SfxSynth.wav(samples)) }
+        val wavUs = com.cinemind.core.domain.audio.SfxSynth.durationUs(samples.size)
+        val clips = TimelineEditing.relayout(listOf(clip("v", 0, 2_000_000)))
+        val sources = listOf(RenderSource(Uri.fromFile(black).toString(), isVideo = true, hasAudio = false, frameRate = 30f, durationUs = 2_000_000))
+        val sound = Clip(id = "s", trackId = "sfx", assetId = "s", timelineInUs = 500_000, timelineOutUs = 500_000 + wavUs,
+            sourceInUs = 0, sourceOutUs = wavUs, opacity = 1.5f)
+        val sfx = RenderVoiceover(listOf(RenderVoiceClip(sound, Uri.fromFile(wav).toString(), wavUs)), com.cinemind.core.domain.audio.VoiceoverSettings())
+        val out = File(context.cacheDir, "e2e-sfx.mp4").apply { delete() }
+        val progressScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+        withContext(Dispatchers.Main) {
+            val renderer = TimelineRenderer(context)
+            val composition = renderer.buildComposition(clips.zip(sources), OutputSize(720, 1280), fps = 30, sfx = listOf(sfx))
+            renderer.render(composition, out, videoBitrateBps = 3_000_000, progressScope = progressScope)
+        }
+        progressScope.cancel()
+        val r = MediaMetadataRetriever()
+        try {
+            r.setDataSource(out.absolutePath)
+            assertEquals("yes", r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_AUDIO))
+            val durationMs = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)!!.toLong()
+            assertTrue("video length unchanged (~2 s, was $durationMs ms)", durationMs in 1_800..2_300)
+        } finally {
+            r.release()
+        }
+    }
+
+    /**
      * Text layers are drawn after compositing: a white "Label" title near the top of a black video
      * appears only while it is on, and nothing is drawn elsewhere.
      */

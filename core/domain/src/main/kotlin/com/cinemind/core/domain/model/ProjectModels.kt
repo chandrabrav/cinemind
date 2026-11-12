@@ -62,6 +62,9 @@ enum class TrackType {
 
     /** Recorded narration (added 2026-11-12; stored by name, so no schema change). */
     VOICEOVER,
+
+    /** Sound effects (added 2026-11-12; stored by name, no schema change). A project can have several. */
+    SFX,
 }
 
 /**

@@ -153,6 +153,10 @@ fun TimelineScreen(
     val musicPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) viewModel.setMusicFromUri(uri)
     }
+    val soundPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) viewModel.importSound(uri)
+    }
+    var showSounds by remember { mutableStateOf(false) }
     val addMediaPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickMultipleVisualMedia(maxItems = 50),
     ) { uris -> viewModel.addMedia(uris) }
@@ -277,6 +281,10 @@ fun TimelineScreen(
             musicPeaks = editor.musicPeaks,
             beatsUs = editor.beatsUs,
             waves = editor.waves,
+            sfx = editor.sfx,
+            selectedSfxId = editor.selectedSfxId,
+            onSfxTap = viewModel::onSfxTapped,
+            onAddSfx = { showSounds = true },
             totalUs = totalUs,
             positionUs = preview.positionUs,
             isPlaying = preview.isPlaying,
@@ -360,6 +368,17 @@ fun TimelineScreen(
             )
         }
 
+        editor.sfx.flatten().firstOrNull { it.clip.id == editor.selectedSfxId }?.let { item ->
+            SoundInspectorBar(
+                item = item,
+                onVolume = viewModel::setSfxVolume,
+                onMove = viewModel::moveSfx,
+                onFades = viewModel::setSfxFades,
+                onDelete = viewModel::deleteSfx,
+                onClose = viewModel::clearSfxSelection,
+            )
+        }
+
         editor.texts.firstOrNull { it.id == editor.selectedTextId }?.let { layer ->
             TextInspectorBar(
                 layer = layer,
@@ -381,11 +400,20 @@ fun TimelineScreen(
             onExport = onExport,
             onCaptions = { showCaptions = true },
             onText = { showAddText = true },
+            onSounds = { showSounds = true },
             onOverlay = pickOverlay,
             onVoice = openVoice,
             onColor = { showColor = true },
             onSpeed = { showSpeed = true },
             onFraming = { showFraming = true },
+        )
+    }
+
+    if (showSounds) {
+        SoundsSheet(
+            onAdd = { e -> viewModel.addSoundEffect(e); showSounds = false },
+            onImport = { showSounds = false; soundPicker.launch(arrayOf("audio/*")) },
+            onDismiss = { showSounds = false },
         )
     }
 

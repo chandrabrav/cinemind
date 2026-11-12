@@ -142,6 +142,13 @@ class ExportManager @Inject constructor(
             }
             RenderVoiceover(recordings, com.cinemind.core.domain.audio.VoiceoverSettings(t.volume, t.opacity, muted = !t.isEnabled))
         }
+        // Sound-effect tracks: track volume / mute in the track, per-sound volume in each clip.
+        val sfx = timeline.tracks.filter { it.type == TrackType.SFX }.sortedBy { it.index }.map { t ->
+            val sounds = timeline.clips.filter { it.trackId == t.id }.mapNotNull { c ->
+                assetRepository.getAsset(c.assetId)?.let { a -> RenderVoiceClip(c, a.uri, a.durationUs) }
+            }
+            RenderVoiceover(sounds, com.cinemind.core.domain.audio.VoiceoverSettings(t.volume, 0f, muted = !t.isEnabled))
+        }
         val sourceInfo = withContext(Dispatchers.IO) { SourceProbe.describe(context, assets.filterNotNull()) }
         Diagnostics.journalStage(context, "loading media", mapOf("clips" to clips.size.toString(), "sources" to sourceInfo))
         val project = timeline.project
@@ -174,7 +181,7 @@ class ExportManager @Inject constructor(
         Diagnostics.journalStage(context, "building composition", mapOf("output" to "${size.width}x${size.height}", "bitrate" to bitrate.toString(), "overlays" to overlays.sumOf { it.size }.toString(), "captions" to captionList.size.toString(), "texts" to texts.size.toString(), "music" to (music != null).toString()))
         // Colour grades: each clip's look + adjustments baked into one LUT (same as the preview).
         val grades = withContext(Dispatchers.Default) { lutLibrary.bakedForClips(clips.associate { it.id to it.grade }) }
-        val composition = renderer.buildComposition(pairs, size, settings.frameRate, music, audio.originalVolume, captions, overlays, voiceover, grades, texts)
+        val composition = renderer.buildComposition(pairs, size, settings.frameRate, music, audio.originalVolume, captions, overlays, voiceover, grades, texts, sfx)
         _state.value = ExportState.Running(projectId, 0f)
         startForegroundService()
 

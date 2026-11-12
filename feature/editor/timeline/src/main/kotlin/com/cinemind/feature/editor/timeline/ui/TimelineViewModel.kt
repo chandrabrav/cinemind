@@ -82,6 +82,9 @@ data class EditorState(
     val analysingBeats: Boolean = false,
     /** Waveform peaks of recordings by asset id. */
     val waves: Map<String, FloatArray> = emptyMap(),
+    /** Sound-effect tracks, top first, each with its sounds. */
+    val sfx: List<List<PreviewClip>> = emptyList(),
+    val selectedSfxId: String? = null,
 )
 
 /** The voiceover recorder as shown in its sheet. */
@@ -178,6 +181,11 @@ class TimelineViewModel @Inject constructor(
             voiceTrack = voice
             voiceHistory = EditHistory(voiceClips)
             textHistory = EditHistory(runCatching { textRepository.get(id) }.getOrDefault(emptyList()))
+            sfxTracks.clear()
+            timeline?.tracks.orEmpty().filter { it.type == TrackType.SFX }.sortedBy { it.index }.forEach { sfxTracks += it }
+            val sfxClips = timeline?.clips.orEmpty().filter { c -> sfxTracks.any { it.id == c.trackId } }
+            sfxClips.map { it.assetId }.distinct().forEach { assetId -> assets[assetId] = assetRepository.getAsset(assetId) }
+            sfxHistory = EditHistory(sfxClips)
             undoKinds.clear()
             redoKinds.clear()
             loadAudio(id)
@@ -319,6 +327,145 @@ class TimelineViewModel @Inject constructor(
             return
         }
         commit(next, selectAfter = clip.id)
+    }
+
+    // ---- Sound effects (one or more SFX tracks) -----------------------------------------------
+
+    private var sfxHistory = EditHistory<List<Clip>>(emptyList())
+    private val sfxTracks = mutableListOf<com.cinemind.core.domain.model.Track>()
+    private val maxSfxTracks = 4
+
+    private fun sfxOf(trackId: String, clips: List<Clip> = sfxHistory.present) = clips.filter { it.trackId == trackId }
+
+    /** Adds a built-in sound at the playhead (generated once into files/sfx). */
+    fun addSoundEffect(effect: com.cinemind.core.domain.audio.SoundEffect) {
+        viewModelScope.launch {
+            val asset = withContext(kotlinx.coroutines.Dispatchers.Default) {
+                val dir = java.io.File(appContext.filesDir, "sfx").apply { mkdirs() }
+                val file = java.io.File(dir, effect.name.lowercase() + ".wav")
+                val samples = com.cinemind.core.domain.audio.SfxSynth.render(effect)
+                if (!file.exists() || file.length() < 44) file.writeBytes(com.cinemind.core.domain.audio.SfxSynth.wav(samples))
+                MediaAsset(
+                    uri = Uri.fromFile(file).toString(),
+                    mimeType = "audio/wav",
+                    width = 0,
+                    height = 0,
+                    durationUs = com.cinemind.core.domain.audio.SfxSynth.durationUs(samples.size),
+                    hasAudio = true,
+                    displayName = effect.label,
+                    sizeBytes = file.length(),
+                )
+            }
+            assetRepository.createAsset(asset)
+            placeSound(asset)
+        }
+    }
+
+    /** Imports an audio file from the phone as a sound effect at the playhead. */
+    fun importSound(uri: Uri) {
+        viewModelScope.launch {
+            val asset = runCatching { importer.import(uri) }.getOrNull()
+            if (asset == null || !asset.isAudioFile || asset.durationUs <= 0) {
+                Toast.makeText(appContext, "That file can't be used as a sound", Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+            placeSound(asset)
+        }
+    }
+
+    /** Puts a sound at the playhead on the first sound track with room (a new track if none has). */
+    private suspend fun placeSound(asset: MediaAsset) {
+        val project = projectId.value ?: return
+        assets[asset.id] = asset
+        val total = mainLengthUs()
+        if (total <= 0) return
+        val at = preview.currentPositionUs().coerceIn(0, (total - 100_000).coerceAtLeast(0))
+        val length = minOf(asset.durationUs, total - at)
+        for (t in sfxTracks) {
+            val base = Clip(trackId = t.id, assetId = asset.id, timelineInUs = 0, timelineOutUs = 0, sourceInUs = 0, sourceOutUs = length, opacity = 1f)
+            val placed = OverlayEditing.place(sfxOf(t.id), base, at, length, total)
+            if (placed != null) {
+                commitSfx(sfxHistory.present.filter { it.trackId != t.id } + placed, select = base.id)
+                return
+            }
+        }
+        if (sfxTracks.size >= maxSfxTracks) {
+            Toast.makeText(appContext, "All $maxSfxTracks sound tracks are busy here. Move the playhead or remove a sound.", Toast.LENGTH_LONG).show()
+            return
+        }
+        val track = projectRepository.addSfxTrack(project)
+        sfxTracks += track
+        val base = Clip(trackId = track.id, assetId = asset.id, timelineInUs = 0, timelineOutUs = 0, sourceInUs = 0, sourceOutUs = length, opacity = 1f)
+        val placed = OverlayEditing.place(emptyList(), base, at, length, total) ?: return
+        commitSfx(sfxHistory.present + placed, select = base.id)
+    }
+
+    fun onSfxTapped(id: String) {
+        val current = _editor.value.selectedSfxId
+        _editor.value = _editor.value.copy(selectedSfxId = if (current == id) null else id, selectedClipId = null, selectedOverlayId = null, selectedVoiceId = null)
+        sfxHistory.present.firstOrNull { it.id == id }?.let { preview.seekToUs(it.timelineInUs) }
+        refreshPreview()
+    }
+
+    fun clearSfxSelection() {
+        _editor.value = _editor.value.copy(selectedSfxId = null)
+    }
+
+    private fun editSfx(op: (List<Clip>, Clip) -> List<Clip>) {
+        val c = sfxHistory.present.firstOrNull { it.id == _editor.value.selectedSfxId } ?: return
+        val next = op(sfxOf(c.trackId), c)
+        commitSfx(sfxHistory.present.filter { it.trackId != c.trackId } + next, select = c.id)
+    }
+
+    fun moveSfx(deltaUs: Long) = editSfx { clips, c -> OverlayEditing.move(clips, c.id, c.timelineInUs + deltaUs, mainLengthUs()) }
+
+    fun trimSfx(startDeltaUs: Long, endDeltaUs: Long) = editSfx { clips, c ->
+        OverlayEditing.trim(clips, c.id, c.timelineInUs + startDeltaUs, c.timelineOutUs + endDeltaUs, assets[c.assetId]?.durationUs, mainLengthUs())
+    }
+
+    /** Volume of one sound, 0..2 (kept in the clip's opacity field). */
+    fun setSfxVolume(volume: Float) = editSfx { clips, c -> clips.map { if (it.id == c.id) it.copy(opacity = volume.coerceIn(0f, 2f)) else it } }
+
+    fun setSfxFades(fadeInMs: Long, fadeOutMs: Long) = editSfx { clips, c ->
+        clips.map { if (it.id == c.id) it.copy(transitionInMs = fadeInMs.coerceAtLeast(0), transitionOutMs = fadeOutMs.coerceAtLeast(0)) else it }
+    }
+
+    fun deleteSfx() {
+        val id = _editor.value.selectedSfxId ?: return
+        commitSfx(sfxHistory.present.filterNot { it.id == id }, select = null)
+    }
+
+    private fun commitSfx(next: List<Clip>, select: String?) {
+        if (!sfxHistory.push(next)) return
+        undoKinds.addLast(Layer.SFX)
+        redoKinds.clear()
+        _editor.value = _editor.value.copy(selectedSfxId = select, selectedClipId = if (select != null) null else _editor.value.selectedClipId)
+        afterSfxChange()
+    }
+
+    private fun afterSfxChange() {
+        if (sfxHistory.present.none { it.id == _editor.value.selectedSfxId }) {
+            _editor.value = _editor.value.copy(selectedSfxId = null)
+        }
+        publishSfx()
+        val project = projectId.value ?: return
+        val present = sfxHistory.present
+        val tracks = sfxTracks.toList()
+        viewModelScope.launch(NonCancellable) {
+            writeLock.withLock {
+                tracks.forEach { t ->
+                    runCatching { projectRepository.saveTrackClips(project, t.id, present.filter { it.trackId == t.id }) }
+                        .onFailure { CineMindLogger.e(it, "Saving sound effects failed") }
+                }
+            }
+        }
+    }
+
+    private fun publishSfx() {
+        val tracks = sfxTracks.map { t -> sfxOf(t.id).sortedBy { it.timelineInUs }.map { PreviewClip(it, assets[it.assetId]) } }
+        _editor.value = _editor.value.copy(sfx = tracks, canUndo = undoKinds.isNotEmpty(), canRedo = redoKinds.isNotEmpty())
+        preview.setSfx(tracks)
+        analyseWaves(tracks.flatten().map { it.asset })
     }
 
     // ---- Text, titles & stickers -------------------------------------------------------------
@@ -605,7 +752,7 @@ class TimelineViewModel @Inject constructor(
             Toast.makeText(appContext, "No beats found in this song yet", Toast.LENGTH_SHORT).show()
             return
         }
-        val next = com.cinemind.core.domain.audio.BeatSync.cutToBeats(clips, beats, every) { limitsFor(it).isStill }
+        val next = com.cinemind.core.domain.audio.BeatSync.cutToBeats(clips, beats, every, isStill = { limitsFor(it).isStill })
         val off = com.cinemind.core.domain.audio.BeatSync.offBeatUs(next, beats)
         val onBeat = off.count { it <= 40_000 }
         commit(next, selectAfter = _editor.value.selectedClipId)
@@ -713,7 +860,7 @@ class TimelineViewModel @Inject constructor(
 
     // Each track keeps its own history; this records which one each step changed, so undo/redo
     // walk all edits in the order they were made.
-    private enum class Layer { MAIN, OVERLAY, VOICE, TEXT }
+    private enum class Layer { MAIN, OVERLAY, VOICE, TEXT, SFX }
     private val undoKinds = ArrayDeque<Layer>()
     private val redoKinds = ArrayDeque<Layer>()
 
@@ -722,6 +869,7 @@ class TimelineViewModel @Inject constructor(
         Layer.OVERLAY -> overlayHistory
         Layer.VOICE -> voiceHistory
         Layer.TEXT -> null
+        Layer.SFX -> sfxHistory
     }
 
     private fun afterChange(layer: Layer) = when (layer) {
@@ -729,6 +877,7 @@ class TimelineViewModel @Inject constructor(
         Layer.OVERLAY -> afterOverlayChange()
         Layer.VOICE -> afterVoiceChange()
         Layer.TEXT -> afterTextChange()
+        Layer.SFX -> afterSfxChange()
     }
 
     fun undo() {
@@ -1104,6 +1253,7 @@ class TimelineViewModel @Inject constructor(
         refreshMusicPlayback()
         publishTexts()
         refreshBeats()
+        publishSfx()
         if (seekToSelection) {
             val index = h.present.indexOfFirst { it.id == _editor.value.selectedClipId }
             if (index >= 0) preview.seekToClip(index)
