@@ -16,7 +16,7 @@ _Last updated: 2026-11-12_
 | **UI redesign (new, 2026-11-11)** | Whole app moved onto a central design system (light + dark tokens, contrast-tested), persistent Light / Dark / System theme in a new Settings screen, every screen redesigned, editor rebuilt around a time-scaled multitrack timeline with drag-to-trim. See "UI redesign & design system". |
 | **Captions & speech (new, 2026-11-11)** | Editable caption layer (timeline lane, preview overlay, burned into export by the same painter), 7 style presets + full styling, sentence/phrase/word modes, karaoke highlight, animations; on-device speech-to-text with Gemma 4's audio encoder: Hinglish / Roman / native script / English translation as separate operations; Devanagari→Roman transliterator. See "Captions & speech-to-text". **Speech recognition itself is not yet run on a phone.** |
 | **Branding (new)** | "CineMind AI" on launch (wordmark after the system splash), home title and Settings → About CineMind AI (logo, version + build, "Developed by Gautam", description, privacy facts, open-source licences). |
-| **Current task** | Owner tests the colour build (#113/#114) and then the speed build together; dev continues the listed features in order: text/title layers + stickers, audio (SFX, tracks, waveforms, beat sync), transitions library, Teleprompter Studio, templates, music discovery, cloud AI + BYOK, AI graphics, masks/chroma/stabilisation, design research, release. |
+| **Current task** | Owner tests the colour build (#113/#114) and then the speed build together; dev continues the listed features in order: audio (SFX, tracks, waveforms, beat sync), transitions library, Teleprompter Studio, templates, music discovery, cloud AI + BYOK, AI graphics, masks/chroma/stabilisation, design research, release. |
 | **Branch** | `speed` (from `color-luts`, from `voiceover`); PRs merged by the owner |
 | **Latest verified build** | CI run 43071502601 (#82), commit `baa29f9`: **all green** — 164 unit tests + 12 instrumented (export e2e ×3 incl. caption burn-in, speech audio ×3, screenshots ×6) — https://github.com/chandrabrav/cinemind/actions/runs/43071502601 — artifact `cinemind-debug-82` |
 | **Previous fully verified build** | CI run 43061916979 (#73), commit `82f97fa`: build + 131 unit + 6 instrumented tests. |
@@ -101,7 +101,8 @@ Scaffolded but **excluded** until they get code: `:feature:editor:{preview,effec
 | Colour grading / LUTs | Implemented (branch `color-luts`): 31 CineMind looks, search, AI suggestions, .cube import, optional film pack; see "Colour grading & LUTs" |
 | Crop & move | Implemented (branch `speed`): crop, 90° turns, mirror/flip, fill, straighten, position/zoom/rotation/opacity with keyframes and 8 moves; see "Crop & move" |
 | Speed | Implemented (branch `speed`): constant 0.1×–8×, ramps with curve editor and 7 presets, freeze frame; no reverse yet; see "Speed" |
-| Beat sync, cross-dissolves, text layers | Not started (Stage 3) |
+| Text, titles & stickers | Implemented (branch `speed`): 9 looks, stickers, animations, drag/pinch/twist on the preview, text lane; see "Text, titles & stickers" |
+| Beat sync, cross-dissolves | Not started (Stage 3) |
 
 ## Architecture decisions
 
@@ -192,6 +193,15 @@ Owner request: OriginOS-7-inspired redesign of the whole app + persistent Light/
 - **Editor**: Captions tool (and caption lane tap) opens a sheet: speech-to-text (language, script, progress, cancel, summary), add at playhead, edit text, ±0.1 s start/end, split, delete, translate all, clear, undo/redo; Style tab with live animated sample and safe-area guides. Captions draw over the preview with `CaptionPainter` (`core/ui`). Export is also in the editor header; the tools bar scrolls when 6 tools don't fit.
 - **Export**: `CaptionBitmapOverlay` (Media3 `BitmapOverlay`, lazily allocated frame-sized bitmap, redrawn only when the frame changes) added last to each clip's effects.
 - **Tests**: `TransliteratorTest`, `WordTimesTest`, `CaptionLayoutTest`, `CaptionEditingTest` (domain); `PcmTest`, `SpeechSegmenterTest`, `SpeechPromptsTest` (captions); emulator: `SpeechAudioTest` (real AAC decode, trimmed range, burst timing, unreadable file) and `ExportEndToEndTest.burnsInCaptionsAtTheirTimes` (pixels in the caption band only while the caption is on; frame saved as `export_caption_frame.png`).
+
+## Text, titles & stickers (2026-11-12, branch `speed`, build #127)
+
+- **Model** (`core/domain/text`, Room **v9**: table `text_layers`, `MIGRATION_8_9`): `TextLayer` (timeline start/end, centre x/y, size as a fraction of the short side, rotation, lane order, kind TEXT/STICKER) + `TextStyle` (font, weight, colour, outline, shadow, glow, box, caps, letter spacing, align, entrance/exit animation). 9 original looks (Bold title, Cinema, Lower third, Neon, Impact, Minimal, Label, Typewriter, Casual). Stickers = emoji/symbol sets drawn with the phone's emoji font (no downloads, no licensing issues). Pure editing ops (create at playhead, move, trim, duplicate, bring to front, fit to a shorter timeline).
+- **Rendering:** `TextLayerPainter` (core/ui) is shared by preview and export. Export draws layers with `TextBitmapOverlay` as a **composition-level** effect, i.e. after overlay tracks are composited, so picture-in-picture never covers titles; the bitmap is redrawn only when what's on screen changes.
+- **Editor:** Text tool → "Text & stickers" sheet; text lane on the timeline; layers drawn over the preview; tap to select, drag / pinch / twist on the preview (snaps to 0°/±90°); inspector bar (Edit, Copy, Delete, Done); edit sheet (words, looks, font, weight, spacing, align, caps, size, angle, colours, outline, shadow, glow, box, entrance/exit, timing ±0.5 s, duplicate, front, delete). Text has its own undo layer in the shared undo order.
+- **Not done:** dragging/trimming text blocks on the timeline lane (timing is via buttons), custom fonts, per-letter/word animation presets, animated (Lottie) stickers, AI-generated titles (planned with context-aware graphics).
+- **Tests:** `TextLayersTest` (9); emulator `burnsInTextLayers` (title box only in its band and only while on).
+- **Build #127** (run 43215858143, `395ac82`): unit ✓, emulator ✓. Artifact `cinemind-debug-127`. Not yet tried on the phone.
 
 ## Crop & move (2026-11-12, branch `speed`, build #123)
 
