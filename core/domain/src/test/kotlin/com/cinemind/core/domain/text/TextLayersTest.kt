@@ -1,0 +1,96 @@
+package com.cinemind.core.domain.text
+
+import com.cinemind.core.domain.captions.CaptionFont
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class TextLayersTest {
+
+    private fun layer(id: String, start: Long, end: Long, lane: Int = 0, style: String = "") =
+        TextLayer(id = id, projectId = "p", startUs = start, endUs = end, text = id, lane = lane, style = style)
+
+    @Test
+    fun styleRoundTripsAndToleratesJunk() {
+        val s = TextStyle(font = CaptionFont.SERIF, weight = 300, color = 0xFF7DF9FF.toInt(), outline = 0.1f, glow = true, boxOpacity = 0.5f,
+            uppercase = true, spacing = 0.2f, align = -1, animIn = TextAnim.TYPEWRITER, animOut = TextAnim.ZOOM)
+        assertEquals(s, TextStyle.decode(s.encode()))
+        assertEquals(TextStyle(), TextStyle.decode("w=zz;font=NOPE;c=xyz"))
+        assertEquals(TextStyle(), TextStyle.decode(""))
+    }
+
+    @Test
+    fun presetsEncodeTheirOwnLook() {
+        TextPreset.entries.forEach { p -> assertEquals(p.name, p.style, TextStyle.decode(p.style.encode())) }
+    }
+
+    @Test
+    fun framesOnlyWhileVisibleAndInLaneOrder() {
+        val layers = listOf(layer("top", 0, 2_000_000, lane = 2), layer("bottom", 500_000, 3_000_000, lane = 1), layer("late", 5_000_000, 6_000_000))
+        assertEquals(listOf("bottom", "top"), TextLayerEditing.framesAt(layers, 1_000_000).map { it.layer.id })
+        assertTrue(TextLayerEditing.framesAt(layers, 4_000_000).isEmpty())
+        assertTrue(TextLayerEditing.framesAt(layers, 2_000_000).none { it.layer.id == "top" })
+    }
+
+    @Test
+    fun enterAndExitProgress() {
+        val l = layer("a", 1_000_000, 4_000_000)
+        val start = TextLayerEditing.framesAt(listOf(l), 1_000_000).single()
+        assertEquals(0f, start.enter, 0f)
+        val mid = TextLayerEditing.framesAt(listOf(l), 2_500_000).single()
+        assertEquals(1f, mid.enter, 0f)
+        assertEquals(0f, mid.exit, 0f)
+        val end = TextLayerEditing.framesAt(listOf(l), 3_900_000).single()
+        assertTrue(end.exit > 0.7f)
+    }
+
+    @Test
+    fun typewriterTypesLonger() {
+        val l = layer("t", 0, 4_000_000, style = TextStyle(animIn = TextAnim.TYPEWRITER).encode())
+        assertEquals(0.5f, TextLayerEditing.framesAt(listOf(l), 600_000).single().enter, 1e-3f)
+    }
+
+    @Test
+    fun createFitsTimelineAndGoesOnTop() {
+        val existing = listOf(layer("x", 0, 1_000_000, lane = 3))
+        val t = TextLayerEditing.create("p", existing, 9_000_000, 10_000_000, "Hi", TextKind.TEXT, TextPreset.NEON)
+        assertEquals(4, t.lane)
+        assertEquals(9_000_000L, t.startUs)
+        assertEquals(10_000_000L, t.endUs)
+        assertEquals(TextPreset.NEON.style, t.styleObj)
+        val s = TextLayerEditing.create("p", emptyList(), 0, 10_000_000, "🔥", TextKind.STICKER, null)
+        assertEquals(TextKind.STICKER, s.kindEnum)
+        assertFalse(s.styleObj.shadow)
+    }
+
+    @Test
+    fun moveAndTrimStayInside() {
+        val l = listOf(layer("a", 1_000_000, 3_000_000))
+        assertEquals(0L, TextLayerEditing.move(l, "a", -5_000_000, 10_000_000).single().startUs)
+        assertEquals(8_000_000L, TextLayerEditing.move(l, "a", 50_000_000, 10_000_000).single().startUs)
+        val shortest = TextLayerEditing.trim(l, "a", 0, -10_000_000, 10_000_000).single()
+        assertEquals(TextLayerEditing.MIN_US, shortest.lengthUs)
+        assertEquals(10_000_000L, TextLayerEditing.trim(l, "a", 0, 50_000_000, 10_000_000).single().endUs)
+    }
+
+    @Test
+    fun duplicateAndFront() {
+        val l = listOf(layer("a", 0, 1_000_000, lane = 0), layer("b", 0, 1_000_000, lane = 5))
+        val d = TextLayerEditing.duplicate(l, "a", 10_000_000) { "c" }
+        val c = d.single { it.id == "c" }
+        assertEquals(1_000_000L, c.startUs)
+        assertEquals(6, c.lane)
+        assertEquals(6, TextLayerEditing.bringToFront(l, "a").single { it.id == "a" }.lane)
+    }
+
+    @Test
+    fun fitToShorterTimeline() {
+        val l = listOf(layer("in", 0, 1_000_000), layer("cut", 1_500_000, 5_000_000), layer("gone", 4_000_000, 5_000_000))
+        val f = TextLayerEditing.fitTo(l, 3_000_000)
+        assertEquals(listOf("in", "cut"), f.map { it.id })
+        assertEquals(3_000_000L, f[1].endUs)
+        assertNull(f.firstOrNull { it.id == "gone" })
+    }
+}

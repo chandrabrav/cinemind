@@ -167,6 +167,9 @@ fun TimelineScreen(
     var showColor by remember { mutableStateOf(false) }
     var showSpeed by remember { mutableStateOf(false) }
     var showFraming by remember { mutableStateOf(false) }
+    var showAddText by remember { mutableStateOf(false) }
+    var editTextOpen by remember { mutableStateOf(false) }
+    LaunchedEffect(editor.selectedTextId) { if (editor.selectedTextId == null) editTextOpen = false }
     var colorAllClips by remember { mutableStateOf(false) }
     var colorContext by remember { mutableStateOf<TimelineViewModel.ColorContext?>(null) }
     LaunchedEffect(showColor) { colorContext = if (showColor) viewModel.colorContext() else null }
@@ -213,6 +216,16 @@ fun TimelineScreen(
             onTogglePlay = viewModel::togglePlayPause,
             captionLayer = {
                 CaptionOverlay(captionsUi.captions, captionsUi.style, preview.positionUs, Modifier.fillMaxSize())
+                TextLayersOverlay(
+                    layers = editor.texts,
+                    positionUs = preview.positionUs,
+                    selectedId = editor.selectedTextId,
+                    modifier = Modifier.fillMaxSize(),
+                    interactive = !preview.isPlaying,
+                    onSelect = viewModel::selectText,
+                    onTransform = viewModel::updateText,
+                    onEmptyTap = viewModel::togglePlayPause,
+                )
             },
             modifier = Modifier
                 .fillMaxWidth()
@@ -234,6 +247,7 @@ fun TimelineScreen(
                 onExit = { fullscreen = false },
                 captionLayer = {
                     CaptionOverlay(captionsUi.captions, captionsUi.style, preview.positionUs, Modifier.fillMaxSize())
+                    TextLayersOverlay(editor.texts, preview.positionUs, null, Modifier.fillMaxSize())
                 },
             )
         }
@@ -282,6 +296,10 @@ fun TimelineScreen(
             selectedVoiceId = editor.selectedVoiceId,
             onVoiceTap = viewModel::onVoiceTapped,
             onAddVoice = openVoice,
+            texts = editor.texts,
+            selectedTextId = editor.selectedTextId,
+            onTextTap = viewModel::selectText,
+            onAddText = { showAddText = true },
         )
 
         AnimatedVisibility(
@@ -339,6 +357,16 @@ fun TimelineScreen(
             )
         }
 
+        editor.texts.firstOrNull { it.id == editor.selectedTextId }?.let { layer ->
+            TextInspectorBar(
+                layer = layer,
+                onEdit = { editTextOpen = true },
+                onDuplicate = { viewModel.duplicateText(layer.id) },
+                onDelete = { viewModel.deleteText(layer.id) },
+                onClose = { viewModel.selectText(null) },
+            )
+        }
+
         EditorToolsBar(
             hasClips = clips.isNotEmpty(),
             onSmartEdit = onOpenBrief,
@@ -349,11 +377,33 @@ fun TimelineScreen(
             onMusic = { showMusic = true },
             onExport = onExport,
             onCaptions = { showCaptions = true },
+            onText = { showAddText = true },
             onOverlay = pickOverlay,
             onVoice = openVoice,
             onColor = { showColor = true },
             onSpeed = { showSpeed = true },
             onFraming = { showFraming = true },
+        )
+    }
+
+    if (showAddText) {
+        AddTextSheet(
+            onAddText = { t, p -> viewModel.addText(t, p); showAddText = false },
+            onAddSticker = { s -> viewModel.addSticker(s); showAddText = false },
+            onDismiss = { showAddText = false },
+        )
+    }
+
+    if (editTextOpen) editor.texts.firstOrNull { it.id == editor.selectedTextId }?.let { layer ->
+        EditTextSheet(
+            layer = layer,
+            onChange = viewModel::updateText,
+            onDuplicate = { viewModel.duplicateText(layer.id) },
+            onFront = { viewModel.bringTextToFront(layer.id) },
+            onDelete = { viewModel.deleteText(layer.id) },
+            onMove = { d -> viewModel.moveText(layer.id, d) },
+            onTrim = { a, b -> viewModel.trimText(layer.id, a, b) },
+            onDismiss = { editTextOpen = false },
         )
     }
 

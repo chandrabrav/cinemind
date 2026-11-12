@@ -304,3 +304,11 @@ class CaptionRepositoryImpl(
 
     override suspend fun saveStyle(style: com.cinemind.core.domain.captions.CaptionStyle) = captionDao.upsertStyle(style)
 }
+
+class TextLayerRepositoryImpl(
+    private val dao: com.cinemind.core.data.local.dao.TextLayerDao,
+) : com.cinemind.core.domain.repository.TextLayerRepository {
+    override fun observe(projectId: String) = dao.observe(projectId)
+    override suspend fun get(projectId: String) = dao.get(projectId)
+    override suspend fun save(projectId: String, layers: List<com.cinemind.core.domain.text.TextLayer>) = dao.replaceAll(projectId, layers)
+}

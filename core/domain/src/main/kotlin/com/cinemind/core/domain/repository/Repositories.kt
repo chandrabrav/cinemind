@@ -107,3 +107,11 @@ interface CaptionRepository {
     suspend fun getStyle(projectId: String): com.cinemind.core.domain.captions.CaptionStyle
     suspend fun saveStyle(style: com.cinemind.core.domain.captions.CaptionStyle)
 }
+
+/** Free text / title / sticker layers of a project. */
+interface TextLayerRepository {
+    fun observe(projectId: String): Flow<List<com.cinemind.core.domain.text.TextLayer>>
+    suspend fun get(projectId: String): List<com.cinemind.core.domain.text.TextLayer>
+    /** Replaces every text layer of the project (one transaction). */
+    suspend fun save(projectId: String, layers: List<com.cinemind.core.domain.text.TextLayer>)
+}

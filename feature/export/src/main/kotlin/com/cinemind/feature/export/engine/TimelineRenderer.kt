@@ -87,6 +87,8 @@ class TimelineRenderer(private val context: Context) {
         voiceover: RenderVoiceover? = null,
         /** Baked colour grade per clip id (from the LUT library). */
         grades: Map<String, com.cinemind.core.domain.color.CubeLut> = emptyMap(),
+        /** Text / title / sticker layers, drawn over everything (export only; the preview draws them itself). */
+        texts: List<com.cinemind.core.domain.text.TextLayer> = emptyList(),
     ): Composition {
         val fit = Presentation.createForWidthAndHeight(size.width, size.height, Presentation.LAYOUT_SCALE_TO_FIT)
         val fill = Presentation.createForWidthAndHeight(size.width, size.height, Presentation.LAYOUT_SCALE_TO_FIT_WITH_CROP)
@@ -170,6 +172,8 @@ class TimelineRenderer(private val context: Context) {
         if (overlayTracks.isNotEmpty()) {
             builder.setVideoCompositorSettings(OverlayCompositorSettings(overlayTracks, mainIndex, size))
         }
+        // Titles and stickers after compositing: on top of overlay tracks too.
+        TextBitmapOverlay.effectFor(texts, size)?.let { builder.setEffects(Effects(emptyList(), listOf(it))) }
         return builder.build()
     }
 

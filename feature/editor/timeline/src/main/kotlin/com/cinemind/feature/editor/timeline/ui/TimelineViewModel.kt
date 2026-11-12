@@ -72,6 +72,9 @@ data class EditorState(
     /** Preview listening volume / mute (not part of the project). */
     val previewVolume: Float = 1f,
     val previewMuted: Boolean = false,
+    /** Titles, labels and stickers. */
+    val texts: List<com.cinemind.core.domain.text.TextLayer> = emptyList(),
+    val selectedTextId: String? = null,
 )
 
 /** The voiceover recorder as shown in its sheet. */
@@ -99,6 +102,7 @@ class TimelineViewModel @Inject constructor(
     private val importer: MediaImporter,
     private val lutLibrary: com.cinemind.feature.color.library.LutLibrary,
     private val briefRepository: com.cinemind.core.domain.repository.EditBriefRepository,
+    private val textRepository: com.cinemind.core.domain.repository.TextLayerRepository,
 ) : ViewModel() {
 
     private val preview = PreviewPlayer(appContext)
@@ -166,6 +170,7 @@ class TimelineViewModel @Inject constructor(
             voiceClips.map { it.assetId }.distinct().forEach { assetId -> assets[assetId] = assetRepository.getAsset(assetId) }
             voiceTrack = voice
             voiceHistory = EditHistory(voiceClips)
+            textHistory = EditHistory(runCatching { textRepository.get(id) }.getOrDefault(emptyList()))
             undoKinds.clear()
             redoKinds.clear()
             loadAudio(id)
@@ -307,6 +312,82 @@ class TimelineViewModel @Inject constructor(
             return
         }
         commit(next, selectAfter = clip.id)
+    }
+
+    // ---- Text, titles & stickers -------------------------------------------------------------
+
+    private var textHistory = EditHistory<List<com.cinemind.core.domain.text.TextLayer>>(emptyList())
+
+    /** Adds a title at the playhead in the [preset] look (one undo step) and selects it. */
+    fun addText(text: String, preset: com.cinemind.core.domain.text.TextPreset?) =
+        addLayer(text, com.cinemind.core.domain.text.TextKind.TEXT, preset)
+
+    /** Adds an emoji / symbol sticker at the playhead. */
+    fun addSticker(symbol: String) = addLayer(symbol, com.cinemind.core.domain.text.TextKind.STICKER, null)
+
+    private fun addLayer(text: String, kind: com.cinemind.core.domain.text.TextKind, preset: com.cinemind.core.domain.text.TextPreset?) {
+        val project = projectId.value ?: return
+        val total = mainLengthUs()
+        if (total <= 0) return
+        val layer = com.cinemind.core.domain.text.TextLayerEditing.create(project, textHistory.present, preview.currentPositionUs(), total, text, kind, preset)
+        commitText(textHistory.present + layer, select = layer.id)
+    }
+
+    /** Replaces one layer (text, look, position…), one undo step. */
+    fun updateText(layer: com.cinemind.core.domain.text.TextLayer) {
+        if (textHistory.present.none { it.id == layer.id }) return
+        commitText(textHistory.present.map { if (it.id == layer.id) layer else it }, select = layer.id)
+    }
+
+    fun selectText(id: String?) {
+        _editor.value = _editor.value.copy(selectedTextId = id, selectedClipId = if (id != null) null else _editor.value.selectedClipId, selectedOverlayId = if (id != null) null else _editor.value.selectedOverlayId)
+        textHistory.present.firstOrNull { it.id == id }?.let { l ->
+            val pos = preview.currentPositionUs()
+            if (pos < l.startUs || pos >= l.endUs) preview.seekToUs(l.startUs + minOf(500_000L, l.lengthUs / 2))
+        }
+        refreshPreview()
+    }
+
+    fun deleteText(id: String) = commitText(textHistory.present.filterNot { it.id == id }, select = null)
+
+    fun duplicateText(id: String) {
+        val next = com.cinemind.core.domain.text.TextLayerEditing.duplicate(textHistory.present, id, mainLengthUs())
+        commitText(next, select = next.lastOrNull()?.id)
+    }
+
+    fun moveText(id: String, deltaUs: Long) =
+        commitText(com.cinemind.core.domain.text.TextLayerEditing.move(textHistory.present, id, deltaUs, mainLengthUs()), select = id)
+
+    fun trimText(id: String, startDeltaUs: Long, endDeltaUs: Long) =
+        commitText(com.cinemind.core.domain.text.TextLayerEditing.trim(textHistory.present, id, startDeltaUs, endDeltaUs, mainLengthUs()), select = id)
+
+    fun bringTextToFront(id: String) = commitText(com.cinemind.core.domain.text.TextLayerEditing.bringToFront(textHistory.present, id), select = id)
+
+    private fun commitText(next: List<com.cinemind.core.domain.text.TextLayer>, select: String?) {
+        if (!textHistory.push(next)) return
+        undoKinds.addLast(Layer.TEXT)
+        redoKinds.clear()
+        _editor.value = _editor.value.copy(selectedTextId = select)
+        afterTextChange()
+    }
+
+    private fun afterTextChange() {
+        if (textHistory.present.none { it.id == _editor.value.selectedTextId }) {
+            _editor.value = _editor.value.copy(selectedTextId = null)
+        }
+        publishTexts()
+        val project = projectId.value ?: return
+        val layers = textHistory.present
+        viewModelScope.launch(NonCancellable) {
+            writeLock.withLock {
+                runCatching { textRepository.save(project, layers) }
+                    .onFailure { CineMindLogger.e(it, "Saving text layers failed") }
+            }
+        }
+    }
+
+    private fun publishTexts() {
+        _editor.value = _editor.value.copy(texts = textHistory.present, canUndo = undoKinds.isNotEmpty(), canRedo = redoKinds.isNotEmpty())
     }
 
     // ---- Framing (crop, rotate, flip, position, keyframes) -----------------------------------
@@ -558,7 +639,7 @@ class TimelineViewModel @Inject constructor(
 
     // Each track keeps its own history; this records which one each step changed, so undo/redo
     // walk all edits in the order they were made.
-    private enum class Layer { MAIN, OVERLAY, VOICE }
+    private enum class Layer { MAIN, OVERLAY, VOICE, TEXT }
     private val undoKinds = ArrayDeque<Layer>()
     private val redoKinds = ArrayDeque<Layer>()
 
@@ -566,24 +647,28 @@ class TimelineViewModel @Inject constructor(
         Layer.MAIN -> history
         Layer.OVERLAY -> overlayHistory
         Layer.VOICE -> voiceHistory
+        Layer.TEXT -> null
     }
 
     private fun afterChange(layer: Layer) = when (layer) {
         Layer.MAIN -> afterHistoryChange()
         Layer.OVERLAY -> afterOverlayChange()
         Layer.VOICE -> afterVoiceChange()
+        Layer.TEXT -> afterTextChange()
     }
 
     fun undo() {
         val layer = undoKinds.removeLastOrNull() ?: return
-        if (historyOf(layer)?.undo() != true) return
+        val ok = if (layer == Layer.TEXT) textHistory.undo() else historyOf(layer)?.undo() == true
+        if (!ok) return
         redoKinds.addLast(layer)
         afterChange(layer)
     }
 
     fun redo() {
         val layer = redoKinds.removeLastOrNull() ?: return
-        if (historyOf(layer)?.redo() != true) return
+        val ok = if (layer == Layer.TEXT) textHistory.redo() else historyOf(layer)?.redo() == true
+        if (!ok) return
         undoKinds.addLast(layer)
         afterChange(layer)
     }
@@ -942,6 +1027,7 @@ class TimelineViewModel @Inject constructor(
         publishOverlays()
         publishVoice()
         refreshMusicPlayback()
+        publishTexts()
         if (seekToSelection) {
             val index = h.present.indexOfFirst { it.id == _editor.value.selectedClipId }
             if (index >= 0) preview.seekToClip(index)

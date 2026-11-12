@@ -40,6 +40,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Animation
 import androidx.compose.material.icons.filled.ClosedCaption
+import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PictureInPicture
@@ -129,6 +130,10 @@ internal fun MultiTrackTimeline(
     selectedVoiceId: String? = null,
     onVoiceTap: (String) -> Unit = {},
     onAddVoice: () -> Unit = {},
+    texts: List<com.cinemind.core.domain.text.TextLayer> = emptyList(),
+    selectedTextId: String? = null,
+    onTextTap: (String) -> Unit = {},
+    onAddText: () -> Unit = {},
 ) {
     val c = CineMind.colors
     val density = LocalDensity.current
@@ -329,6 +334,28 @@ internal fun MultiTrackTimeline(
                                     xPx = leadPx + TimelineLayout.xForUs(cap.startUs, pps),
                                     widthPx = TimelineLayout.xForUs(cap.endUs - cap.startUs, pps),
                                     onTap = onCaptionsTap,
+                                )
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(LANE_GAP))
+                    // Text lane: titles and stickers at their timeline time (overlapping ones share the lane).
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(CAPTION_LANE)
+                            .background(c.timelineLane),
+                    ) {
+                        if (texts.isEmpty()) {
+                            TextBlock(null, leadPx, viewportPx - leadPx * 2, selected = false, onTap = onAddText)
+                        } else {
+                            texts.sortedBy { it.id == selectedTextId }.forEach { t ->
+                                TextBlock(
+                                    layer = t,
+                                    xPx = leadPx + TimelineLayout.xForUs(t.startUs, pps),
+                                    widthPx = TimelineLayout.xForUs(t.endUs - t.startUs, pps),
+                                    selected = t.id == selectedTextId,
+                                    onTap = { onTextTap(t.id) },
                                 )
                             }
                         }
@@ -662,6 +689,43 @@ private fun CaptionBlock(caption: com.cinemind.core.domain.captions.Caption?, xP
         Text(
             text = caption?.let { (if (it.uncertain) "● " else "") + it.text } ?: "Add captions",
             color = if (caption != null) c.onAccentContainer else c.textTertiary,
+            style = MaterialTheme.typography.labelSmall,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+/** A title or sticker on the text lane (or, with null, the "Add text" hint). */
+@Composable
+private fun TextBlock(layer: com.cinemind.core.domain.text.TextLayer?, xPx: Float, widthPx: Float, selected: Boolean, onTap: () -> Unit) {
+    val c = CineMind.colors
+    val density = LocalDensity.current
+    val shape = RoundedCornerShape(Radius.xs)
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .offset { IntOffset(xPx.roundToInt(), 0) }
+            .width(with(density) { widthPx.coerceAtLeast(6.dp.toPx()).toDp() })
+            .fillMaxHeight()
+            .padding(vertical = Spacing.xxs, horizontal = 1.dp)
+            .clip(shape)
+            .then(
+                if (layer != null) Modifier.background(c.highlight.copy(alpha = 0.85f))
+                else Modifier.border(1.dp, c.textTertiary.copy(alpha = 0.6f), shape),
+            )
+            .then(if (selected) Modifier.border(2.dp, c.selection, shape) else Modifier)
+            .clickable(onClick = hapticClick(onClick = onTap))
+            .padding(horizontal = Spacing.xs),
+    ) {
+        if (layer == null) {
+            Icon(Icons.Default.TextFields, contentDescription = null, tint = c.textTertiary, modifier = Modifier.size(14.dp))
+            Spacer(Modifier.width(Spacing.xs))
+        }
+        Text(
+            text = layer?.text?.replace('
+', ' ') ?: "Add text or stickers",
+            color = if (layer != null) c.onAccent else c.textTertiary,
             style = MaterialTheme.typography.labelSmall,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,

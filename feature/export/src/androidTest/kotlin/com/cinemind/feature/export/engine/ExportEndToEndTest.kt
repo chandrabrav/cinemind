@@ -179,6 +179,44 @@ class ExportEndToEndTest {
     }
 
     /**
+     * Text layers are drawn after compositing: a white "Label" title near the top of a black video
+     * appears only while it is on, and nothing is drawn elsewhere.
+     */
+    @Test
+    fun burnsInTextLayers() = runBlocking {
+        val black = asset("black.mp4")
+        val clips = TimelineEditing.relayout(listOf(clip("v", 0, 2_000_000)))
+        val sources = listOf(RenderSource(Uri.fromFile(black).toString(), isVideo = true, hasAudio = false, frameRate = 30f, durationUs = 2_000_000))
+        val p = com.cinemind.core.domain.text.TextPreset.LABEL
+        val title = com.cinemind.core.domain.text.TextLayer(
+            projectId = "p", startUs = 800_000, endUs = 2_000_000, text = "HELLO CINEMIND",
+            x = 0.5f, y = 0.2f, size = 0.09f, style = p.style.copy(animIn = com.cinemind.core.domain.text.TextAnim.NONE).encode(),
+        )
+        val out = File(context.cacheDir, "e2e-text.mp4").apply { delete() }
+        val progressScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+        withContext(Dispatchers.Main) {
+            val renderer = TimelineRenderer(context)
+            val composition = renderer.buildComposition(clips.zip(sources), OutputSize(720, 1280), fps = 30, texts = listOf(title))
+            renderer.render(composition, out, videoBitrateBps = 3_000_000, progressScope = progressScope)
+        }
+        progressScope.cancel()
+        val r = MediaMetadataRetriever()
+        try {
+            r.setDataSource(out.absolutePath)
+            val during = r.getFrameAtTime(1_300_000, MediaMetadataRetriever.OPTION_CLOSEST)!!
+            saveForReview(during, "export_text_frame")
+            val band = bandLuma(during, 0.17f, 0.23f)
+            val elsewhere = bandLuma(during, 0.6f, 0.9f)
+            val before = bandLuma(r.getFrameAtTime(400_000, MediaMetadataRetriever.OPTION_CLOSEST)!!, 0.17f, 0.23f)
+            assertTrue("title box visible in its band ($band)", band > 0.2f)
+            assertTrue("nothing drawn elsewhere ($elsewhere)", elsewhere < 0.06f)
+            assertTrue("title not shown before its start ($before)", before < 0.06f)
+        } finally {
+            r.release()
+        }
+    }
+
+    /**
      * Framing: a 4:3 photo set to fill the 9:16 frame covers its top; the same photo zoomed to 0.5×
      * leaves black above and below; a video cropped, turned and flipped still exports at its length.
      */
