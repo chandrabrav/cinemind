@@ -199,6 +199,7 @@ Owner request: OriginOS-7-inspired redesign of the whole app + persistent Light/
 - **Preview + export:** `EditedMediaItem.setSpeed(ClipSpeedProvider)` on main-track video clips (Media3 1.11.1 supports it in `CompositionPlayer` and `Transformer`). Overlay/secondary tracks have no speed (Media3 limit). Sound follows the speed (pitch changes).
 - **UI:** Speed tool → sheet: *Constant* (log slider, 0.25×–4× presets, "apply to every video clip", footage-vs-played length) · *Speed ramp* (7 ready-made: Cinematic slow, Hero moment, Montage, Smooth slow-mo, Fast in/slow out, Slow in/fast out, Velocity; curve editor: drag points, tap to add, remove, ease per point) · freeze frame · warning when slow motion will repeat frames (from the clip's fps vs the project's). Clip labels show "2×" / "Ramp". Every change is one undo step.
 - **Not done:** reverse playback (Media3 can't decode backwards; needs a reversed proxy render — planned with proxies), frame interpolation (optical flow) for smooth slow motion of 30 fps footage, pitch-preserving option.
+- **Build #120** (run 43207081535, `7e62cdf`): unit ✓, emulator ✓ (all export tests incl. speed length, update test). Artifact `cinemind-debug-120`. Not yet tried on the phone.
 - **Tests:** `SpeedTest` (11: constant length, encoding, clamping, ramp integral vs ln 2, mapping inverse, step merging, split of ramped/constant clips, freeze placement, smoothness); emulator `ExportEndToEndTest.exportLengthFollowsClipSpeed` (2× clip with sound + ramped clip → file length = timeline length ±0.3 s).
 
 ## Colour grading & LUTs (2026-11-12, branch `color-luts`, build #113/#114)
@@ -207,7 +208,7 @@ Owner request: OriginOS-7-inspired redesign of the whole app + persistent Light/
 - **feature/color:** `LutLibrary` (search; CineMind looks; `.cube` import ≤ 8 MB, validated; optional **G'MIC film pack**: 296 LUTs catalogued from a pinned commit, downloaded one at a time on demand and verified by git blob hash; shown with a licence notice because the upstream collection's origin is mixed), `SceneProbe` (frame stats, optional on-device AI scene words, thumbnails of each look on the real frame), Colour sheet (search, filters, AI suggestions with reasons, live thumbnails, intensity, adjustments, hold to compare, this clip / all clips).
 - Preview and export apply the same baked LUT per clip (Media3 `SingleColorLut`), after framing and before transitions; one undo step per change.
 - **Tests:** LUT parse/round-trip/rejections, grade codec + maths, looks, advisor, git blob hash; emulator `appliesColorGradeInExport` (mono grade removes colour).
-- **CI:** #113/#114 unit tests + APK ✓; emulator run was still in progress when the speed branch was pushed. Not yet tried on the phone.
+- **CI:** #114 (run 43201672264) all green incl. emulator colour test. Not yet tried on the phone.
 
 ## Memory (build #109, 2026-11-12)
 
