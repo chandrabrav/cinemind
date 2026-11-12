@@ -94,3 +94,48 @@ class TextLayersTest {
         assertNull(f.firstOrNull { it.id == "gone" })
     }
 }
+
+class LayerStackTest {
+
+    private fun t(id: String, lane: Int, below: Boolean = false) =
+        TextLayer(id = id, projectId = "p", startUs = 0, endUs = 1, text = id, lane = lane, style = TextStyle(belowOverlays = below).encode())
+
+    private fun names(e: List<LayerEntry>) = e.map { if (it is LayerEntry.Title) it.layer.id else it::class.simpleName!! }
+
+    @Test
+    fun defaultStackHasCaptionsOnTopAndVideoAtTheBottom() {
+        val e = LayerStack.entries(listOf(t("a", 0), t("b", 1), t("c", 2, below = true)), LayerOrder(), hasCaptions = true, hasOverlays = true)
+        assertEquals(listOf("Captions", "b", "a", "PictureInPicture", "c", "MainVideo"), names(e))
+    }
+
+    @Test
+    fun movingATitlePastThePipPutsItBelow() {
+        val texts = listOf(t("a", 0), t("b", 1))
+        val (moved, _) = LayerStack.move(texts, LayerOrder(), false, true, LayerEntry.Title(texts[0]), up = false)
+        assertTrue(moved.first { it.id == "a" }.styleObj.belowOverlays)
+        assertEquals(listOf("b", "PictureInPicture", "a", "MainVideo"), names(LayerStack.entries(moved, LayerOrder(), false, true)))
+    }
+
+    @Test
+    fun swappingTitlesSwapsLanes() {
+        val texts = listOf(t("a", 0), t("b", 1))
+        val (moved, _) = LayerStack.move(texts, LayerOrder(), false, false, LayerEntry.Title(texts[0]), up = true)
+        assertEquals(listOf("a", "b", "MainVideo"), names(LayerStack.entries(moved, LayerOrder(), false, false)))
+    }
+
+    @Test
+    fun captionsCanGoUnderThePip() {
+        val (_, order) = LayerStack.move(emptyList(), LayerOrder(), true, true, LayerEntry.Captions, up = false)
+        assertFalse(order.captionsAboveOverlays)
+        assertEquals(order, LayerOrder.decode(order.encode()))
+        assertEquals(listOf("PictureInPicture", "Captions", "MainVideo"), names(LayerStack.entries(emptyList(), order, true, true)))
+    }
+
+    @Test
+    fun mainVideoNeverMoves() {
+        val texts = listOf(t("a", 0, below = true))
+        val (moved, order) = LayerStack.move(texts, LayerOrder(), false, false, LayerEntry.Title(texts[0]), up = false)
+        assertEquals(texts, moved)
+        assertEquals(LayerOrder(), order)
+    }
+}

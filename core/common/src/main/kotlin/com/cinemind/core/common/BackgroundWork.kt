@@ -44,8 +44,9 @@ object BackgroundWork {
 
     fun end(context: Context, id: Int) {
         jobs.remove(id)
-        if (jobs.isEmpty()) runCatching { context.stopService(Intent(context, WorkService::class.java)) }
-        else runCatching { context.startForegroundService(Intent(context, WorkService::class.java)) } // refresh the text
+        // Never stopService() here: if the service hasn't reached startForeground() yet, Android kills
+        // the app ("did not then call startForeground"). The service stops itself once it is idle.
+        WorkService.running?.let { service -> service.main.post { service.refreshOrStop() } }
     }
 
     internal fun label(): String? = jobs.values.lastOrNull()
@@ -54,6 +55,29 @@ object BackgroundWork {
 
 /** Foreground service that exists only while [BackgroundWork] has jobs (declared in the app manifest). */
 class WorkService : Service() {
+
+    internal val main = android.os.Handler(android.os.Looper.getMainLooper())
+
+    override fun onCreate() {
+        super.onCreate()
+        running = this
+    }
+
+    override fun onDestroy() {
+        if (running === this) running = null
+        super.onDestroy()
+    }
+
+    /** Updates the notification text, or stops the service when no job is left. */
+    internal fun refreshOrStop() {
+        val label = BackgroundWork.label()
+        if (label == null || BackgroundWork.isIdle()) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+        } else {
+            runCatching { getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification(label)) }
+        }
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -88,8 +112,10 @@ class WorkService : Service() {
             .build()
     }
 
-    private companion object {
+    internal companion object {
         const val CHANNEL_ID = "background_work"
         const val NOTIFICATION_ID = 1201
+        /** The started service, if any (main thread). */
+        @Volatile var running: WorkService? = null
     }
 }

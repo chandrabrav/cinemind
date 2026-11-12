@@ -93,7 +93,11 @@ class TimelineRenderer(private val context: Context) {
         texts: List<com.cinemind.core.domain.text.TextLayer> = emptyList(),
         /** Sound-effect tracks (each clip's volume is its opacity field). */
         sfx: List<RenderVoiceover> = emptyList(),
+        /** What is drawn above/below the picture-in-picture (captions, titles). */
+        layerOrder: com.cinemind.core.domain.text.LayerOrder = com.cinemind.core.domain.text.LayerOrder(),
     ): Composition {
+        val textsAbove = texts.filter { !it.styleObj.belowOverlays }
+        val textsBelow = texts.filter { it.styleObj.belowOverlays }
         val fit = Presentation.createForWidthAndHeight(size.width, size.height, Presentation.LAYOUT_SCALE_TO_FIT)
         val fill = Presentation.createForWidthAndHeight(size.width, size.height, Presentation.LAYOUT_SCALE_TO_FIT_WITH_CROP)
         val animations = TransitionMath.animations(clips.map { it.first })
@@ -138,7 +142,14 @@ class TimelineRenderer(private val context: Context) {
                     add(TransitionBrightness(clip.timelineInUs, lengthUs, anim))
                 }
                 // Captions last: drawn on top of the picture and not moved/dimmed by transitions.
-                CaptionBitmapOverlay.effectFor(captions, size, clip.timelineInUs, clip.timelineOutUs)?.let { add(it) }
+                // Under the picture-in-picture (drawn into this clip before compositing): captions if so
+                // ordered, and titles marked "below", in the chosen order.
+                val under = buildList<androidx.media3.effect.TextureOverlay> {
+                    val cap = if (captions != null && !layerOrder.captionsAboveOverlays) CaptionBitmapOverlay.overlayFor(captions, size, clip.timelineInUs, clip.timelineOutUs) else null
+                    val txt = TextBitmapOverlay.overlay(textsBelow.filter { it.endUs > clip.timelineInUs && it.startUs < clip.timelineOutUs }, size)
+                    if (layerOrder.captionsAboveTitles) { txt?.let { add(it) }; cap?.let { add(it) } } else { cap?.let { add(it) }; txt?.let { add(it) } }
+                }
+                if (under.isNotEmpty()) add(androidx.media3.effect.OverlayEffect(under))
             }
             if (source.isVideo) {
                 val endMs = if (clip.sourceOutUs >= source.durationUs) C.TIME_END_OF_SOURCE else clip.sourceOutUs / 1_000
@@ -183,11 +194,15 @@ class TimelineRenderer(private val context: Context) {
             { i -> clips[i].second.durationUs.takeIf { it > 0 } },
             { i -> !clips[i].second.isVideo },
         )
-        val dissolveSequence = if (dissolvePieces.isEmpty()) null else buildDissolveSequence(dissolvePieces, clips, totalUs, fps, pictureEffects)
-        val mainIndex = overlaySequences.size + if (dissolveSequence != null) 1 else 0
+        // Two layers: the incoming halves (next clip, before the cut) and the outgoing halves (previous
+        // clip, after it), so pieces never touch inside one layer (back-to-back image + video items in
+        // one sequence cut the image short on the emulator).
+        val dissolveLayers = dissolvePieces.partition { it.alphaFrom < it.alphaTo }.toList().filter { it.isNotEmpty() }
+        val dissolveSequences = dissolveLayers.map { buildDissolveSequence(it, clips, totalUs, fps, pictureEffects) }
+        val mainIndex = overlaySequences.size + dissolveSequences.size
         val sequences = buildList {
             addAll(overlaySequences)
-            dissolveSequence?.let { add(it) }
+            addAll(dissolveSequences)
             add(EditedMediaItemSequence.Builder(mainTracks).addItems(items).build())
             if (musicItems.isNotEmpty()) add(EditedMediaItemSequence.Builder(setOf(C.TRACK_TYPE_AUDIO)).addItems(musicItems).build())
             if (voiceSequence != null) add(voiceSequence)
@@ -195,11 +210,17 @@ class TimelineRenderer(private val context: Context) {
         }
         val builder = Composition.Builder(sequences)
             .setHdrMode(Composition.HDR_MODE_TONE_MAP_HDR_TO_SDR_USING_OPEN_GL)
-        if (overlayTracks.isNotEmpty() || dissolveSequence != null) {
-            builder.setVideoCompositorSettings(OverlayCompositorSettings(overlayTracks, mainIndex, size, dissolvePieces.takeIf { dissolveSequence != null }))
+        if (overlayTracks.isNotEmpty() || dissolveSequences.isNotEmpty()) {
+            builder.setVideoCompositorSettings(OverlayCompositorSettings(overlayTracks, mainIndex, size, dissolveLayers))
         }
         // Titles and stickers after compositing: on top of overlay tracks too.
-        TextBitmapOverlay.effectFor(texts, size)?.let { builder.setEffects(Effects(emptyList(), listOf(it))) }
+        val over = buildList<androidx.media3.effect.TextureOverlay> {
+            val cap = if (captions != null && layerOrder.captionsAboveOverlays) CaptionBitmapOverlay.overlayFor(captions, size, 0, Long.MAX_VALUE) else null
+            val txt = TextBitmapOverlay.overlay(textsAbove, size)
+            // Later overlays are drawn on top.
+            if (layerOrder.captionsAboveTitles) { txt?.let { add(it) }; cap?.let { add(it) } } else { cap?.let { add(it) }; txt?.let { add(it) } }
+        }
+        if (over.isNotEmpty()) builder.setEffects(Effects(emptyList(), listOf(androidx.media3.effect.OverlayEffect(over))))
         return builder.build()
     }
 

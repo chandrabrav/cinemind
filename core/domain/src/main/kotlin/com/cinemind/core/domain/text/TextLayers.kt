@@ -62,12 +62,14 @@ data class TextStyle(
     val align: Int = 0, // -1 left, 0 centre, 1 right
     val animIn: TextAnim = TextAnim.POP,
     val animOut: TextAnim = TextAnim.FADE,
+    /** Drawn under picture-in-picture overlays (default: above everything). */
+    val belowOverlays: Boolean = false,
 ) {
     fun encode(): String = String.format(
         Locale.ROOT,
-        "font=%s;w=%d;c=%08x;o=%.3f;oc=%08x;sh=%d;gl=%d;bc=%08x;bo=%.3f;up=%d;sp=%.3f;al=%d;in=%s;out=%s",
+        "font=%s;w=%d;c=%08x;o=%.3f;oc=%08x;sh=%d;gl=%d;bc=%08x;bo=%.3f;up=%d;sp=%.3f;al=%d;in=%s;out=%s;bl=%d",
         font.name, weight, color, outline, outlineColor, if (shadow) 1 else 0, if (glow) 1 else 0, boxColor, boxOpacity,
-        if (uppercase) 1 else 0, spacing, align, animIn.name, animOut.name,
+        if (uppercase) 1 else 0, spacing, align, animIn.name, animOut.name, if (belowOverlays) 1 else 0,
     )
 
     companion object {
@@ -94,6 +96,7 @@ data class TextStyle(
                 align = (m["al"]?.toIntOrNull() ?: 0).coerceIn(-1, 1),
                 animIn = TextAnim.entries.firstOrNull { it.name == m["in"] } ?: d.animIn,
                 animOut = TextAnim.entries.firstOrNull { it.name == m["out"] } ?: d.animOut,
+                belowOverlays = m["bl"] == "1",
             )
         }
     }
@@ -201,6 +204,95 @@ object TextLayerEditing {
             l.startUs >= timelineUs - MIN_US / 2 -> null
             l.endUs > timelineUs -> l.copy(endUs = timelineUs)
             else -> l
+        }
+    }
+}
+
+/**
+ * Stacking of what is drawn over the video, top to bottom: titles/stickers above the
+ * picture-in-picture (by lane), captions, PiP, titles/stickers below it, the main video. Captions
+ * can sit above or below the PiP and above or below the titles in their group. Kept per project
+ * (preferences; no schema change); read by both preview and export.
+ */
+data class LayerOrder(val captionsAboveOverlays: Boolean = true, val captionsAboveTitles: Boolean = true) {
+    fun encode(): String = "cap_pip=${if (captionsAboveOverlays) 1 else 0};cap_titles=${if (captionsAboveTitles) 1 else 0}"
+
+    companion object {
+        fun decode(text: String?): LayerOrder {
+            if (text.isNullOrBlank()) return LayerOrder()
+            val m = text.split(';').associate { it.substringBefore('=') to it.substringAfter('=', "") }
+            return LayerOrder(m["cap_pip"] != "0", m["cap_titles"] != "0")
+        }
+    }
+}
+
+/** One row of the Layers list, top first. */
+sealed interface LayerEntry {
+    data class Title(val layer: TextLayer) : LayerEntry
+    data object Captions : LayerEntry
+    data object PictureInPicture : LayerEntry
+    data object MainVideo : LayerEntry
+}
+
+object LayerStack {
+
+    /** The visual stack, top first. */
+    fun entries(texts: List<TextLayer>, order: LayerOrder, hasCaptions: Boolean, hasOverlays: Boolean): List<LayerEntry> {
+        val above = texts.filter { !it.styleObj.belowOverlays }.sortedByDescending { it.lane }.map { LayerEntry.Title(it) }
+        val below = texts.filter { it.styleObj.belowOverlays }.sortedByDescending { it.lane }.map { LayerEntry.Title(it) }
+        val out = mutableListOf<LayerEntry>()
+        fun group(titles: List<LayerEntry>, withCaptions: Boolean) {
+            if (withCaptions && hasCaptions && order.captionsAboveTitles) out += LayerEntry.Captions
+            out += titles
+            if (withCaptions && hasCaptions && !order.captionsAboveTitles) out += LayerEntry.Captions
+        }
+        group(above, order.captionsAboveOverlays)
+        if (hasOverlays) out += LayerEntry.PictureInPicture
+        group(below, !order.captionsAboveOverlays)
+        out += LayerEntry.MainVideo
+        return out
+    }
+
+    /**
+     * Moves [entry] one step up (or down) and returns the new texts and order: a title passes the
+     * captions or the PiP (changing its above/below flag) or swaps lanes with its neighbour;
+     * captions pass a title group edge or the PiP. The main video always stays at the bottom.
+     */
+    fun move(texts: List<TextLayer>, order: LayerOrder, hasCaptions: Boolean, hasOverlays: Boolean, entry: LayerEntry, up: Boolean): Pair<List<TextLayer>, LayerOrder> {
+        val list = entries(texts, order, hasCaptions, hasOverlays)
+        val i = list.indexOf(entry)
+        val j = if (up) i - 1 else i + 1
+        if (i < 0 || j < 0 || j >= list.size) return texts to order
+        val other = list[j]
+        if (other == LayerEntry.MainVideo || entry == LayerEntry.MainVideo || entry == LayerEntry.PictureInPicture) return texts to order
+        return when (entry) {
+            is LayerEntry.Title -> when (other) {
+                is LayerEntry.Title -> {
+                    // Swap lanes (and take the neighbour's above/below side).
+                    val a = entry.layer
+                    val b = other.layer
+                    texts.map {
+                        when (it.id) {
+                            a.id -> it.copy(lane = b.lane, style = it.styleObj.copy(belowOverlays = b.styleObj.belowOverlays).encode())
+                            b.id -> it.copy(lane = a.lane)
+                            else -> it
+                        }
+                    } to order
+                }
+                LayerEntry.PictureInPicture -> texts.map { if (it.id == entry.layer.id) it.copy(style = it.styleObj.copy(belowOverlays = !up).encode()) else it } to order
+                LayerEntry.Captions -> {
+                    // Crossing the captions inside one group flips captions-vs-titles for that group;
+                    // simplest consistent rule: move the title to the other side of the captions.
+                    texts to order.copy(captionsAboveTitles = !up)
+                }
+                else -> texts to order
+            }
+            LayerEntry.Captions -> when (other) {
+                LayerEntry.PictureInPicture -> texts to order.copy(captionsAboveOverlays = up)
+                is LayerEntry.Title -> texts to order.copy(captionsAboveTitles = up)
+                else -> texts to order
+            }
+            else -> texts to order
         }
     }
 }

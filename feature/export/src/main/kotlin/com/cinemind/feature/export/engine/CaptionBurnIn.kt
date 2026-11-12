@@ -63,6 +63,13 @@ internal class CaptionBitmapOverlay(
     }
 
     companion object {
+        /** The caption overlay for captions overlapping [itemStartUs, itemEndUs), or null if none. */
+        fun overlayFor(captions: RenderCaptions?, size: OutputSize, itemStartUs: Long, itemEndUs: Long): CaptionBitmapOverlay? {
+            if (captions == null) return null
+            val relevant = captions.captions.filter { it.endUs > itemStartUs && it.startUs < itemEndUs }
+            return if (relevant.isEmpty()) null else CaptionBitmapOverlay(relevant, captions.style, size)
+        }
+
         /** An [OverlayEffect] for one sequence item, or null when there is nothing to draw. */
         fun effectFor(captions: RenderCaptions?, size: OutputSize, itemStartUs: Long, itemEndUs: Long): OverlayEffect? {
             if (captions == null) return null

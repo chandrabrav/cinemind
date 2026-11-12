@@ -52,6 +52,9 @@ internal class TextBitmapOverlay(
     }
 
     companion object {
+        fun overlay(layers: List<TextLayer>, size: OutputSize): TextBitmapOverlay? =
+            layers.filter { it.text.isNotBlank() }.takeIf { it.isNotEmpty() }?.let { TextBitmapOverlay(it, size) }
+
         fun effectFor(layers: List<TextLayer>, size: OutputSize): OverlayEffect? =
             layers.filter { it.text.isNotBlank() }.takeIf { it.isNotEmpty() }?.let { OverlayEffect(listOf(TextBitmapOverlay(it, size))) }
     }

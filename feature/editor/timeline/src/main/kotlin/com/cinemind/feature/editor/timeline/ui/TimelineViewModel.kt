@@ -120,6 +120,10 @@ class TimelineViewModel @Inject constructor(
 
     /** The player the preview surface attaches to. Owned (and released) by this ViewModel. */
     val player: Player get() = preview.player
+    /** The preview player (a new one after each rebuild; the video view follows it). */
+    val playerFlow: StateFlow<Player> = preview.playerFlow
+    /** True while the preview is being rebuilt after an edit (small loader). */
+    val previewBuilding: StateFlow<Boolean> = preview.building
 
     private val projectId = MutableStateFlow<String?>(null)
 
@@ -182,6 +186,7 @@ class TimelineViewModel @Inject constructor(
             voiceTrack = voice
             voiceHistory = EditHistory(voiceClips)
             textHistory = EditHistory(runCatching { textRepository.get(id) }.getOrDefault(emptyList()))
+            _layerOrder.value = com.cinemind.feature.export.engine.LayerOrderStore.get(appContext, id)
             sfxTracks.clear()
             timeline?.tracks.orEmpty().filter { it.type == TrackType.SFX }.sortedBy { it.index }.forEach { sfxTracks += it }
             val sfxClips = timeline?.clips.orEmpty().filter { c -> sfxTracks.any { it.id == c.trackId } }
@@ -502,6 +507,44 @@ class TimelineViewModel @Inject constructor(
         Toast.makeText(appContext, "Added ${items.size} graphic(s); tap one on the preview to edit it", Toast.LENGTH_SHORT).show()
     }
 
+    // ---- Layer order (what shows above / below) -------------------------------------------------
+
+    private val _layerOrder = MutableStateFlow(com.cinemind.core.domain.text.LayerOrder())
+    val layerOrder: StateFlow<com.cinemind.core.domain.text.LayerOrder> = _layerOrder.asStateFlow()
+    private var previewCaptions: com.cinemind.feature.export.engine.RenderCaptions? = null
+
+    /** The editor's captions (owned by the captions screen model), for layers drawn under the PiP. */
+    fun setPreviewCaptions(captions: List<com.cinemind.core.domain.captions.Caption>, style: com.cinemind.core.domain.captions.CaptionStyle?) {
+        previewCaptions = if (captions.isEmpty() || style == null) null else com.cinemind.feature.export.engine.RenderCaptions(captions, style)
+        pushUnderLayers()
+    }
+
+    private fun pushUnderLayers() {
+        val order = _layerOrder.value
+        preview.setUnderLayers(
+            textHistory.present.filter { it.styleObj.belowOverlays },
+            previewCaptions.takeIf { !order.captionsAboveOverlays },
+            order,
+        )
+    }
+
+    /** The visual stack, top first (for the Layers sheet). */
+    fun layerEntries(): List<com.cinemind.core.domain.text.LayerEntry> =
+        com.cinemind.core.domain.text.LayerStack.entries(textHistory.present, _layerOrder.value, previewCaptions != null, overlayHistory.present.isNotEmpty())
+
+    /** Moves one entry of the stack up or down (titles: one undo step; captions: saved at once). */
+    fun moveLayer(entry: com.cinemind.core.domain.text.LayerEntry, up: Boolean) {
+        val project = projectId.value ?: return
+        val (texts, order) = com.cinemind.core.domain.text.LayerStack.move(
+            textHistory.present, _layerOrder.value, previewCaptions != null, overlayHistory.present.isNotEmpty(), entry, up,
+        )
+        if (order != _layerOrder.value) {
+            _layerOrder.value = order
+            com.cinemind.feature.export.engine.LayerOrderStore.set(appContext, project, order)
+        }
+        if (texts != textHistory.present) commitText(texts, select = _editor.value.selectedTextId) else pushUnderLayers()
+    }
+
     // ---- Text, titles & stickers -------------------------------------------------------------
 
     private var textHistory = EditHistory<List<com.cinemind.core.domain.text.TextLayer>>(emptyList())
@@ -576,6 +619,7 @@ class TimelineViewModel @Inject constructor(
 
     private fun publishTexts() {
         _editor.value = _editor.value.copy(texts = textHistory.present, canUndo = undoKinds.isNotEmpty(), canRedo = redoKinds.isNotEmpty())
+        pushUnderLayers()
     }
 
     // ---- Framing (crop, rotate, flip, position, keyframes) -----------------------------------
