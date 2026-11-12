@@ -723,8 +723,7 @@ private fun TextBlock(layer: com.cinemind.core.domain.text.TextLayer?, xPx: Floa
             Spacer(Modifier.width(Spacing.xs))
         }
         Text(
-            text = layer?.text?.replace('
-', ' ') ?: "Add text or stickers",
+            text = layer?.text?.replace('\n', ' ') ?: "Add text or stickers",
             color = if (layer != null) c.onAccent else c.textTertiary,
             style = MaterialTheme.typography.labelSmall,
             maxLines = 1,
