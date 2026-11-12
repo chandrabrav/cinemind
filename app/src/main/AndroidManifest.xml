@@ -39,6 +39,12 @@
             android:exported="false"
             android:foregroundServiceType="dataSync|mediaProcessing" />
 
+        <!-- Keeps long jobs (speech-to-text, Smart edit…) running while the app is in the background. -->
+        <service
+            android:name="com.cinemind.core.common.WorkService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync|mediaProcessing" />
+
         <service
             android:name="com.cinemind.feature.ai.llm.ondevice.ModelDownloadService"
             android:exported="false"

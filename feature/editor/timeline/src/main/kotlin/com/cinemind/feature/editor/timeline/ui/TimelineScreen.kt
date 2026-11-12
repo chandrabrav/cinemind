@@ -1,5 +1,29 @@
 package com.cinemind.feature.editor.timeline.ui
 
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.ContentCut
+import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.Crop
+import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Animation
+import androidx.compose.material.icons.filled.AcUnit
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.FlipToFront
+import androidx.compose.material.icons.filled.AddPhotoAlternate
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.TextFields
+import androidx.compose.material.icons.filled.ClosedCaption
+import androidx.compose.material.icons.filled.PictureInPicture
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.runtime.mutableIntStateOf
 import android.view.LayoutInflater
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -97,6 +121,8 @@ fun TimelineScreen(
     onOpenBrief: () -> Unit,
     onExport: () -> Unit,
     onOpenAiModels: () -> Unit = {},
+    /** Leaves the editor (the editor has its own header; the app bar is hidden here). */
+    onBack: () -> Unit = {},
     viewModel: TimelineViewModel = hiltViewModel(),
     captionsViewModel: CaptionsViewModel = hiltViewModel(),
 ) {
@@ -113,24 +139,6 @@ fun TimelineScreen(
     val captionsUi by captionsViewModel.ui.collectAsStateWithLifecycle()
     var showCaptions by remember { mutableStateOf(false) }
     var fullscreen by rememberSaveable { mutableStateOf(false) }
-    // Only one PlayerView may hold the player: the old view is detached a couple of frames before the
-    // new one attaches (Media3 rejects clearing a surface it no longer uses: the "Back from full
-    // screen closes the app" crash on the owner's phone).
-    var stageViewAttached by remember { mutableStateOf(!fullscreen) }
-    var fullscreenShown by remember { mutableStateOf(fullscreen) }
-    LaunchedEffect(fullscreen) {
-        if (fullscreen) {
-            stageViewAttached = false
-            androidx.compose.runtime.withFrameNanos { }
-            androidx.compose.runtime.withFrameNanos { }
-            fullscreenShown = true
-        } else {
-            fullscreenShown = false
-            androidx.compose.runtime.withFrameNanos { }
-            androidx.compose.runtime.withFrameNanos { }
-            stageViewAttached = true
-        }
-    }
     val project by viewModel.project.collectAsStateWithLifecycle()
     val editor by viewModel.editor.collectAsStateWithLifecycle()
     val clips = editor.clips
@@ -198,215 +206,291 @@ fun TimelineScreen(
     val look = FrameLook.IDENTITY
     val totalUs = TimelineEditing.durationUs(clips.map { it.clip })
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        EditorHeader(
-            project = project,
-            clipCount = clips.size,
-            canUndo = editor.canUndo,
-            canRedo = editor.canRedo,
-            onUndo = viewModel::undo,
-            onRedo = viewModel::redo,
-            onExport = onExport,
-        )
+    // ---- Layout: header · preview · playback bar · timeline · one contextual bottom bar ----------
+    // Full screen grows the same preview (same video view, nothing handed over) and hides the rest.
+    androidx.activity.compose.BackHandler(enabled = fullscreen) { fullscreen = false }
+    if (fullscreen) ImmersiveBars()
+    var controlsVisible by remember { mutableStateOf(true) }
+    var controlTouches by remember { mutableIntStateOf(0) }
+    LaunchedEffect(fullscreen, controlsVisible, preview.isPlaying, controlTouches) {
+        if (fullscreen && controlsVisible && preview.isPlaying) {
+            kotlinx.coroutines.delay(3_000)
+            controlsVisible = false
+        }
+    }
+    var liveText by remember { mutableStateOf<com.cinemind.core.domain.text.TextLayer?>(null) }
+    var textBounds by remember { mutableStateOf<Map<String, android.graphics.RectF>>(emptyMap()) }
+    var showAudio by remember { mutableStateOf(false) }
+    var adjustOpen by remember { mutableStateOf(false) }
+    val selectionKey = listOf(editor.selectedClipId, editor.selectedOverlayId, editor.selectedVoiceId, editor.selectedSfxId, editor.selectedTextId)
+    LaunchedEffect(selectionKey) { adjustOpen = false }
+    val selectedSfx = editor.sfx.flatten().firstOrNull { it.clip.id == editor.selectedSfxId }
+    val selectedText = editor.texts.firstOrNull { it.id == editor.selectedTextId }
+    val shownTexts = liveText?.let { l -> editor.texts.map { if (it.id == l.id) l else it } } ?: editor.texts
+    val overlaysNow = editor.overlays.filter { preview.positionUs >= it.clip.timelineInUs && preview.positionUs < it.clip.timelineOutUs }
 
-        PreviewStage(
-            player = viewModel.player,
-            project = project,
-            currentClip = clips.getOrNull(preview.currentIndex),
-            look = look,
-            state = preview,
-            fps = fps,
-            enabled = clips.isNotEmpty(),
-            onTogglePlay = viewModel::togglePlayPause,
-            captionLayer = {
-                CaptionOverlay(captionsUi.captions, captionsUi.style, preview.positionUs, Modifier.fillMaxSize())
-                TextLayersOverlay(
-                    layers = editor.texts,
-                    positionUs = preview.positionUs,
-                    selectedId = editor.selectedTextId,
-                    modifier = Modifier.fillMaxSize(),
-                    interactive = !preview.isPlaying,
-                    onSelect = viewModel::selectText,
-                    onTransform = viewModel::updateText,
-                    onEmptyTap = viewModel::togglePlayPause,
+    Box(modifier = Modifier.fillMaxSize().then(if (fullscreen) Modifier.background(androidx.compose.ui.graphics.Color.Black) else Modifier)) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            if (!fullscreen) {
+                EditorHeader(
+                    project = project,
+                    clipCount = clips.size,
+                    canUndo = editor.canUndo,
+                    canRedo = editor.canRedo,
+                    onUndo = viewModel::undo,
+                    onRedo = viewModel::redo,
+                    onExport = onExport,
+                    onBack = onBack,
                 )
-            },
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
-                .padding(horizontal = Spacing.gutter),
-            showPlayer = stageViewAttached,
-            onFullscreen = { fullscreen = true },
-        )
+            }
 
-        if (fullscreenShown) {
-            FullscreenPreview(
+            PreviewStage(
                 player = viewModel.player,
+                project = project,
+                currentClip = clips.getOrNull(preview.currentIndex),
+                look = look,
                 state = preview,
-                ratio = project?.let { it.resolutionWidth.toFloat() / it.resolutionHeight } ?: (9f / 16f),
+                fps = fps,
+                enabled = clips.isNotEmpty(),
+                onTogglePlay = {
+                    if (fullscreen) { controlsVisible = !controlsVisible; controlTouches++ } else viewModel.togglePlayPause()
+                },
+                captionLayer = {
+                    CaptionOverlay(captionsUi.captions, captionsUi.style, preview.positionUs, Modifier.fillMaxSize())
+                    TextLayersOverlay(
+                        layers = shownTexts,
+                        positionUs = preview.positionUs,
+                        selectedId = if (fullscreen) null else editor.selectedTextId,
+                        modifier = Modifier.fillMaxSize(),
+                        interactive = !fullscreen && !preview.isPlaying,
+                        handleGestures = false,
+                        onBounds = { textBounds = it },
+                    )
+                    if (!fullscreen) {
+                        StageGestures(
+                            enabled = !preview.isPlaying,
+                            texts = editor.texts,
+                            textBounds = textBounds,
+                            overlays = overlaysNow,
+                            selectedTextId = editor.selectedTextId,
+                            selectedOverlayId = editor.selectedOverlayId,
+                            onSelectText = viewModel::selectText,
+                            onSelectOverlay = viewModel::selectOverlay,
+                            onEmptyTap = viewModel::togglePlayPause,
+                            onLiveText = { liveText = it },
+                            onTextDone = viewModel::updateText,
+                            onOverlayDone = viewModel::setOverlayTransform,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .then(if (fullscreen) Modifier else Modifier.padding(horizontal = Spacing.gutter)),
+                showPlayer = true,
+                onFullscreen = if (fullscreen) null else ({ fullscreen = true; controlsVisible = true }),
+            )
+
+            if (!fullscreen) {
+                PlaybackBar(
+                    state = preview,
+                    fps = fps,
+                    enabled = clips.isNotEmpty(),
+                    muted = editor.previewMuted,
+                    volume = editor.previewVolume,
+                    onTogglePlay = viewModel::togglePlayPause,
+                    onToggleMute = viewModel::togglePreviewMute,
+                    onVolume = viewModel::setPreviewVolume,
+                    onFullscreen = { fullscreen = true; controlsVisible = true },
+                )
+
+                MultiTrackTimeline(
+                    clips = clips,
+                    music = editor.music,
+                    musicPeaks = editor.musicPeaks,
+                    beatsUs = editor.beatsUs,
+                    waves = editor.waves,
+                    sfx = editor.sfx,
+                    selectedSfxId = editor.selectedSfxId,
+                    onSfxTap = viewModel::onSfxTapped,
+                    onAddSfx = { showSounds = true },
+                    totalUs = totalUs,
+                    positionUs = preview.positionUs,
+                    isPlaying = preview.isPlaying,
+                    selectedClipId = editor.selectedClipId,
+                    limitsFor = viewModel::limitsFor,
+                    onSeek = viewModel::scrubFinished,
+                    onClipTap = viewModel::onClipTapped,
+                    onTrim = viewModel::trimSelected,
+                    onMusicTap = { showMusic = true },
+                    // Fixed height: lanes scroll inside it, and nothing below can push it off screen.
+                    modifier = Modifier.fillMaxWidth().height(TIMELINE_HEIGHT),
+                    captions = captionsUi.captions,
+                    onCaptionsTap = { showCaptions = true },
+                    fps = fps,
+                    overlays = editor.overlays,
+                    selectedOverlayId = editor.selectedOverlayId,
+                    onOverlayTap = viewModel::onOverlayTapped,
+                    onAddOverlay = pickOverlay,
+                    voiceClips = editor.voiceClips,
+                    selectedVoiceId = editor.selectedVoiceId,
+                    onVoiceTap = viewModel::onVoiceTapped,
+                    onAddVoice = openVoice,
+                    texts = editor.texts,
+                    selectedTextId = editor.selectedTextId,
+                    onTextTap = viewModel::selectText,
+                    onAddText = { showAddText = true },
+                )
+
+                // One bottom bar: the selected item's actions, or the main tools.
+                when {
+                    selected != null -> EditorBottomBar(
+                        title = "Clip ${clips.indexOf(selected) + 1}",
+                        onClose = viewModel::clearSelection,
+                        actions = listOf(
+                            EditorAction(Icons.Default.Tune, "Trim") { adjustOpen = true },
+                            EditorAction(Icons.Default.ContentCut, "Split") { viewModel.splitSelectedAtPlayhead() },
+                            EditorAction(Icons.Default.Speed, "Speed") { showSpeed = true },
+                            EditorAction(Icons.Default.Crop, "Crop & move") { showFraming = true },
+                            EditorAction(Icons.Default.Palette, "Colour") { showColor = true },
+                            EditorAction(Icons.Default.Animation, "Transition") { adjustOpen = true },
+                            EditorAction(Icons.Default.AcUnit, "Freeze", enabled = selected.asset?.isVideo == true) { viewModel.freezeFrameAtPlayhead() },
+                            EditorAction(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Move left", enabled = clips.indexOf(selected) > 0) { viewModel.moveSelected(-1) },
+                            EditorAction(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Move right", enabled = clips.indexOf(selected) < clips.lastIndex) { viewModel.moveSelected(1) },
+                            EditorAction(Icons.Default.Delete, "Delete") { viewModel.deleteSelected() },
+                        ),
+                    )
+                    selectedOverlay != null -> EditorBottomBar(
+                        title = "Overlay",
+                        onClose = viewModel::clearOverlaySelection,
+                        actions = listOf(
+                            EditorAction(Icons.Default.Tune, "Adjust") { adjustOpen = true },
+                            EditorAction(Icons.Default.Delete, "Delete") { viewModel.deleteOverlay() },
+                        ),
+                    )
+                    selectedVoice != null -> EditorBottomBar(
+                        title = "Voiceover",
+                        onClose = viewModel::clearVoiceSelection,
+                        actions = listOf(
+                            EditorAction(Icons.Default.Tune, "Adjust") { adjustOpen = true },
+                            EditorAction(Icons.Default.Mic, "Record") { openVoice() },
+                            EditorAction(Icons.Default.Delete, "Delete") { viewModel.deleteVoice() },
+                        ),
+                    )
+                    selectedSfx != null -> EditorBottomBar(
+                        title = "Sound",
+                        onClose = viewModel::clearSfxSelection,
+                        actions = listOf(
+                            EditorAction(Icons.Default.Tune, "Adjust") { adjustOpen = true },
+                            EditorAction(Icons.Default.GraphicEq, "Add sound") { showSounds = true },
+                            EditorAction(Icons.Default.Delete, "Delete") { viewModel.deleteSfx() },
+                        ),
+                    )
+                    selectedText != null -> EditorBottomBar(
+                        title = if (selectedText.kindEnum == com.cinemind.core.domain.text.TextKind.STICKER) "Sticker" else "Text",
+                        onClose = { viewModel.selectText(null) },
+                        actions = listOf(
+                            EditorAction(Icons.Default.Edit, "Edit") { editTextOpen = true },
+                            EditorAction(Icons.Default.ContentCopy, "Copy") { viewModel.duplicateText(selectedText.id) },
+                            EditorAction(Icons.Default.FlipToFront, "Front") { viewModel.bringTextToFront(selectedText.id) },
+                            EditorAction(Icons.Default.Delete, "Delete") { viewModel.deleteText(selectedText.id) },
+                        ),
+                    )
+                    else -> EditorBottomBar(
+                        title = null,
+                        actions = listOf(
+                            EditorAction(Icons.Default.AddPhotoAlternate, "Add") {
+                                addMediaPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
+                            },
+                            EditorAction(Icons.Default.MusicNote, "Audio", enabled = clips.isNotEmpty()) { showAudio = true },
+                            EditorAction(Icons.Default.TextFields, "Text", enabled = clips.isNotEmpty()) { showAddText = true },
+                            EditorAction(Icons.Default.ClosedCaption, "Captions", enabled = clips.isNotEmpty()) { showCaptions = true },
+                            EditorAction(Icons.Default.PictureInPicture, "Overlay", enabled = clips.isNotEmpty()) { pickOverlay() },
+                            EditorAction(Icons.Default.Palette, "Colour", enabled = clips.isNotEmpty()) { showColor = true },
+                            EditorAction(Icons.Default.Animation, "Transitions", enabled = clips.isNotEmpty()) { showTransitions = true },
+                            EditorAction(Icons.Default.AutoAwesome, "Smart edit", enabled = clips.isNotEmpty()) { onOpenBrief() },
+                        ),
+                    )
+                }
+            }
+        }
+        if (fullscreen) {
+            FullscreenControls(
+                state = preview,
                 fps = fps,
                 onTogglePlay = viewModel::togglePlayPause,
                 onScrub = viewModel::scrubTo,
                 onScrubFinished = viewModel::scrubFinished,
                 onExit = { fullscreen = false },
-                captionLayer = {
-                    CaptionOverlay(captionsUi.captions, captionsUi.style, preview.positionUs, Modifier.fillMaxSize())
-                    TextLayersOverlay(editor.texts, preview.positionUs, null, Modifier.fillMaxSize())
-                },
+                visible = controlsVisible,
+                onInteract = { controlTouches++ },
             )
         }
+    }
 
-        PlaybackBar(
-            state = preview,
-            fps = fps,
-            enabled = clips.isNotEmpty(),
-            muted = editor.previewMuted,
-            volume = editor.previewVolume,
-            onTogglePlay = viewModel::togglePlayPause,
-            onToggleMute = viewModel::togglePreviewMute,
-            onVolume = viewModel::setPreviewVolume,
-            onFullscreen = { fullscreen = true },
-        )
-
-        Scrubber(
-            state = preview,
-            enabled = clips.isNotEmpty(),
-            onScrub = viewModel::scrubTo,
-            onScrubFinished = viewModel::scrubFinished,
-        )
-
-        MultiTrackTimeline(
-            clips = clips,
-            music = editor.music,
-            musicPeaks = editor.musicPeaks,
-            beatsUs = editor.beatsUs,
-            waves = editor.waves,
-            sfx = editor.sfx,
-            selectedSfxId = editor.selectedSfxId,
-            onSfxTap = viewModel::onSfxTapped,
-            onAddSfx = { showSounds = true },
-            totalUs = totalUs,
-            positionUs = preview.positionUs,
-            isPlaying = preview.isPlaying,
-            selectedClipId = editor.selectedClipId,
-            limitsFor = viewModel::limitsFor,
-            onSeek = viewModel::scrubFinished,
-            onClipTap = viewModel::onClipTapped,
-            onTrim = viewModel::trimSelected,
-            onMusicTap = { showMusic = true },
-            // The tracks scroll vertically inside a bounded area, so the timeline never pushes the controls off screen.
-            modifier = Modifier.fillMaxWidth().heightIn(max = 236.dp),
-            captions = captionsUi.captions,
-            onCaptionsTap = { showCaptions = true },
-            fps = fps,
-            overlays = editor.overlays,
-            selectedOverlayId = editor.selectedOverlayId,
-            onOverlayTap = viewModel::onOverlayTapped,
-            onAddOverlay = pickOverlay,
-            voiceClips = editor.voiceClips,
-            selectedVoiceId = editor.selectedVoiceId,
-            onVoiceTap = viewModel::onVoiceTapped,
-            onAddVoice = openVoice,
-            texts = editor.texts,
-            selectedTextId = editor.selectedTextId,
-            onTextTap = viewModel::selectText,
-            onAddText = { showAddText = true },
-        )
-
-        AnimatedVisibility(
-            visible = selected != null,
-            enter = fadeIn() + expandVertically(),
-            exit = fadeOut() + shrinkVertically(),
-        ) {
-            val item = selected ?: return@AnimatedVisibility
-            ClipInspector(
-                item = item,
-                index = clips.indexOf(item),
-                clipCount = clips.size,
-                limits = viewModel.limitsFor(item.clip),
-                fps = fps,
-                onTrim = viewModel::trimSelected,
-                onMove = viewModel::moveSelected,
-                onDelete = viewModel::deleteSelected,
-                onSplit = viewModel::splitSelectedAtPlayhead,
-                onClose = viewModel::clearSelection,
-                onTransition = viewModel::setTransitionSelected,
-            )
-        }
-
-        AnimatedVisibility(
-            visible = selectedVoice != null,
-            enter = fadeIn() + expandVertically(),
-            exit = fadeOut() + shrinkVertically(),
-        ) {
-            val item = selectedVoice ?: return@AnimatedVisibility
-            VoiceInspector(
-                item = item,
-                settings = editor.voiceSettings,
-                onMove = viewModel::moveVoice,
-                onTrim = viewModel::trimVoice,
-                onFades = viewModel::setVoiceFades,
-                onSettings = viewModel::setVoiceSettings,
-                onDelete = viewModel::deleteVoice,
-                onClose = viewModel::clearVoiceSelection,
-            )
-        }
-
-        AnimatedVisibility(
-            visible = selectedOverlay != null,
-            enter = fadeIn() + expandVertically(),
-            exit = fadeOut() + shrinkVertically(),
-        ) {
-            val item = selectedOverlay ?: return@AnimatedVisibility
-            OverlayInspector(
-                item = item,
-                onTransform = viewModel::setOverlayTransform,
-                onMove = viewModel::moveOverlay,
-                onTrim = viewModel::trimOverlay,
-                onDelete = viewModel::deleteOverlay,
-                onClose = viewModel::clearOverlaySelection,
-            )
-        }
-
-        editor.sfx.flatten().firstOrNull { it.clip.id == editor.selectedSfxId }?.let { item ->
-            SoundInspectorBar(
-                item = item,
-                onVolume = viewModel::setSfxVolume,
-                onMove = viewModel::moveSfx,
-                onFades = viewModel::setSfxFades,
-                onDelete = viewModel::deleteSfx,
-                onClose = viewModel::clearSfxSelection,
-            )
-        }
-
-        editor.texts.firstOrNull { it.id == editor.selectedTextId }?.let { layer ->
-            TextInspectorBar(
-                layer = layer,
-                onEdit = { editTextOpen = true },
-                onDuplicate = { viewModel.duplicateText(layer.id) },
-                onDelete = { viewModel.deleteText(layer.id) },
-                onClose = { viewModel.selectText(null) },
-            )
-        }
-
-        EditorToolsBar(
-            hasClips = clips.isNotEmpty(),
-            onSmartEdit = onOpenBrief,
-            onAddMedia = {
-                addMediaPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
-            },
-            onTransitions = { showTransitions = true },
+    if (showAudio) {
+        AudioMenuSheet(
+            hasMusic = editor.music != null,
             onMusic = { showMusic = true },
-            onExport = onExport,
-            onCaptions = { showCaptions = true },
-            onText = { showAddText = true },
             onSounds = { showSounds = true },
-            onOverlay = pickOverlay,
             onVoice = openVoice,
-            onColor = { showColor = true },
-            onSpeed = { showSpeed = true },
-            onFraming = { showFraming = true },
+            onDismiss = { showAudio = false },
         )
+    }
+
+    // Detailed controls for the selected item, as a sheet (never pushes the timeline away).
+    if (adjustOpen) {
+        when {
+            selected != null -> com.cinemind.core.ui.components.CineMindSheet(onDismiss = { adjustOpen = false }, title = "Clip ${clips.indexOf(selected) + 1}") {
+                ClipInspector(
+                    item = selected,
+                    index = clips.indexOf(selected),
+                    clipCount = clips.size,
+                    limits = viewModel.limitsFor(selected.clip),
+                    fps = fps,
+                    onTrim = viewModel::trimSelected,
+                    onMove = viewModel::moveSelected,
+                    onDelete = { adjustOpen = false; viewModel.deleteSelected() },
+                    onSplit = viewModel::splitSelectedAtPlayhead,
+                    onClose = { adjustOpen = false },
+                    onTransition = viewModel::setTransitionSelected,
+                )
+            }
+            selectedOverlay != null -> com.cinemind.core.ui.components.CineMindSheet(onDismiss = { adjustOpen = false }, title = "Overlay") {
+                OverlayInspector(
+                    item = selectedOverlay,
+                    onTransform = viewModel::setOverlayTransform,
+                    onMove = viewModel::moveOverlay,
+                    onTrim = viewModel::trimOverlay,
+                    onDelete = { adjustOpen = false; viewModel.deleteOverlay() },
+                    onClose = { adjustOpen = false },
+                )
+            }
+            selectedVoice != null -> com.cinemind.core.ui.components.CineMindSheet(onDismiss = { adjustOpen = false }, title = "Voiceover") {
+                VoiceInspector(
+                    item = selectedVoice,
+                    settings = editor.voiceSettings,
+                    onMove = viewModel::moveVoice,
+                    onTrim = viewModel::trimVoice,
+                    onFades = viewModel::setVoiceFades,
+                    onSettings = viewModel::setVoiceSettings,
+                    onDelete = { adjustOpen = false; viewModel.deleteVoice() },
+                    onClose = { adjustOpen = false },
+                )
+            }
+            selectedSfx != null -> com.cinemind.core.ui.components.CineMindSheet(onDismiss = { adjustOpen = false }, title = "Sound") {
+                SoundInspectorBar(
+                    item = selectedSfx,
+                    onVolume = viewModel::setSfxVolume,
+                    onMove = viewModel::moveSfx,
+                    onFades = viewModel::setSfxFades,
+                    onDelete = { adjustOpen = false; viewModel.deleteSfx() },
+                    onClose = { adjustOpen = false },
+                )
+            }
+            else -> LaunchedEffect(Unit) { adjustOpen = false }
+        }
     }
 
     if (showSounds) {
@@ -575,14 +659,19 @@ private fun EditorHeader(
     onUndo: () -> Unit,
     onRedo: () -> Unit,
     onExport: (() -> Unit)? = null,
+    onBack: () -> Unit = {},
 ) {
     val c = CineMind.colors
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = Spacing.gutter, end = Spacing.xs, bottom = Spacing.xs),
+            .statusBarsPadding()
+            .padding(start = Spacing.xxs, end = Spacing.xs, bottom = Spacing.xxs),
     ) {
+        IconButton(onClick = onBack) {
+            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back to projects", tint = c.textPrimary)
+        }
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = project?.name ?: "Editor",
@@ -842,3 +931,6 @@ private fun Scrubber(
             .padding(horizontal = Spacing.gutter),
     )
 }
+
+/** The timeline keeps this height; its lanes scroll inside it. */
+private val TIMELINE_HEIGHT = 208.dp

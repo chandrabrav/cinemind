@@ -94,6 +94,10 @@ internal fun TextLayersOverlay(
     onTransform: (TextLayer) -> Unit = {},
     /** Tap on empty video while nothing is selected (the stage's own tap action, e.g. play/pause). */
     onEmptyTap: () -> Unit = {},
+    /** False: only draws (and outlines the selection); touches are handled by [StageGestures]. */
+    handleGestures: Boolean = true,
+    /** Drawn area of each layer, for hit-testing elsewhere. */
+    onBounds: (Map<String, RectF>) -> Unit = {},
 ) {
     if (layers.isEmpty()) return
     val c = CineMind.colors
@@ -109,7 +113,7 @@ internal fun TextLayersOverlay(
     val transform by rememberUpdatedState(onTransform)
     val emptyTap by rememberUpdatedState(onEmptyTap)
 
-    val gestures = if (!interactive) Modifier else Modifier
+    val gestures = if (!interactive || !handleGestures) Modifier else Modifier
         .pointerInput(Unit) {
             detectTapGestures { pos ->
                 val hit = currentBounds.entries.lastOrNull { (_, r) -> r.contains(pos.x, pos.y) }?.key
@@ -162,7 +166,10 @@ internal fun TextLayersOverlay(
                 )
             }
         }
-        if (out != bounds) bounds = out
+        if (out != bounds) {
+            bounds = out
+            onBounds(out)
+        }
     }
 }
 

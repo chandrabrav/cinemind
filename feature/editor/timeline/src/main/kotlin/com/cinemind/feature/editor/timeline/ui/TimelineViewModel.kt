@@ -285,7 +285,7 @@ class TimelineViewModel @Inject constructor(
     fun onClipTapped(index: Int) {
         val clip = history?.present?.getOrNull(index) ?: return
         val alreadySelected = _editor.value.selectedClipId == clip.id
-        _editor.value = _editor.value.copy(selectedClipId = if (alreadySelected) null else clip.id, selectedOverlayId = null)
+        _editor.value = _editor.value.copy(selectedClipId = if (alreadySelected) null else clip.id, selectedOverlayId = null, selectedTextId = null, selectedSfxId = null, selectedVoiceId = null)
         preview.seekToClip(index)
         refreshPreview()
     }
@@ -1153,6 +1153,11 @@ class TimelineViewModel @Inject constructor(
         _editor.value = _editor.value.copy(selectedOverlayId = if (current == id) null else id, selectedClipId = null)
         overlayHistory.present.firstOrNull { it.id == id }?.let { preview.seekToUs(it.timelineInUs) }
         refreshPreview()
+    }
+
+    /** Selects an overlay tapped on the preview (no seeking); null clears. */
+    fun selectOverlay(id: String?) {
+        _editor.value = _editor.value.copy(selectedOverlayId = id, selectedClipId = if (id != null) null else _editor.value.selectedClipId, selectedTextId = if (id != null) null else _editor.value.selectedTextId)
     }
 
     fun clearOverlaySelection() {
