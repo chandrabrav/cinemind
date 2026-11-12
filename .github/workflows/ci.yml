@@ -4,6 +4,8 @@ name: Android CI
 on:
   push:
     branches: ["**"]
+    # Doc-only changes don't need a build.
+    paths-ignore: ["docs/**", "**/*.md"]
   pull_request:
   workflow_dispatch:
 
@@ -143,8 +145,7 @@ jobs:
     name: Export end-to-end (emulator)
     runs-on: ubuntu-latest
     timeout-minutes: 50
-    # Needs this run's APK for the update test.
-    needs: build
+    # Runs in parallel with the unit-test job; builds its own copy of this run's APK (same key).
     permissions:
       contents: read
       actions: read
@@ -209,11 +210,20 @@ jobs:
             -t 6 -c:v libx264 -pix_fmt yuv420p -c:a aac -ac 2 "$s/bursts.mp4"
           ls -la "$s"
 
-      - name: Get this run's APK
-        uses: actions/download-artifact@v4
-        with:
-          name: cinemind-debug-${{ github.run_number }}
-          path: new-apk
+      - name: Permanent debug signing key
+        env:
+          KEY_B64: ${{ secrets.CINEMIND_DEBUG_KEYSTORE_BASE64 }}
+          KEY_PW: ${{ secrets.CINEMIND_DEBUG_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -z "$KEY_B64" ] || [ -z "$KEY_PW" ]; then exit 0; fi
+          echo "$KEY_B64" | base64 -d > "$RUNNER_TEMP/cinemind-debug.p12"
+          echo "CINEMIND_DEBUG_KEYSTORE_PATH=$RUNNER_TEMP/cinemind-debug.p12" >> "$GITHUB_ENV"
+          echo "CINEMIND_DEBUG_KEYSTORE_PASSWORD=$KEY_PW" >> "$GITHUB_ENV"
+
+      - name: Build this run's APK (for the update test)
+        run: |
+          gradle :app:assembleDebug --stacktrace
+          mkdir -p new-apk && cp app/build/outputs/apk/debug/*.apk new-apk/
 
       - name: Get the previous build signed with the same key (update baseline)
         env:
