@@ -194,7 +194,8 @@ class ExportEndToEndTest {
             ),
         )
         val expectedMs = TimelineEditing.durationUs(clips) / 1_000
-        assertTrue("timeline between 1 s and 4 s ($expectedMs)", expectedMs in 1_100..3_900)
+        // 1 s (2× clip) + ~3.2 s (2 s of footage dipping to 0.5×); not the 4 s it would be at 1×.
+        assertTrue("timeline length from speed ($expectedMs)", expectedMs in 3_600..4_800 && kotlin.math.abs(expectedMs - 4_000) > 100)
         val sources = listOf(
             RenderSource(Uri.fromFile(portrait).toString(), isVideo = true, hasAudio = true, frameRate = 30f, durationUs = 2_000_000),
             RenderSource(Uri.fromFile(landscape).toString(), isVideo = true, hasAudio = false, frameRate = 60f, durationUs = 2_000_000),
