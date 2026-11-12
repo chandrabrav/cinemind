@@ -284,6 +284,8 @@ fun TimelineScreen(
                             onLiveText = { liveText = it },
                             onTextDone = viewModel::updateText,
                             onOverlayDone = viewModel::setOverlayTransform,
+                            clipLook = selected?.let { s -> remember(s.clip, preview.positionUs / 100_000) { viewModel.lookAtPlayhead(s.clip) } },
+                            onClipLookDone = { look -> selected?.let { s -> viewModel.setClipLook(s.clip.id, look) } },
                             modifier = Modifier.fillMaxSize(),
                         )
                     }

@@ -87,10 +87,16 @@ internal fun StageGestures(
     onLiveText: (TextLayer?) -> Unit,
     onTextDone: (TextLayer) -> Unit,
     onOverlayDone: (x: Float, y: Float, scale: Float, rotation: Float, opacity: Float) -> Unit,
+    /** The selected main clip's look at the playhead (null when no clip is selected); drag/pinch/twist moves it. */
+    clipLook: com.cinemind.core.domain.editing.MotionLook? = null,
+    onClipLookDone: (com.cinemind.core.domain.editing.MotionLook) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val c = CineMind.colors
     var liveBox by remember { mutableStateOf<OverlayBox?>(null) }
+    var liveClip by remember { mutableStateOf<com.cinemind.core.domain.editing.MotionLook?>(null) }
+    val currentClipLook by rememberUpdatedState(clipLook)
+    val clipDone by rememberUpdatedState(onClipLookDone)
     val boxes = overlays.map { OverlayBox.of(it) }
     val currentTexts by rememberUpdatedState(texts)
     val currentBounds by rememberUpdatedState(textBounds)
@@ -138,7 +144,8 @@ internal fun StageGestures(
                     val r = textId?.let { currentBounds[it] }
                     val onText = text != null && r != null && RectF(r.left - slop, r.top - slop, r.right + slop, r.bottom + slop).contains(down.position.x, down.position.y)
                     val onBox = !onText && box != null && box.contains(down.position, w, h, slop)
-                    if (!onText && !onBox) return@awaitEachGesture
+                    var clip = if (!onText && !onBox && textId == null && overlayId == null) currentClipLook else null
+                    if (!onText && !onBox && clip == null) return@awaitEachGesture
                     var moved = false
                     do {
                         val event = awaitPointerEvent()
@@ -155,6 +162,14 @@ internal fun StageGestures(
                                     rotation = snap(text!!.rotation + rot),
                                 )
                                 live(text)
+                            } else if (clip != null) {
+                                clip = clip!!.copy(
+                                    x = (clip!!.x + pan.x / w).coerceIn(-1.5f, 1.5f),
+                                    y = (clip!!.y + pan.y / h).coerceIn(-1.5f, 1.5f),
+                                    scale = (clip!!.scale * zoom).coerceIn(0.1f, 5f),
+                                    rotation = snap(clip!!.rotation + rot),
+                                )
+                                liveClip = clip
                             } else {
                                 box = box!!.copy(
                                     x = (box!!.x + pan.x / w).coerceIn(0f, 1f),
@@ -168,14 +183,36 @@ internal fun StageGestures(
                         }
                     } while (event.changes.any { it.pressed })
                     if (moved) {
-                        if (onText) textDone(text!!)
+                        if (clip != null) clipDone(clip!!)
+                        else if (onText) textDone(text!!)
                         else box?.let { b -> overlayDone(b.x, b.y, b.widthFrac, ((b.rotation % 360f) + 360f) % 360f, b.opacity) }
                     }
                     live(null)
                     liveBox = null
+                    liveClip = null
                 }
             },
     ) {
+        // The selected clip's frame (live while it is being moved/zoomed/turned).
+        val clipShown = liveClip ?: clipLook
+        if (clipShown != null && enabled && selectedTextId == null && selectedOverlayId == null) {
+            val w = size.width
+            val h = size.height
+            val r = Math.toRadians(clipShown.rotation.toDouble())
+            val cs = cos(r).toFloat()
+            val sn = sin(r).toFloat()
+            val cx = w / 2 + clipShown.x * w
+            val cy = h / 2 + clipShown.y * h
+            val hw = w / 2 * clipShown.scale
+            val hh = h / 2 * clipShown.scale
+            val pts = listOf(-hw to -hh, hw to -hh, hw to hh, -hw to hh).map { (dx, dy) -> Offset(cx + dx * cs - dy * sn, cy + dx * sn + dy * cs) }
+            val path = Path().apply {
+                moveTo(pts[0].x, pts[0].y)
+                pts.drop(1).forEach { lineTo(it.x, it.y) }
+                close()
+            }
+            drawPath(path, c.accent, style = Stroke(width = 2.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(18f, 10f))))
+        }
         // Outline of the selected overlay (live while it is being moved).
         val shown = liveBox ?: boxes.firstOrNull { it.id == selectedOverlayId }
         if (shown != null && enabled) {

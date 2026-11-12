@@ -604,6 +604,18 @@ class TimelineViewModel @Inject constructor(
         if (exact) scrubFinished(at) else scrubTo(at)
     }
 
+    /** Look of [clip] at the playhead (for dragging it on the preview). */
+    fun lookAtPlayhead(clip: Clip): com.cinemind.core.domain.editing.MotionLook =
+        com.cinemind.core.domain.editing.TransformMath.lookAtTimeline(clip, com.cinemind.core.domain.editing.ClipFraming.decode(clip.framing), playheadOffsetIn(clip))
+
+    /** Sets the clip's position/zoom/angle from a gesture on the preview: keyframe at the playhead if it already animates. */
+    fun setClipLook(clipId: String, look: com.cinemind.core.domain.editing.MotionLook) {
+        val clip = history?.present?.firstOrNull { it.id == clipId } ?: return
+        val framing = com.cinemind.core.domain.editing.ClipFraming.decode(clip.framing)
+        val sourceUs = clip.sourceInUs + com.cinemind.core.domain.editing.SpeedMath.timelineToSource(clip, playheadOffsetIn(clip))
+        setFraming(clipId, com.cinemind.core.domain.editing.TransformMath.setLook(framing, sourceUs, look, animate = framing.keys.size >= 2))
+    }
+
     /** Framing for one clip (one undo step). */
     fun setFraming(clipId: String, framing: com.cinemind.core.domain.editing.ClipFraming) {
         val clips = history?.present ?: return
