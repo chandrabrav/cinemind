@@ -8,6 +8,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.cinemind.core.domain.audio.MusicSettings
 import com.cinemind.core.domain.editing.ClipLimits
@@ -93,7 +94,8 @@ class EditorScreenshotTest {
         compose.onNodeWithContentDescription("Trim end handle").assertIsDisplayed()
         compose.onNodeWithText("Split").assertIsDisplayed()
         compose.onNodeWithText("Audio").assertExists()
-        compose.onNodeWithText("Captions").assertExists()
+        // "Captions" is both a lane label and a tool now.
+        compose.onAllNodesWithText("Captions")[0].assertExists()
         compose.onNodeWithText("Bhai, yeh jagah sach mein").assertIsDisplayed()
     }
 
