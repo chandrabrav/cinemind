@@ -50,7 +50,14 @@ class ModelBenchmark @Inject constructor(
     @ApplicationContext private val context: Context,
     private val llm: OnDeviceLlm,
 ) {
-    suspend fun run(): BenchmarkResult {
+    /** Measures, then frees the model again (it holds several GB). */
+    suspend fun run(): BenchmarkResult = try {
+        measure()
+    } finally {
+        kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) { llm.unload() }
+    }
+
+    private suspend fun measure(): BenchmarkResult {
         val spec = llm.installedModel() ?: throw ModelNotInstalledException()
         val before = availRamMb()
         llm.unload()

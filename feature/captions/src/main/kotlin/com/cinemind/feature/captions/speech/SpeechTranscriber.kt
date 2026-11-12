@@ -115,13 +115,21 @@ class SpeechTranscriber @Inject constructor(
             }
         } finally {
             tmpDir.listFiles()?.forEach { it.delete() }
+            // Free the model (several GB) as soon as the job ends, also when it failed or was cancelled.
+            kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) { llm.unload() }
         }
         onProgress(TranscriptionProgress(1f, "Done"))
         return TranscriptionResult(captions.sortedBy { it.startUs }, heard, silentClips, loadMs, System.currentTimeMillis() - started)
     }
 
     /** Translates existing captions to English (a separate operation from transcription). */
-    suspend fun translateToEnglish(captions: List<Caption>, onProgress: (TranscriptionProgress) -> Unit): List<Caption> =
+    suspend fun translateToEnglish(captions: List<Caption>, onProgress: (TranscriptionProgress) -> Unit): List<Caption> = try {
+        translateAll(captions, onProgress)
+    } finally {
+        kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) { llm.unload() }
+    }
+
+    private suspend fun translateAll(captions: List<Caption>, onProgress: (TranscriptionProgress) -> Unit): List<Caption> =
         captions.mapIndexed { i, c ->
             coroutineContext.ensureActive()
             onProgress(TranscriptionProgress(i.toFloat() / captions.size, "Translating ${i + 1} of ${captions.size}…"))

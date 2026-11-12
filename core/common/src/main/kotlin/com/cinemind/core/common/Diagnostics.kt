@@ -62,6 +62,7 @@ object Diagnostics {
             details.forEach { (k, v) -> p.setProperty(k, v.take(500)) }
             journal(context).outputStream().use { p.store(it, "CineMind export journal") }
         }
+        memoryNote(context, "export: $stage")
     }
 
     /** Starts a fresh journal for a new job. */
@@ -93,6 +94,31 @@ object Diagnostics {
 
     // ---------------------------------------------------------------- report
 
+    // ---------------------------------------------------------------- memory log
+
+    private const val MAX_MEMORY_LINES = 60
+
+    private fun memoryLog(context: Context) = File(dir(context), "memory-log.txt")
+
+    /**
+     * Appends one line with the app's memory use (total PSS incl. GPU/native, Java heap, native heap)
+     * and the phone's free RAM, at moments that matter (AI model load/unload, export stages, the
+     * system asking the app to free memory). Keeps the last [MAX_MEMORY_LINES] lines.
+     */
+    fun memoryNote(context: Context, label: String) {
+        runCatching {
+            val rt = Runtime.getRuntime()
+            val am = context.getSystemService(ActivityManager::class.java)
+            val mem = ActivityManager.MemoryInfo().also { am?.getMemoryInfo(it) }
+            val line = "${stamp.format(Date())} · $label · app PSS ${android.os.Debug.getPss() / 1024} MB · " +
+                "Java ${(rt.totalMemory() - rt.freeMemory()) / (1 shl 20)} MB · native ${android.os.Debug.getNativeHeapAllocatedSize() / (1 shl 20)} MB · " +
+                "phone free ${mem.availMem / (1 shl 20)} MB${if (mem.lowMemory) " (LOW)" else ""}"
+            val f = memoryLog(context)
+            val lines = (if (f.exists()) f.readLines() else emptyList()) + line
+            f.writeText(lines.takeLast(MAX_MEMORY_LINES).joinToString("\n", postfix = "\n"))
+        }
+    }
+
     /** Deletes recorded crashes and job journals (after they were sent), so the next report is clean. */
     fun clear(context: Context) {
         dir(context).listFiles()?.forEach { it.delete() }
@@ -122,6 +148,9 @@ object Diagnostics {
         appendLine("Interrupted job: ${readJournal(context)?.let { p -> p.stringPropertyNames().sorted().joinToString(", ") { "$it=${p.getProperty(it)}" } } ?: "none"}")
         File(dir(context), "export-journal-interrupted.properties").takeIf { it.exists() }?.let { appendLine("Previous interrupted job: ${it.readText().lines().filterNot { l -> l.startsWith("#") }.joinToString(", ")}") }
         File(dir(context), "export-journal-last.properties").takeIf { it.exists() }?.let { appendLine("Last finished job: ${it.readText().lines().filterNot { l -> l.startsWith("#") }.joinToString(", ")}") }
+        appendLine()
+        appendLine("Memory log (oldest first):")
+        memoryLog(context).takeIf { it.exists() }?.readLines()?.takeLast(25)?.forEach { appendLine("  $it") } ?: appendLine("  none")
         appendLine()
         appendLine("How the app last closed (Android):")
         exitReasons(context).ifEmpty { listOf("no records") }.forEach { appendLine("- $it") }
