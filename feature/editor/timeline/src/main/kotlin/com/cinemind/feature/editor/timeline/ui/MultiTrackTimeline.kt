@@ -480,7 +480,7 @@ private fun Ruler(
             .pointerInput(pps, leadPx, totalUs) {
                 // Drag along the ruler to scrub smoothly; playback (if on) continues from where you let go.
                 var last = 0L
-                androidx.compose.foundation.gestures.detectHorizontalDragGestures(
+                detectHorizontalDragGestures(
                     onDragStart = { o -> last = TimelineLayout.usForX(o.x - leadPx, pps).coerceIn(0, totalUs); onScrub(last) },
                     onDragEnd = { onSeek(last) },
                     onDragCancel = { onSeek(last) },
@@ -933,7 +933,7 @@ private fun Playhead(xPx: Float, extraLanes: Int = 0, onDrag: (Float) -> Unit = 
             .height(RULER + Spacing.xs)
             .semantics { contentDescription = "Playhead; drag to move through the video" }
             .pointerInput(Unit) {
-                androidx.compose.foundation.gestures.detectHorizontalDragGestures(
+                detectHorizontalDragGestures(
                     onDragEnd = { dragEnd() },
                     onDragCancel = { dragEnd() },
                 ) { change, dx ->
