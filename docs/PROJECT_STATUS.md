@@ -16,7 +16,7 @@ _Last updated: 2026-11-12_
 | **UI redesign (new, 2026-11-11)** | Whole app moved onto a central design system (light + dark tokens, contrast-tested), persistent Light / Dark / System theme in a new Settings screen, every screen redesigned, editor rebuilt around a time-scaled multitrack timeline with drag-to-trim. See "UI redesign & design system". |
 | **Captions & speech (new, 2026-11-11)** | Editable caption layer (timeline lane, preview overlay, burned into export by the same painter), 7 style presets + full styling, sentence/phrase/word modes, karaoke highlight, animations; on-device speech-to-text with Gemma 4's audio encoder: Hinglish / Roman / native script / English translation as separate operations; Devanagari→Roman transliterator. See "Captions & speech-to-text". **Speech recognition itself is not yet run on a phone.** |
 | **Branding (new)** | "CineMind AI" on launch (wordmark after the system splash), home title and Settings → About CineMind AI (logo, version + build, "Developed by Gautam", description, privacy facts, open-source licences). |
-| **Current task** | Owner tests the colour build (#113/#114) and then the speed build together; dev continues the listed features in order: transforms + keyframes, text/title layers + stickers, audio (SFX, tracks, waveforms, beat sync), transitions library, Teleprompter Studio, templates, music discovery, cloud AI + BYOK, AI graphics, masks/chroma/stabilisation, design research, release. |
+| **Current task** | Owner tests the colour build (#113/#114) and then the speed build together; dev continues the listed features in order: text/title layers + stickers, audio (SFX, tracks, waveforms, beat sync), transitions library, Teleprompter Studio, templates, music discovery, cloud AI + BYOK, AI graphics, masks/chroma/stabilisation, design research, release. |
 | **Branch** | `speed` (from `color-luts`, from `voiceover`); PRs merged by the owner |
 | **Latest verified build** | CI run 43071502601 (#82), commit `baa29f9`: **all green** — 164 unit tests + 12 instrumented (export e2e ×3 incl. caption burn-in, speech audio ×3, screenshots ×6) — https://github.com/chandrabrav/cinemind/actions/runs/43071502601 — artifact `cinemind-debug-82` |
 | **Previous fully verified build** | CI run 43061916979 (#73), commit `82f97fa`: build + 131 unit + 6 instrumented tests. |
@@ -99,8 +99,9 @@ Scaffolded but **excluded** until they get code: `:feature:editor:{preview,effec
 | Music | Implemented: one background song (start point, loop, volume, fades) + original-sound level; preview + export; emulator-tested mixing. No beat detection, no multiple audio tracks, no voice-over yet |
 | Split clip | Implemented (split at playhead), unit-tested |
 | Colour grading / LUTs | Implemented (branch `color-luts`): 31 CineMind looks, search, AI suggestions, .cube import, optional film pack; see "Colour grading & LUTs" |
+| Crop & move | Implemented (branch `speed`): crop, 90° turns, mirror/flip, fill, straighten, position/zoom/rotation/opacity with keyframes and 8 moves; see "Crop & move" |
 | Speed | Implemented (branch `speed`): constant 0.1×–8×, ramps with curve editor and 7 presets, freeze frame; no reverse yet; see "Speed" |
-| Beat sync, cross-dissolves, text layers, keyframed transforms | Not started (Stage 3) |
+| Beat sync, cross-dissolves, text layers | Not started (Stage 3) |
 
 ## Architecture decisions
 
@@ -191,6 +192,16 @@ Owner request: OriginOS-7-inspired redesign of the whole app + persistent Light/
 - **Editor**: Captions tool (and caption lane tap) opens a sheet: speech-to-text (language, script, progress, cancel, summary), add at playhead, edit text, ±0.1 s start/end, split, delete, translate all, clear, undo/redo; Style tab with live animated sample and safe-area guides. Captions draw over the preview with `CaptionPainter` (`core/ui`). Export is also in the editor header; the tools bar scrolls when 6 tools don't fit.
 - **Export**: `CaptionBitmapOverlay` (Media3 `BitmapOverlay`, lazily allocated frame-sized bitmap, redrawn only when the frame changes) added last to each clip's effects.
 - **Tests**: `TransliteratorTest`, `WordTimesTest`, `CaptionLayoutTest`, `CaptionEditingTest` (domain); `PcmTest`, `SpeechSegmenterTest`, `SpeechPromptsTest` (captions); emulator: `SpeechAudioTest` (real AAC decode, trimmed range, burst timing, unreadable file) and `ExportEndToEndTest.burnsInCaptionsAtTheirTimes` (pixels in the caption band only while the caption is on; frame saved as `export_caption_frame.png`).
+
+## Crop & move (2026-11-12, branch `speed`, build #123)
+
+- **Model** (`core/domain/editing/Transform.kt`, Room **v8**: `clips.framing`, `MIGRATION_7_8`): `ClipFraming` = crop edges, quarter turns, mirror/flip, fill (crop to fill the project frame instead of bars) and `MotionKey`s (position, zoom, rotation, opacity, ease) stored in **source time**, so keyframes stay on the footage when the clip is trimmed or its speed changes. One key = static look; two or more = animation. 8 ready-made moves (slow zoom in/out, pan left/right, rise, punch in, Dutch tilt, fade up from black).
+- **Preview + export** (same effects): Media3 `Crop` → `ScaleAndRotateTransformation` (turns, flips) → fit or fill `Presentation` → grade LUT → `ClipMotion` (per-frame matrix, aspect-corrected so rotation doesn't shear) + `ClipOpacity` (toward black) → transitions → captions.
+- **UI:** "Crop & move" tool → sheet with Crop (aspect presets incl. project frame, edge sliders, fill), Rotate (90° left/right, mirror, flip, straighten ±45° with auto zoom) and Position & motion (presets, keyframe switch, clip scrubber with keyframe marks that moves the preview, add/remove keyframe, sliders). One undo step per change.
+- **Not done:** direct pinch/drag on the preview, keyframes for overlay clips, motion blur.
+- **Tests:** `TransformTest` (10); emulator `exportsClipFraming` (fill covers the top; 0.5× zoom leaves black above and keeps the middle; cropped + turned + mirrored video keeps its length).
+- **Build #123** (run 43210798222, `a128cac`): unit ✓, emulator ✓ (all export tests, update test). Artifact `cinemind-debug-123`. Not yet tried on the phone.
+- Room schema JSON for v7/v8 was not exported by CI (cached compile); not needed at runtime (migrations are hand-written).
 
 ## Speed (2026-11-12, branch `speed` from `color-luts`)
 
