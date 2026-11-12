@@ -20,6 +20,7 @@ import com.cinemind.core.domain.editing.TimelineEditing
 import com.cinemind.core.domain.editing.TransitionEditing
 import com.cinemind.core.domain.editing.append
 import com.cinemind.core.domain.editing.split
+import com.cinemind.core.domain.editing.insertFreeze
 import com.cinemind.core.domain.model.ProjectFactory
 import com.cinemind.feature.media.importer.MediaImporter
 import com.cinemind.core.domain.model.Clip
