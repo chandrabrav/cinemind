@@ -113,12 +113,17 @@ class TimelineViewModel @Inject constructor(
     private val lutLibrary: com.cinemind.feature.color.library.LutLibrary,
     private val briefRepository: com.cinemind.core.domain.repository.EditBriefRepository,
     private val textRepository: com.cinemind.core.domain.repository.TextLayerRepository,
+    private val llm: com.cinemind.feature.ai.llm.ondevice.OnDeviceLlm,
 ) : ViewModel() {
 
     private val preview = PreviewPlayer(appContext)
 
     /** The player the preview surface attaches to. Owned (and released) by this ViewModel. */
     val player: Player get() = preview.player
+    /** The preview player (a new one after each rebuild; the video view follows it). */
+    val playerFlow: StateFlow<Player> = preview.playerFlow
+    /** True while the preview is being rebuilt after an edit (small loader). */
+    val previewBuilding: StateFlow<Boolean> = preview.building
 
     private val projectId = MutableStateFlow<String?>(null)
 
@@ -181,6 +186,7 @@ class TimelineViewModel @Inject constructor(
             voiceTrack = voice
             voiceHistory = EditHistory(voiceClips)
             textHistory = EditHistory(runCatching { textRepository.get(id) }.getOrDefault(emptyList()))
+            _layerOrder.value = com.cinemind.feature.export.engine.LayerOrderStore.get(appContext, id)
             sfxTracks.clear()
             timeline?.tracks.orEmpty().filter { it.type == TrackType.SFX }.sortedBy { it.index }.forEach { sfxTracks += it }
             val sfxClips = timeline?.clips.orEmpty().filter { c -> sfxTracks.any { it.id == c.trackId } }
@@ -468,6 +474,77 @@ class TimelineViewModel @Inject constructor(
         analyseWaves(tracks.flatten().map { it.asset })
     }
 
+    // ---- Context-aware graphics -----------------------------------------------------------------
+
+    data class GraphicsContext(val projectName: String, val brief: String, val totalUs: Long, val filmedAt: Long?, val aiAvailable: Boolean)
+
+    suspend fun graphicsContext(): GraphicsContext {
+        val brief = projectId.value?.let { id -> runCatching { briefRepository.observeBrief(id).first() }.getOrNull() }
+        val briefText = listOfNotNull(brief?.prompt, brief?.style?.label).joinToString(" ")
+        val firstDate = history?.present.orEmpty().firstNotNullOfOrNull { assets[it.assetId]?.dateTaken }
+        return GraphicsContext(project.value?.name.orEmpty(), briefText, mainLengthUs(), firstDate, llm.installedModel() != null)
+    }
+
+    /** Title options written by the on-device AI (empty if no model or it fails). */
+    suspend fun aiTitles(ctx: GraphicsContext): List<String> = runCatching {
+        com.cinemind.core.common.BackgroundWork.run(appContext, "Writing titles") {
+            com.cinemind.core.domain.text.GraphicsAdvisor.parseTitles(
+                llm.ask(com.cinemind.core.domain.text.GraphicsAdvisor.titlePrompt(ctx.projectName, ctx.brief), maxOutputTokens = 64),
+            )
+        }
+    }.getOrElse {
+        CineMindLogger.w("AI titles failed: ${it.message}")
+        emptyList()
+    }
+
+    /** Adds the chosen suggestions as normal text layers (one undo step). */
+    fun addGraphics(items: List<com.cinemind.core.domain.text.GraphicSuggestion>) {
+        val project = projectId.value ?: return
+        if (items.isEmpty()) return
+        var layers = textHistory.present
+        items.forEach { s -> layers = layers + com.cinemind.core.domain.text.GraphicsAdvisor.toLayer(project, s, layers) }
+        commitText(layers, select = null)
+        Toast.makeText(appContext, "Added ${items.size} graphic(s); tap one on the preview to edit it", Toast.LENGTH_SHORT).show()
+    }
+
+    // ---- Layer order (what shows above / below) -------------------------------------------------
+
+    private val _layerOrder = MutableStateFlow(com.cinemind.core.domain.text.LayerOrder())
+    val layerOrder: StateFlow<com.cinemind.core.domain.text.LayerOrder> = _layerOrder.asStateFlow()
+    private var previewCaptions: com.cinemind.feature.export.engine.RenderCaptions? = null
+
+    /** The editor's captions (owned by the captions screen model), for layers drawn under the PiP. */
+    fun setPreviewCaptions(captions: List<com.cinemind.core.domain.captions.Caption>, style: com.cinemind.core.domain.captions.CaptionStyle?) {
+        previewCaptions = if (captions.isEmpty() || style == null) null else com.cinemind.feature.export.engine.RenderCaptions(captions, style)
+        pushUnderLayers()
+    }
+
+    private fun pushUnderLayers() {
+        val order = _layerOrder.value
+        preview.setUnderLayers(
+            textHistory.present.filter { it.styleObj.belowOverlays },
+            previewCaptions.takeIf { !order.captionsAboveOverlays },
+            order,
+        )
+    }
+
+    /** The visual stack, top first (for the Layers sheet). */
+    fun layerEntries(): List<com.cinemind.core.domain.text.LayerEntry> =
+        com.cinemind.core.domain.text.LayerStack.entries(textHistory.present, _layerOrder.value, previewCaptions != null, overlayHistory.present.isNotEmpty())
+
+    /** Moves one entry of the stack up or down (titles: one undo step; captions: saved at once). */
+    fun moveLayer(entry: com.cinemind.core.domain.text.LayerEntry, up: Boolean) {
+        val project = projectId.value ?: return
+        val (texts, order) = com.cinemind.core.domain.text.LayerStack.move(
+            textHistory.present, _layerOrder.value, previewCaptions != null, overlayHistory.present.isNotEmpty(), entry, up,
+        )
+        if (order != _layerOrder.value) {
+            _layerOrder.value = order
+            com.cinemind.feature.export.engine.LayerOrderStore.set(appContext, project, order)
+        }
+        if (texts != textHistory.present) commitText(texts, select = _editor.value.selectedTextId) else pushUnderLayers()
+    }
+
     // ---- Text, titles & stickers -------------------------------------------------------------
 
     private var textHistory = EditHistory<List<com.cinemind.core.domain.text.TextLayer>>(emptyList())
@@ -542,6 +619,7 @@ class TimelineViewModel @Inject constructor(
 
     private fun publishTexts() {
         _editor.value = _editor.value.copy(texts = textHistory.present, canUndo = undoKinds.isNotEmpty(), canRedo = redoKinds.isNotEmpty())
+        pushUnderLayers()
     }
 
     // ---- Framing (crop, rotate, flip, position, keyframes) -----------------------------------
@@ -568,6 +646,18 @@ class TimelineViewModel @Inject constructor(
     fun seekInClip(clip: Clip, offsetUs: Long, exact: Boolean) {
         val at = clip.timelineInUs + offsetUs.coerceIn(0, (clip.timelineOutUs - clip.timelineInUs - 1).coerceAtLeast(0))
         if (exact) scrubFinished(at) else scrubTo(at)
+    }
+
+    /** Look of [clip] at the playhead (for dragging it on the preview). */
+    fun lookAtPlayhead(clip: Clip): com.cinemind.core.domain.editing.MotionLook =
+        com.cinemind.core.domain.editing.TransformMath.lookAtTimeline(clip, com.cinemind.core.domain.editing.ClipFraming.decode(clip.framing), playheadOffsetIn(clip))
+
+    /** Sets the clip's position/zoom/angle from a gesture on the preview: keyframe at the playhead if it already animates. */
+    fun setClipLook(clipId: String, look: com.cinemind.core.domain.editing.MotionLook) {
+        val clip = history?.present?.firstOrNull { it.id == clipId } ?: return
+        val framing = com.cinemind.core.domain.editing.ClipFraming.decode(clip.framing)
+        val sourceUs = clip.sourceInUs + com.cinemind.core.domain.editing.SpeedMath.timelineToSource(clip, playheadOffsetIn(clip))
+        setFraming(clipId, com.cinemind.core.domain.editing.TransformMath.setLook(framing, sourceUs, look, animate = framing.keys.size >= 2))
     }
 
     /** Framing for one clip (one undo step). */
@@ -1153,6 +1243,22 @@ class TimelineViewModel @Inject constructor(
         _editor.value = _editor.value.copy(selectedOverlayId = if (current == id) null else id, selectedClipId = null)
         overlayHistory.present.firstOrNull { it.id == id }?.let { preview.seekToUs(it.timelineInUs) }
         refreshPreview()
+    }
+
+    /** Selection without toggling or seeking (timeline drag start). */
+    fun selectVoice(id: String) {
+        _editor.value = _editor.value.copy(selectedVoiceId = id, selectedClipId = null, selectedOverlayId = null, selectedSfxId = null, selectedTextId = null)
+    }
+
+    fun selectSfx(id: String) {
+        _editor.value = _editor.value.copy(selectedSfxId = id, selectedClipId = null, selectedOverlayId = null, selectedVoiceId = null, selectedTextId = null)
+    }
+
+    /** Moves a main-track clip to another place in the order (one undo step). */
+    fun moveClip(from: Int, to: Int) {
+        val clips = history?.present ?: return
+        val id = clips.getOrNull(from)?.id ?: return
+        commit(TimelineEditing.move(clips, from, to), selectAfter = id)
     }
 
     /** Selects an overlay tapped on the preview (no seeking); null clears. */

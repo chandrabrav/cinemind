@@ -2,6 +2,7 @@ package com.cinemind.feature.editor.timeline.ui
 
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.ContentCut
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Crop
@@ -141,6 +142,11 @@ fun TimelineScreen(
     var fullscreen by rememberSaveable { mutableStateOf(false) }
     val project by viewModel.project.collectAsStateWithLifecycle()
     val editor by viewModel.editor.collectAsStateWithLifecycle()
+    val previewPlayer by viewModel.playerFlow.collectAsStateWithLifecycle()
+    val previewBuilding by viewModel.previewBuilding.collectAsStateWithLifecycle()
+    val layerOrder by viewModel.layerOrder.collectAsStateWithLifecycle()
+    var showLayers by remember { mutableStateOf(false) }
+    LaunchedEffect(captionsUi.captions, captionsUi.style) { viewModel.setPreviewCaptions(captionsUi.captions, captionsUi.style) }
     val clips = editor.clips
     val preview by viewModel.previewState.collectAsStateWithLifecycle()
     val selected = clips.firstOrNull { it.clip.id == editor.selectedClipId }
@@ -180,6 +186,7 @@ fun TimelineScreen(
     var showSpeed by remember { mutableStateOf(false) }
     var showFraming by remember { mutableStateOf(false) }
     var showAddText by remember { mutableStateOf(false) }
+    var showGraphics by remember { mutableStateOf(false) }
     var editTextOpen by remember { mutableStateOf(false) }
     LaunchedEffect(editor.selectedTextId) { if (editor.selectedTextId == null) editTextOpen = false }
     var colorAllClips by remember { mutableStateOf(false) }
@@ -221,6 +228,9 @@ fun TimelineScreen(
     var liveText by remember { mutableStateOf<com.cinemind.core.domain.text.TextLayer?>(null) }
     var textBounds by remember { mutableStateOf<Map<String, android.graphics.RectF>>(emptyMap()) }
     var showAudio by remember { mutableStateOf(false) }
+    var showMusicIdeas by remember { mutableStateOf(false) }
+    var musicTheme by remember { mutableStateOf("") }
+    LaunchedEffect(showMusicIdeas) { if (showMusicIdeas) musicTheme = viewModel.colorContext().themeText }
     var adjustOpen by remember { mutableStateOf(false) }
     val selectionKey = listOf(editor.selectedClipId, editor.selectedOverlayId, editor.selectedVoiceId, editor.selectedSfxId, editor.selectedTextId)
     LaunchedEffect(selectionKey) { adjustOpen = false }
@@ -245,7 +255,7 @@ fun TimelineScreen(
             }
 
             PreviewStage(
-                player = viewModel.player,
+                player = previewPlayer,
                 project = project,
                 currentClip = clips.getOrNull(preview.currentIndex),
                 look = look,
@@ -256,9 +266,12 @@ fun TimelineScreen(
                     if (fullscreen) { controlsVisible = !controlsVisible; controlTouches++ } else viewModel.togglePlayPause()
                 },
                 captionLayer = {
-                    CaptionOverlay(captionsUi.captions, captionsUi.style, preview.positionUs, Modifier.fillMaxSize())
+                    // Above the picture-in-picture, in the chosen order (layers set "below" are drawn
+                    // into the video by the composition instead).
+                    val drawCaptions = layerOrder.captionsAboveOverlays
+                    if (drawCaptions && !layerOrder.captionsAboveTitles) CaptionOverlay(captionsUi.captions, captionsUi.style, preview.positionUs, Modifier.fillMaxSize())
                     TextLayersOverlay(
-                        layers = shownTexts,
+                        layers = shownTexts.filter { !it.styleObj.belowOverlays },
                         positionUs = preview.positionUs,
                         selectedId = if (fullscreen) null else editor.selectedTextId,
                         modifier = Modifier.fillMaxSize(),
@@ -266,6 +279,7 @@ fun TimelineScreen(
                         handleGestures = false,
                         onBounds = { textBounds = it },
                     )
+                    if (drawCaptions && layerOrder.captionsAboveTitles) CaptionOverlay(captionsUi.captions, captionsUi.style, preview.positionUs, Modifier.fillMaxSize())
                     if (!fullscreen) {
                         StageGestures(
                             enabled = !preview.isPlaying,
@@ -280,6 +294,8 @@ fun TimelineScreen(
                             onLiveText = { liveText = it },
                             onTextDone = viewModel::updateText,
                             onOverlayDone = viewModel::setOverlayTransform,
+                            clipLook = selected?.let { s -> remember(s.clip, preview.positionUs / 100_000) { viewModel.lookAtPlayhead(s.clip) } },
+                            onClipLookDone = { look -> selected?.let { s -> viewModel.setClipLook(s.clip.id, look) } },
                             modifier = Modifier.fillMaxSize(),
                         )
                     }
@@ -289,6 +305,7 @@ fun TimelineScreen(
                     .weight(1f)
                     .then(if (fullscreen) Modifier else Modifier.padding(horizontal = Spacing.gutter)),
                 showPlayer = true,
+                building = previewBuilding,
                 onFullscreen = if (fullscreen) null else ({ fullscreen = true; controlsVisible = true }),
             )
 
@@ -315,12 +332,30 @@ fun TimelineScreen(
                     selectedSfxId = editor.selectedSfxId,
                     onSfxTap = viewModel::onSfxTapped,
                     onAddSfx = { showSounds = true },
+                    onDragSelect = { kind, id ->
+                        when (kind) {
+                            DragKind.OVERLAY -> viewModel.selectOverlay(id)
+                            DragKind.VOICE -> viewModel.selectVoice(id)
+                            DragKind.SFX -> viewModel.selectSfx(id)
+                            DragKind.TEXT -> viewModel.selectText(id)
+                        }
+                    },
+                    onDragMove = { kind, id, d ->
+                        when (kind) {
+                            DragKind.OVERLAY -> viewModel.moveOverlay(d)
+                            DragKind.VOICE -> viewModel.moveVoice(d)
+                            DragKind.SFX -> viewModel.moveSfx(d)
+                            DragKind.TEXT -> viewModel.moveText(id, d)
+                        }
+                    },
+                    onClipReorder = viewModel::moveClip,
                     totalUs = totalUs,
                     positionUs = preview.positionUs,
                     isPlaying = preview.isPlaying,
                     selectedClipId = editor.selectedClipId,
                     limitsFor = viewModel::limitsFor,
                     onSeek = viewModel::scrubFinished,
+                    onScrub = viewModel::scrubTo,
                     onClipTap = viewModel::onClipTapped,
                     onTrim = viewModel::trimSelected,
                     onMusicTap = { showMusic = true },
@@ -409,6 +444,7 @@ fun TimelineScreen(
                             EditorAction(Icons.Default.PictureInPicture, "Overlay", enabled = clips.isNotEmpty()) { pickOverlay() },
                             EditorAction(Icons.Default.Palette, "Colour", enabled = clips.isNotEmpty()) { showColor = true },
                             EditorAction(Icons.Default.Animation, "Transitions", enabled = clips.isNotEmpty()) { showTransitions = true },
+                            EditorAction(Icons.Default.Layers, "Layers", enabled = clips.isNotEmpty()) { showLayers = true },
                             EditorAction(Icons.Default.AutoAwesome, "Smart edit", enabled = clips.isNotEmpty()) { onOpenBrief() },
                         ),
                     )
@@ -429,6 +465,24 @@ fun TimelineScreen(
         }
     }
 
+    if (showMusicIdeas) {
+        MusicIdeasSheet(
+            projectId = projectId,
+            themeText = musicTheme,
+            bpm = editor.bpm,
+            onChooseFile = { musicPicker.launch(arrayOf("audio/*")) },
+            onDismiss = { showMusicIdeas = false },
+        )
+    }
+
+    if (showLayers) {
+        LayersSheet(
+            entries = remember(editor.texts, layerOrder, captionsUi.captions, editor.overlays) { viewModel.layerEntries() },
+            onMove = viewModel::moveLayer,
+            onDismiss = { showLayers = false },
+        )
+    }
+
     if (showAudio) {
         AudioMenuSheet(
             hasMusic = editor.music != null,
@@ -436,6 +490,7 @@ fun TimelineScreen(
             onSounds = { showSounds = true },
             onVoice = openVoice,
             onDismiss = { showAudio = false },
+            onFindMusic = { showMusicIdeas = true },
         )
     }
 
@@ -501,11 +556,21 @@ fun TimelineScreen(
         )
     }
 
+    if (showGraphics) {
+        GraphicsSheet(
+            loadContext = { viewModel.graphicsContext() },
+            aiTitles = { ctx -> viewModel.aiTitles(ctx) },
+            onAdd = viewModel::addGraphics,
+            onDismiss = { showGraphics = false },
+        )
+    }
+
     if (showAddText) {
         AddTextSheet(
             onAddText = { t, p -> viewModel.addText(t, p); showAddText = false },
             onAddSticker = { s -> viewModel.addSticker(s); showAddText = false },
             onDismiss = { showAddText = false },
+            onSuggest = { showAddText = false; showGraphics = true },
         )
     }
 
@@ -716,6 +781,8 @@ private fun PreviewStage(
     captionLayer: @Composable () -> Unit = {},
     /** False while full screen shows the video (one view per player). */
     showPlayer: Boolean = true,
+    /** Shows a small loader while the preview rebuilds after an edit. */
+    building: Boolean = false,
     onFullscreen: (() -> Unit)? = null,
 ) {
     val c = CineMind.colors
@@ -770,6 +837,17 @@ private fun PreviewStage(
             }
             // Captions sit above the picture and its transitions, as in the export.
             captionLayer()
+            if (building) {
+                androidx.compose.material3.CircularProgressIndicator(
+                    color = c.onStage,
+                    strokeWidth = 2.dp,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(Spacing.s)
+                        .size(18.dp)
+                        .semantics { contentDescription = "Updating the preview" },
+                )
+            }
         }
 
         if (!enabled) {

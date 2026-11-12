@@ -16,7 +16,7 @@ _Last updated: 2026-11-12_
 | **UI redesign (new, 2026-11-11)** | Whole app moved onto a central design system (light + dark tokens, contrast-tested), persistent Light / Dark / System theme in a new Settings screen, every screen redesigned, editor rebuilt around a time-scaled multitrack timeline with drag-to-trim. See "UI redesign & design system". |
 | **Captions & speech (new, 2026-11-11)** | Editable caption layer (timeline lane, preview overlay, burned into export by the same painter), 7 style presets + full styling, sentence/phrase/word modes, karaoke highlight, animations; on-device speech-to-text with Gemma 4's audio encoder: Hinglish / Roman / native script / English translation as separate operations; Devanagari→Roman transliterator. See "Captions & speech-to-text". **Speech recognition itself is not yet run on a phone.** |
 | **Branding (new)** | "CineMind AI" on launch (wordmark after the system splash), home title and Settings → About CineMind AI (logo, version + build, "Developed by Gautam", description, privacy facts, open-source licences). |
-| **Current task** | Owner tests the colour build (#113/#114) and then the speed build together; dev continues the listed features in order: audio (SFX, tracks, waveforms, beat sync), transitions library, Teleprompter Studio, templates, music discovery, cloud AI + BYOK, AI graphics, masks/chroma/stabilisation, design research, release. |
+| **Current task** | Owner tests the optimised build (`cinemind-fast-N`) from the `speed` branch: redesign, full screen, gestures, background jobs, colour, speed, crop & move, text, audio, dissolves. Next dev work: Teleprompter Studio, then templates, masks/chroma/stabilisation, cloud AI. |
 | **Branch** | `speed` (from `color-luts`, from `voiceover`); PRs merged by the owner |
 | **Latest verified build** | CI run 43071502601 (#82), commit `baa29f9`: **all green** — 164 unit tests + 12 instrumented (export e2e ×3 incl. caption burn-in, speech audio ×3, screenshots ×6) — https://github.com/chandrabrav/cinemind/actions/runs/43071502601 — artifact `cinemind-debug-82` |
 | **Previous fully verified build** | CI run 43061916979 (#73), commit `82f97fa`: build + 131 unit + 6 instrumented tests. |
@@ -102,7 +102,9 @@ Scaffolded but **excluded** until they get code: `:feature:editor:{preview,effec
 | Crop & move | Implemented (branch `speed`): crop, 90° turns, mirror/flip, fill, straighten, position/zoom/rotation/opacity with keyframes and 8 moves; see "Crop & move" |
 | Speed | Implemented (branch `speed`): constant 0.1×–8×, ramps with curve editor and 7 presets, freeze frame; no reverse yet; see "Speed" |
 | Text, titles & stickers | Implemented (branch `speed`): 9 looks, stickers, animations, drag/pinch/twist on the preview, text lane; see "Text, titles & stickers" |
-| Beat sync, cross-dissolves | Not started (Stage 3) |
+| Audio (waveforms, beat sync, sound effects, music discovery) | Implemented (branch `speed`); see "Audio" |
+| Cross-dissolves + transition library | Implemented (branch `speed`); see "Transitions library" |
+| Teleprompter, templates, masks/chroma/stabilisation, cloud AI | Not started |
 
 ## Architecture decisions
 
@@ -193,6 +195,40 @@ Owner request: OriginOS-7-inspired redesign of the whole app + persistent Light/
 - **Editor**: Captions tool (and caption lane tap) opens a sheet: speech-to-text (language, script, progress, cancel, summary), add at playhead, edit text, ±0.1 s start/end, split, delete, translate all, clear, undo/redo; Style tab with live animated sample and safe-area guides. Captions draw over the preview with `CaptionPainter` (`core/ui`). Export is also in the editor header; the tools bar scrolls when 6 tools don't fit.
 - **Export**: `CaptionBitmapOverlay` (Media3 `BitmapOverlay`, lazily allocated frame-sized bitmap, redrawn only when the frame changes) added last to each clip's effects.
 - **Tests**: `TransliteratorTest`, `WordTimesTest`, `CaptionLayoutTest`, `CaptionEditingTest` (domain); `PcmTest`, `SpeechSegmenterTest`, `SpeechPromptsTest` (captions); emulator: `SpeechAudioTest` (real AAC decode, trimmed range, burst timing, unreadable file) and `ExportEndToEndTest.burnsInCaptionsAtTheirTimes` (pixels in the caption band only while the caption is on; frame saved as `export_caption_frame.png`).
+
+## Device feedback on #113 → editor redesign (2026-11-12, branch `speed`)
+
+Owner (Vivo X200 Pro, Android 17): exiting full screen closed the app; timeline pushed off screen; PiP only adjustable with sliders; jobs stopped when minimised; editor cluttered (take inspiration from Instagram Edits); not smooth. Diagnostics showed no recorded crash after the update (system memory trim only).
+
+- **Full screen** no longer opens a second window/video view: the editor's own preview grows to fill the screen (same view, nothing handed over); Back / exit button; controls auto-hide.
+- **Layout:** app bar hidden in the editor (own header with Back, undo/redo, Export); fixed-height timeline; **one contextual bottom bar** (main tools: Add, Audio▸Music/Sounds/Voiceover/Find music, Text, Captions, Overlay, Colour, Transitions, Smart edit; with a clip selected: Trim, Split, Speed, Crop & move, Colour, Transition, Freeze, Move, Delete; similar bars for overlay/sound/voiceover/text); detailed controls in sheets (the stacked inspectors were what pushed the timeline away).
+- **Gestures on the preview** (`StageGestures`): tap to select titles/overlays; drag/pinch/twist to move/resize/rotate titles, picture-in-picture overlays and the selected clip (clip writes Crop & move: one look, or a keyframe at the playhead when it animates).
+- **Timeline:** long-press + drag to move titles, sounds, voiceovers, overlays in time; drag clips to reorder.
+- **Background work:** `BackgroundWork` + `WorkService` (core/common) — a foreground service held while speech-to-text, translation, Smart edit or AI titles run, so Android doesn't freeze CineMind when minimised.
+- **Smoothness:** the owner has been testing *debug* builds; CI now also builds an **optimised APK** (`fast` build type: R8, not debuggable, same package and key → installs over the debug build and keeps data). Judge smoothness on `cinemind-fast-N`.
+- Inspiration only — no layouts, names, icons or assets copied. See `docs/DESIGN_RESEARCH.md`.
+
+## Audio: waveforms, beats, sound effects (2026-11-12)
+
+- `core/domain/audio/Beats.kt`: waveform peaks; **BeatDetector** (onset envelope from 10 ms log-energy rises → tempo by weighted autocorrelation 60–190 BPM → grid phase → per-beat nudge; tested on click tracks 90/120/128/150 BPM within 3 %, beats within 30 ms); **BeatSync** (beats onto the timeline through music start/loop; "cut to the beat" every 1/2/4 beats: videos only shorten, photos may grow, ramped clips kept).
+- `AudioAnalysis`: decode once (16 kHz mono), peaks + beats cached in `files/audio-analysis`. Music lane shows waveform + beat ticks; voice/sound clips show waveforms.
+- **Sound effects:** 17 effects synthesised on the phone (`SoundEffects.kt`: whoosh, riser, impact, pop, ding, typing, sparkle, shutter, glitch…) — original, no download, no licence conditions; or the user's own audio. `TrackType.SFX` (by name, no schema change), up to 4 sound tracks, per-sound volume 0–200 % (clip opacity field) and fades; preview + export.
+- **Music discovery** (`MusicDiscovery.kt`): moods/genres/BPM/search terms from the video's theme and the song's tempo; links to free-to-use libraries (YouTube Audio Library, Pixabay Music, Free Music Archive); Instagram Reel/audio links saved per project to add the sound inside Instagram when posting. Nothing is downloaded or scraped.
+
+## Transitions library & cross-dissolves (2026-11-12)
+
+- New: **Cross-dissolve**, Slide down, Whip left/right, Spin (aspect-correct rotation).
+- Cross-dissolve (`DissolveMath`): a layer above the main track plays the neighbouring clip's footage beyond its trim point ("handles") and fades over the cut — a true A→B blend while the timeline stays back to back; photos always dissolve; an opening dissolve fades up from black. Limitation: inside the blend, clips play at normal speed.
+
+## Context-aware graphics (2026-11-12)
+
+- `GraphicsAdvisor`: opening title (from the project name, or the brief if the name is generic), place/date lower third, end card and mood stickers, each in a look that fits the theme (wedding → Cinema, gym → Impact…), timed to the video; with an on-device model the title can be written by AI. Text ▸ "Suggest titles & stickers"; added as normal editable layers.
+
+## CI (2026-11-12)
+
+- Emulator job now builds its own APK and runs in parallel with unit tests (≈4 min saved per run); doc-only pushes skip CI.
+- Update test copies its 4 MB check file with `adb push` + `run-as cp` and verifies it (exec-in once corrupted it).
+- New job: **Optimised APK** (`cinemind-fast-N`).
 
 ## Text, titles & stickers (2026-11-12, branch `speed`, build #127)
 

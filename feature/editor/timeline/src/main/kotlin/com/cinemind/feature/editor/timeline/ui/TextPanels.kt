@@ -185,12 +185,15 @@ private val SWATCHES = listOf(
 /** Adds a title (with a look) or a sticker at the playhead. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-internal fun AddTextSheet(onAddText: (String, TextPreset) -> Unit, onAddSticker: (String) -> Unit, onDismiss: () -> Unit) {
+internal fun AddTextSheet(onAddText: (String, TextPreset) -> Unit, onAddSticker: (String) -> Unit, onDismiss: () -> Unit, onSuggest: (() -> Unit)? = null) {
     val c = CineMind.colors
     var tab by remember { mutableIntStateOf(0) }
     var text by remember { mutableStateOf("") }
     var preset by remember { mutableStateOf(TextPreset.BOLD_TITLE) }
     CineMindSheet(onDismiss = onDismiss, title = "Text & stickers") {
+        if (onSuggest != null) {
+            TextButton(onClick = onSuggest) { Text("✨ Suggest titles & stickers for this video") }
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
             TextPill("Text", tab == 0) { tab = 0 }
             TextPill("Stickers", tab == 1) { tab = 1 }

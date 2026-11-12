@@ -67,9 +67,34 @@ class PreviewPlayer(context: Context) {
      * single video input and only logs a warning for more (overlays then didn't play on the owner's
      * phone). Same setup as Media3's composition demo.
      */
-    val player: CompositionPlayer = CompositionPlayer.Builder(appContext)
+    private fun newPlayer(): CompositionPlayer = CompositionPlayer.Builder(appContext)
         .setVideoGraphFactory(androidx.media3.effect.MultipleInputVideoGraph.Factory())
         .build()
+        .also { p ->
+            p.addListener(object : Player.Listener {
+                override fun onPlayerError(error: PlaybackException) {
+                    lastError = "Can't play the preview: ${error.errorCodeName}"
+                }
+                override fun onPlaybackStateChanged(state: Int) {
+                    if (p === current && state != Player.STATE_BUFFERING) _building.value = false
+                }
+            })
+        }
+
+    /**
+     * A fresh player for every rebuild: the multi-input video graph doesn't pick up a composition
+     * whose layers changed (a voiceover, overlay, sound or dissolve added), which froze the preview
+     * until the project was reopened (owner's #135 test). The view switches to the new player via
+     * [playerFlow]; the old one is released a moment later, after the view has let go of it.
+     */
+    private var current: CompositionPlayer = newPlayer()
+    private val _playerFlow = kotlinx.coroutines.flow.MutableStateFlow<Player>(current)
+    val playerFlow: kotlinx.coroutines.flow.StateFlow<Player> = _playerFlow
+    val player: Player get() = current
+
+    private val _building = kotlinx.coroutines.flow.MutableStateFlow(false)
+    /** True while a new preview is being prepared (for a small loader). */
+    val building: kotlinx.coroutines.flow.StateFlow<Boolean> = _building
     private val renderer = TimelineRenderer(appContext)
     private val main = Handler(Looper.getMainLooper())
 
@@ -98,13 +123,6 @@ class PreviewPlayer(context: Context) {
     private var rebuildPending = false
     private var builtKey: Any? = null
 
-    init {
-        player.addListener(object : Player.Listener {
-            override fun onPlayerError(error: PlaybackException) {
-                lastError = "Can't play the preview: ${error.errorCodeName}"
-            }
-        })
-    }
 
     /** Output shape of the project (preview renders it at 720p on the short side). */
     fun setFormat(projectWidth: Int, projectHeight: Int, frameRate: Int) {
@@ -159,6 +177,20 @@ class PreviewPlayer(context: Context) {
         scheduleRebuild()
     }
 
+    /** Titles and captions placed under the picture-in-picture: drawn into the composition (the
+     *  editor draws everything above it itself, so those edits show without a rebuild). */
+    private var underTexts: List<com.cinemind.core.domain.text.TextLayer> = emptyList()
+    private var underCaptions: com.cinemind.feature.export.engine.RenderCaptions? = null
+    private var layerOrder = com.cinemind.core.domain.text.LayerOrder()
+
+    fun setUnderLayers(texts: List<com.cinemind.core.domain.text.TextLayer>, captions: com.cinemind.feature.export.engine.RenderCaptions?, order: com.cinemind.core.domain.text.LayerOrder) {
+        if (texts == underTexts && captions == underCaptions && order == layerOrder) return
+        underTexts = texts
+        underCaptions = captions
+        layerOrder = order
+        scheduleRebuild()
+    }
+
     private var sfxTracks: List<List<PreviewClip>> = emptyList()
 
     /** Sound-effect tracks (each clip's volume is its opacity field), mixed like the export. */
@@ -207,7 +239,7 @@ class PreviewPlayer(context: Context) {
     }
 
     private fun rebuild() {
-        val key = listOf(clips.map { it.clip to it.asset?.uri }, overlays.map { it.clip to it.asset?.uri }, voiceClips.map { it.clip to it.asset?.uri }, voiceSettings, sfxTracks.map { t -> t.map { it.clip to it.asset?.uri } }, grades.keys.associateWith { grades[it]?.hashCode() }, gradesEnabled, musicPlayback, originalVolume, size, fps)
+        val key = listOf(clips.map { it.clip to it.asset?.uri }, overlays.map { it.clip to it.asset?.uri }, voiceClips.map { it.clip to it.asset?.uri }, voiceSettings, sfxTracks.map { t -> t.map { it.clip to it.asset?.uri } }, underTexts, underCaptions, layerOrder, grades.keys.associateWith { grades[it]?.hashCode() }, gradesEnabled, musicPlayback, originalVolume, size, fps)
         if (key == builtKey) return
         builtKey = key
         lastError = null
@@ -225,16 +257,26 @@ class PreviewPlayer(context: Context) {
         val composition = runCatching {
             val voice = voiceClips.mapNotNull { v -> v.asset?.let { a -> RenderVoiceClip(v.clip, a.uri, a.durationUs) } }
             val sfx = sfxTracks.map { t -> RenderVoiceover(t.mapNotNull { v -> v.asset?.let { a -> RenderVoiceClip(v.clip, a.uri, a.durationUs) } }, com.cinemind.core.domain.audio.VoiceoverSettings()) }
-            renderer.buildComposition(pairs, size, fps, music, originalVolume, overlays = listOf(overlayTrack), voiceover = RenderVoiceover(voice, voiceSettings), grades = if (gradesEnabled) grades else emptyMap(), sfx = sfx)
+            renderer.buildComposition(pairs, size, fps, music, originalVolume, overlays = listOf(overlayTrack), voiceover = RenderVoiceover(voice, voiceSettings), grades = if (gradesEnabled) grades else emptyMap(), sfx = sfx, captions = underCaptions, texts = underTexts, layerOrder = layerOrder)
         }
             .getOrElse {
                 lastError = "Can't build the preview: ${it.message}"
                 return
             }
-        val wasPlaying = player.playWhenReady
-        player.setComposition(composition, keepMs.coerceAtMost(TimelineMath.totalDurationUs(spans) / 1_000))
-        player.prepare()
-        player.playWhenReady = wasPlaying
+        val old = current
+        val wasPlaying = old.playWhenReady
+        val volume = old.volume
+        val fresh = newPlayer()
+        current = fresh
+        _building.value = true
+        fresh.volume = volume
+        fresh.setComposition(composition, keepMs.coerceAtMost(TimelineMath.totalDurationUs(spans) / 1_000))
+        fresh.prepare()
+        fresh.playWhenReady = wasPlaying
+        _playerFlow.value = fresh
+        // Let the video view switch to the new player before the old one goes away.
+        old.pause()
+        main.postDelayed({ runCatching { old.release() } }, 400)
     }
 
     private fun sourceFor(item: PreviewClip): RenderSource {
@@ -318,6 +360,6 @@ class PreviewPlayer(context: Context) {
 
     fun release() {
         main.removeCallbacksAndMessages(null)
-        player.release()
+        runCatching { current.release() }
     }
 }

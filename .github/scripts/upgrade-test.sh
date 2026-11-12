@@ -40,7 +40,16 @@ head -c 4194304 /dev/urandom > "$work/upgrade-check.bin"
 model_before=$(sha256sum "$work/upgrade-check.bin" | cut -d" " -f1)
 printf '%s' '<?xml version="1.0" encoding="utf-8" standalone="yes" ?><map><string name="theme_mode">DARK</string></map>' > "$work/appearance.xml"
 rs "mkdir -p files/models shared_prefs"
-adb exec-in "run-as $pkg sh -c 'cat > files/models/upgrade-check.bin'" < "$work/upgrade-check.bin"
+# adb push + run-as cp is byte-exact; retried and checked, since exec-in once corrupted this
+# 4 MB file on CI (build after #127). The small settings file below still uses exec-in.
+for attempt in 1 2 3; do
+  adb push "$work/upgrade-check.bin" /data/local/tmp/upgrade-check.bin >/dev/null
+  adb shell "chmod 644 /data/local/tmp/upgrade-check.bin"
+  rs "cp /data/local/tmp/upgrade-check.bin files/models/upgrade-check.bin"
+  [ "$(rs "sha256sum files/models/upgrade-check.bin" | cut -d" " -f1)" = "$model_before" ] && break
+  echo "model file copy attempt $attempt didn't match; retrying"
+done
+adb shell "rm -f /data/local/tmp/upgrade-check.bin"
 adb exec-in "run-as $pkg sh -c 'cat > shared_prefs/appearance.xml'" < "$work/appearance.xml"
 on_device=$(rs "sha256sum files/models/upgrade-check.bin" | cut -d" " -f1)
 [ "$on_device" = "$model_before" ] || fail "couldn't write the test model file (got '$on_device')"

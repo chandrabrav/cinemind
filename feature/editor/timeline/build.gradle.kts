@@ -34,6 +34,7 @@ dependencies {
     implementation(project(":feature:captions"))
     implementation(project(":feature:color"))
     implementation(project(":feature:export"))
+    implementation(project(":feature:ai:llm"))
     implementation(libs.media3.transformer)
     implementation(libs.media3.effect)
     implementation(libs.androidx.activity.compose)

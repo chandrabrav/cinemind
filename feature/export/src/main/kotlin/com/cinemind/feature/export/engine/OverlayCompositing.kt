@@ -51,6 +51,8 @@ internal class OverlayCompositorSettings(
     private val tracksTopFirst: List<List<RenderOverlay>>,
     private val mainIndex: Int,
     private val output: OutputSize,
+    /** Cross-dissolve layers (inputs right after the overlay tracks, just above the main track). */
+    private val dissolve: List<List<com.cinemind.core.domain.editing.DissolvePiece>> = emptyList(),
 ) : VideoCompositorSettings {
 
     private val hidden: OverlaySettings = StaticOverlaySettings.Builder().setAlphaScale(0f).build()
@@ -59,6 +61,11 @@ internal class OverlayCompositorSettings(
         inputSizes.getOrNull(mainIndex) ?: Size(output.width, output.height)
 
     override fun getOverlaySettings(inputId: Int, presentationTimeUs: Long): OverlaySettings {
+        val layer = dissolve.getOrNull(inputId - tracksTopFirst.size)
+        if (inputId >= tracksTopFirst.size && layer != null) {
+            val piece = com.cinemind.core.domain.editing.DissolveMath.pieceAt(layer, presentationTimeUs) ?: return hidden
+            return StaticOverlaySettings.Builder().setAlphaScale(piece.alphaAt(presentationTimeUs).coerceIn(0f, 1f)).build()
+        }
         if (inputId >= tracksTopFirst.size) return StaticOverlaySettings.Builder().build() // main track: full frame
         val o = OverlayPlacement.clipAt(tracksTopFirst[inputId], presentationTimeUs) ?: return hidden
         val p = OverlayPlacement.of(o.clip, o.width, o.height, output)

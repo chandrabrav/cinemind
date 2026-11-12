@@ -179,6 +179,48 @@ class ExportEndToEndTest {
     }
 
     /**
+     * Cross-dissolve: black clip (trimmed, so it has footage after its out-point) dissolving into a
+     * photo over 1 s. Around the cut the picture must be part-way between black and the photo,
+     * and the total length must not change.
+     */
+    @Test
+    fun crossDissolveBlendsAcrossTheCut() = runBlocking {
+        val black = asset("black.mp4")
+        val photo = asset("photo.jpg")
+        val clips = TimelineEditing.relayout(
+            listOf(clip("a", 0, 1_500_000), clip("b", 0, 2_000_000, ClipTransition.DISSOLVE, 1_000)),
+        )
+        val sources = listOf(
+            RenderSource(Uri.fromFile(black).toString(), isVideo = true, hasAudio = false, frameRate = 30f, durationUs = 2_000_000),
+            RenderSource(Uri.fromFile(photo).toString(), isVideo = false, hasAudio = false, frameRate = 0f, durationUs = 0),
+        )
+        val out = File(context.cacheDir, "e2e-dissolve.mp4").apply { delete() }
+        val progressScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+        withContext(Dispatchers.Main) {
+            val renderer = TimelineRenderer(context)
+            val composition = renderer.buildComposition(clips.zip(sources), OutputSize(720, 1280), fps = 30)
+            renderer.render(composition, out, videoBitrateBps = 3_000_000, progressScope = progressScope)
+        }
+        progressScope.cancel()
+        val r = MediaMetadataRetriever()
+        try {
+            r.setDataSource(out.absolutePath)
+            val durationMs = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)!!.toLong()
+            assertTrue("length unchanged (~3.5 s, was $durationMs ms)", durationMs in 3_200..3_800)
+            val start = luma(r, 300_000)
+            val mid = luma(r, 1_450_000)
+            val end = luma(r, 3_000_000)
+            saveForReview(r.getFrameAtTime(1_450_000, MediaMetadataRetriever.OPTION_CLOSEST)!!, "export_dissolve_mid")
+            assertTrue("black at the start ($start)", start < 0.05f)
+            assertTrue("photo at the end ($end)", end > 0.12f)
+            val curve = listOf(1_000_000L, 1_250_000L, 1_450_000L, 1_600_000L, 1_750_000L, 1_950_000L, 2_300_000L).joinToString { t -> "${t / 1000}ms=" + String.format(java.util.Locale.ROOT, "%.3f", luma(r, t)) }
+            assertTrue("blend at the cut: between black ($start) and photo ($end), was $mid; curve $curve", mid > start + 0.03f && mid < end - 0.02f)
+        } finally {
+            r.release()
+        }
+    }
+
+    /**
      * Sound effects: a CineMind-made whoosh on an SFX track gives a silent video an audio track,
      * and the video keeps its length.
      */

@@ -6,7 +6,8 @@ import com.cinemind.core.domain.model.Clip
  * Transitions between consecutive clips. The timeline has no overlapping clips (yet), so each
  * transition is split in two halves: the outgoing clip animates *out* during its last half, the
  * incoming clip animates *in* during its first half. FADE is a dip through black.
- * True overlapping cross-dissolves need multi-track compositing (planned for Stage 3).
+ * DISSOLVE is a true cross-dissolve: [DissolveMath] adds a layer that blends the neighbouring
+ * clip's footage just beyond its trim point over the cut (the timeline itself stays back to back).
  */
 enum class ClipTransition(val label: String) {
     CUT("Cut"),
@@ -16,6 +17,11 @@ enum class ClipTransition(val label: String) {
     SLIDE_LEFT("Slide left"),
     SLIDE_RIGHT("Slide right"),
     SLIDE_UP("Slide up"),
+    SLIDE_DOWN("Slide down"),
+    DISSOLVE("Cross-dissolve"),
+    WHIP_LEFT("Whip left"),
+    WHIP_RIGHT("Whip right"),
+    SPIN("Spin"),
     ;
 
     companion object {
@@ -33,8 +39,10 @@ data class FrameLook(
     val translateX: Float = 0f,
     val translateY: Float = 0f,
     val brightness: Float = 1f,
+    /** Clockwise degrees. */
+    val rotation: Float = 0f,
 ) {
-    val isIdentity: Boolean get() = scale == 1f && translateX == 0f && translateY == 0f && brightness == 1f
+    val isIdentity: Boolean get() = scale == 1f && translateX == 0f && translateY == 0f && brightness == 1f && rotation == 0f
 
     companion object {
         val IDENTITY = FrameLook()
@@ -69,7 +77,8 @@ object TransitionMath {
     fun animations(clips: List<Clip>): List<ClipAnimation> = clips.mapIndexed { i, clip ->
         val length = clip.timelineOutUs - clip.timelineInUs
         val cap = (length / 2).coerceAtLeast(0)
-        val inType = ClipTransition.fromName(clip.transitionInType)
+        // A dissolve into the opening clip has nothing to dissolve from: it fades up from black.
+        val inType = ClipTransition.fromName(clip.transitionInType).let { if (i == 0 && it == ClipTransition.DISSOLVE) ClipTransition.FADE else it }
         val inUs = if (inType == ClipTransition.CUT) 0 else {
             val full = clip.transitionInMs * 1_000
             (if (i == 0) full else full / 2).coerceAtMost(cap)
@@ -110,6 +119,11 @@ object TransitionMath {
         ClipTransition.SLIDE_LEFT -> FrameLook(translateX = 1f - p)
         ClipTransition.SLIDE_RIGHT -> FrameLook(translateX = -(1f - p))
         ClipTransition.SLIDE_UP -> FrameLook(translateY = 1f - p)
+        ClipTransition.SLIDE_DOWN -> FrameLook(translateY = -(1f - p))
+        ClipTransition.DISSOLVE -> FrameLook.IDENTITY
+        ClipTransition.WHIP_LEFT -> FrameLook(translateX = 1.2f * whip(1f - p))
+        ClipTransition.WHIP_RIGHT -> FrameLook(translateX = -1.2f * whip(1f - p))
+        ClipTransition.SPIN -> FrameLook(scale = 1f + 0.4f * (1f - p), rotation = -90f * (1f - p))
     }
 
     /** [q] goes 0 → 1 as the clip finishes leaving. */
@@ -121,6 +135,11 @@ object TransitionMath {
         ClipTransition.SLIDE_LEFT -> FrameLook(translateX = -q)
         ClipTransition.SLIDE_RIGHT -> FrameLook(translateX = q)
         ClipTransition.SLIDE_UP -> FrameLook(translateY = -q)
+        ClipTransition.SLIDE_DOWN -> FrameLook(translateY = q)
+        ClipTransition.DISSOLVE -> FrameLook.IDENTITY
+        ClipTransition.WHIP_LEFT -> FrameLook(translateX = -1.2f * whip(q))
+        ClipTransition.WHIP_RIGHT -> FrameLook(translateX = 1.2f * whip(q))
+        ClipTransition.SPIN -> FrameLook(scale = 1f + 0.4f * q, rotation = 90f * q)
     }
 
     private fun combine(a: FrameLook, b: FrameLook) = FrameLook(
@@ -128,7 +147,11 @@ object TransitionMath {
         translateX = a.translateX + b.translateX,
         translateY = a.translateY + b.translateY,
         brightness = a.brightness * b.brightness,
+        rotation = a.rotation + b.rotation,
     )
+
+    /** Whips accelerate hard (most of the travel in the last part), like a fast camera pan. */
+    private fun whip(t: Float): Float = t * t * t
 
     /** Smoothstep easing: gentle start and end. */
     private fun ease(t: Float): Float {
@@ -189,4 +212,64 @@ object TransitionEditing {
         val duration = durationMs.coerceIn(minOf(TransitionMath.MIN_TRANSITION_MS, max), max)
         return clip.copy(transitionInType = type.name, transitionInMs = duration)
     }
+}
+
+/**
+ * One stretch of the dissolve layer: frames of clip [clipIndex] from [sourceStartUs], shown at
+ * [timelineStartUs] for [lengthUs], fading from [alphaFrom] to [alphaTo] (over the main track).
+ */
+data class DissolvePiece(
+    val clipIndex: Int,
+    val timelineStartUs: Long,
+    val lengthUs: Long,
+    val sourceStartUs: Long,
+    val alphaFrom: Float,
+    val alphaTo: Float,
+) {
+    val timelineEndUs: Long get() = timelineStartUs + lengthUs
+    fun alphaAt(tUs: Long): Float {
+        val p = ((tUs - timelineStartUs).toFloat() / lengthUs.coerceAtLeast(1)).coerceIn(0f, 1f)
+        return alphaFrom + (alphaTo - alphaFrom) * p
+    }
+}
+
+/**
+ * Cross-dissolves on a back-to-back track. At a dissolve cut between A and B (length D):
+ * - before the cut, the layer shows B's footage from just *before* its in-point, fading 0 → ½;
+ * - after the cut, it shows A's footage from just *after* its out-point, fading ½ → 0.
+ * Over the main track (A then B) that is a continuous A→B blend, centred on the cut, without
+ * moving any clip. Each half is limited by the footage available beyond the trim point (photos
+ * have no limit); halves under 80 ms are skipped. Clips are played at normal speed in the layer.
+ */
+object DissolveMath {
+
+    const val MIN_PIECE_US = 80_000L
+
+    /**
+     * @param sourceDurationUs length of each clip's source (null = unknown, treated as no footage
+     *   past the out-point); [isStill] marks photos.
+     */
+    fun pieces(clips: List<Clip>, sourceDurationUs: (Int) -> Long?, isStill: (Int) -> Boolean): List<DissolvePiece> {
+        val out = ArrayList<DissolvePiece>()
+        for (i in 1 until clips.size) {
+            val b = clips[i]
+            if (ClipTransition.fromName(b.transitionInType) != ClipTransition.DISSOLVE || b.transitionInMs <= 0) continue
+            val a = clips[i - 1]
+            val half = b.transitionInMs * 1_000 / 2
+            val cut = b.timelineInUs
+            val aLen = a.timelineOutUs - a.timelineInUs
+            val bLen = b.timelineOutUs - b.timelineInUs
+            // B before its in-point.
+            val bHandle = if (isStill(i)) half else b.sourceInUs
+            val h1 = minOf(half, bHandle, aLen)
+            if (h1 >= MIN_PIECE_US) out += DissolvePiece(i, cut - h1, h1, if (isStill(i)) 0 else b.sourceInUs - h1, 0f, 0.5f)
+            // A after its out-point.
+            val aHandle = if (isStill(i - 1)) half else ((sourceDurationUs(i - 1) ?: a.sourceOutUs) - a.sourceOutUs).coerceAtLeast(0)
+            val h2 = minOf(half, aHandle, bLen)
+            if (h2 >= MIN_PIECE_US) out += DissolvePiece(i - 1, cut, h2, if (isStill(i - 1)) 0 else a.sourceOutUs, 0.5f, 0f)
+        }
+        return out.sortedBy { it.timelineStartUs }
+    }
+
+    fun pieceAt(pieces: List<DissolvePiece>, tUs: Long): DissolvePiece? = pieces.firstOrNull { tUs >= it.timelineStartUs && tUs < it.timelineEndUs }
 }
