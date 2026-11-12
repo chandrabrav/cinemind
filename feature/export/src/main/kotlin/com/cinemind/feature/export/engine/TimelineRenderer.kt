@@ -29,6 +29,8 @@ import com.cinemind.core.domain.audio.VoiceMix
 import com.cinemind.core.domain.audio.VoiceoverSettings
 import com.cinemind.core.domain.editing.ClipAnimation
 import com.cinemind.core.domain.editing.ClipFraming
+import com.cinemind.core.domain.editing.DissolveMath
+import com.cinemind.core.domain.editing.DissolvePiece
 import com.cinemind.core.domain.editing.OverlayEditing
 import com.cinemind.core.domain.editing.TransitionMath
 import com.cinemind.core.domain.model.Clip
@@ -104,6 +106,17 @@ class TimelineRenderer(private val context: Context) {
         val hasAudio = voiceSequence != null || sfxSequences.isNotEmpty() || clips.any { (_, s) -> s.isVideo && s.hasAudio } || musicItems.isNotEmpty()
         val clipAudio = if (originalVolume < 0.999f) listOf(GainAudioProcessor { originalVolume.coerceIn(0f, 1f) }) else emptyList()
 
+        // How a clip's picture is prepared (also used by the dissolve layer, so both match).
+        val pictureEffects = { clip: Clip, source: RenderSource ->
+            buildList<Effect> {
+                if (source.isVideo && source.frameRate > fps + 1) add(FrameDropEffect.createDefaultFrameDropEffect(fps.toFloat()))
+                val framing = ClipFraming.decode(clip.framing)
+                ClipFramingEffects.sourceEffects(framing).forEach { add(it) }
+                add(if (framing.fill) fill else fit)
+                grades[clip.id]?.let { add(ColorLutEffect.create(it)) }
+            }
+        }
+
         val items = clips.mapIndexed { i, (clip, source) ->
             val lengthUs = clip.timelineOutUs - clip.timelineInUs
             val effects = buildList<Effect> {
@@ -121,7 +134,7 @@ class TimelineRenderer(private val context: Context) {
                 }
                 val anim = animations[i]
                 if (!anim.isNone) {
-                    add(TransitionMotion(clip.timelineInUs, lengthUs, anim))
+                    add(TransitionMotion(clip.timelineInUs, lengthUs, anim, size.width.toFloat() / size.height))
                     add(TransitionBrightness(clip.timelineInUs, lengthUs, anim))
                 }
                 // Captions last: drawn on top of the picture and not moved/dimmed by transitions.
@@ -163,9 +176,18 @@ class TimelineRenderer(private val context: Context) {
         // last; empty time on an overlay track is a transparent still drawn at alpha 0.
         val overlayTracks = overlays.filter { it.isNotEmpty() }.reversed()
         val overlaySequences = overlayTracks.map { track -> buildOverlaySequence(track, totalUs, fps) }
-        val mainIndex = overlaySequences.size
+        // Cross-dissolves: a layer above the main track with the neighbouring clip's footage
+        // beyond its trim point, fading over each dissolve cut (see DissolveMath).
+        val dissolvePieces = DissolveMath.pieces(
+            clips.map { it.first },
+            { i -> clips[i].second.durationUs.takeIf { it > 0 } },
+            { i -> !clips[i].second.isVideo },
+        )
+        val dissolveSequence = if (dissolvePieces.isEmpty()) null else buildDissolveSequence(dissolvePieces, clips, totalUs, fps, pictureEffects)
+        val mainIndex = overlaySequences.size + if (dissolveSequence != null) 1 else 0
         val sequences = buildList {
             addAll(overlaySequences)
+            dissolveSequence?.let { add(it) }
             add(EditedMediaItemSequence.Builder(mainTracks).addItems(items).build())
             if (musicItems.isNotEmpty()) add(EditedMediaItemSequence.Builder(setOf(C.TRACK_TYPE_AUDIO)).addItems(musicItems).build())
             if (voiceSequence != null) add(voiceSequence)
@@ -173,11 +195,59 @@ class TimelineRenderer(private val context: Context) {
         }
         val builder = Composition.Builder(sequences)
             .setHdrMode(Composition.HDR_MODE_TONE_MAP_HDR_TO_SDR_USING_OPEN_GL)
-        if (overlayTracks.isNotEmpty()) {
-            builder.setVideoCompositorSettings(OverlayCompositorSettings(overlayTracks, mainIndex, size))
+        if (overlayTracks.isNotEmpty() || dissolveSequence != null) {
+            builder.setVideoCompositorSettings(OverlayCompositorSettings(overlayTracks, mainIndex, size, dissolvePieces.takeIf { dissolveSequence != null }))
         }
         // Titles and stickers after compositing: on top of overlay tracks too.
         TextBitmapOverlay.effectFor(texts, size)?.let { builder.setEffects(Effects(emptyList(), listOf(it))) }
+        return builder.build()
+    }
+
+    /** The dissolve layer: each piece at its timeline time, empty time as gaps (drawn at alpha 0). */
+    private fun buildDissolveSequence(
+        pieces: List<DissolvePiece>,
+        clips: List<Pair<Clip, RenderSource>>,
+        totalUs: Long,
+        fps: Int,
+        pictureEffects: (Clip, RenderSource) -> List<Effect>,
+    ): EditedMediaItemSequence {
+        val builder = EditedMediaItemSequence.Builder(setOf(C.TRACK_TYPE_VIDEO))
+        var cursor = 0L
+        for (raw in pieces) {
+            // Very short clips can make two cuts' pieces overlap: start this one where the last ended.
+            val skip = (cursor - raw.timelineStartUs).coerceAtLeast(0)
+            val length = raw.lengthUs - skip
+            if (length < DissolveMath.MIN_PIECE_US) continue
+            val start = raw.timelineStartUs + skip
+            if (start > cursor) builder.addGap(start - cursor)
+            val (clip, source) = clips[raw.clipIndex]
+            val item = if (source.isVideo) {
+                val from = raw.sourceStartUs + skip
+                val mediaItem = MediaItem.Builder()
+                    .setUri(source.uri)
+                    .setClippingConfiguration(
+                        MediaItem.ClippingConfiguration.Builder()
+                            .setStartPositionMs(from / 1_000)
+                            .setEndPositionMs((from + length) / 1_000)
+                            .build(),
+                    )
+                    .build()
+                EditedMediaItem.Builder(mediaItem)
+                    .setDurationUs(knownDurationUs(source.durationUs, from + length))
+                    .setRemoveAudio(true)
+                    .setEffects(Effects(emptyList(), pictureEffects(clip, source)))
+                    .build()
+            } else {
+                EditedMediaItem.Builder(MediaItem.Builder().setUri(source.uri).setImageDurationMs(length / 1_000).build())
+                    .setDurationUs(length / 1_000 * 1_000)
+                    .setFrameRate(fps)
+                    .setEffects(Effects(emptyList(), pictureEffects(clip, source)))
+                    .build()
+            }
+            builder.addItem(item)
+            cursor = start + length
+        }
+        if (totalUs > cursor) builder.addGap(totalUs - cursor)
         return builder.build()
     }
 
@@ -374,11 +444,17 @@ private class TransitionMotion(
     private val clipStartUs: Long,
     private val lengthUs: Long,
     private val anim: ClipAnimation,
+    private val aspect: Float,
 ) : MatrixTransformation {
     override fun getMatrix(presentationTimeUs: Long): Matrix {
         val look = TransitionMath.lookAt(TimelineRenderer.localTimeUs(presentationTimeUs, clipStartUs), lengthUs, anim)
         return Matrix().apply {
             postScale(look.scale, look.scale)
+            if (look.rotation != 0f) {
+                postScale(aspect, 1f)
+                postRotate(-look.rotation)
+                postScale(1f / aspect, 1f)
+            }
             // NDC spans 2 units across; +y is up in NDC but down in FrameLook.
             postTranslate(2f * look.translateX, -2f * look.translateY)
         }

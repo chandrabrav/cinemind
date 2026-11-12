@@ -180,6 +180,7 @@ fun TimelineScreen(
     var showSpeed by remember { mutableStateOf(false) }
     var showFraming by remember { mutableStateOf(false) }
     var showAddText by remember { mutableStateOf(false) }
+    var showGraphics by remember { mutableStateOf(false) }
     var editTextOpen by remember { mutableStateOf(false) }
     LaunchedEffect(editor.selectedTextId) { if (editor.selectedTextId == null) editTextOpen = false }
     var colorAllClips by remember { mutableStateOf(false) }
@@ -221,6 +222,9 @@ fun TimelineScreen(
     var liveText by remember { mutableStateOf<com.cinemind.core.domain.text.TextLayer?>(null) }
     var textBounds by remember { mutableStateOf<Map<String, android.graphics.RectF>>(emptyMap()) }
     var showAudio by remember { mutableStateOf(false) }
+    var showMusicIdeas by remember { mutableStateOf(false) }
+    var musicTheme by remember { mutableStateOf("") }
+    LaunchedEffect(showMusicIdeas) { if (showMusicIdeas) musicTheme = viewModel.colorContext().themeText }
     var adjustOpen by remember { mutableStateOf(false) }
     val selectionKey = listOf(editor.selectedClipId, editor.selectedOverlayId, editor.selectedVoiceId, editor.selectedSfxId, editor.selectedTextId)
     LaunchedEffect(selectionKey) { adjustOpen = false }
@@ -429,6 +433,16 @@ fun TimelineScreen(
         }
     }
 
+    if (showMusicIdeas) {
+        MusicIdeasSheet(
+            projectId = projectId,
+            themeText = musicTheme,
+            bpm = editor.bpm,
+            onChooseFile = { musicPicker.launch(arrayOf("audio/*")) },
+            onDismiss = { showMusicIdeas = false },
+        )
+    }
+
     if (showAudio) {
         AudioMenuSheet(
             hasMusic = editor.music != null,
@@ -436,6 +450,7 @@ fun TimelineScreen(
             onSounds = { showSounds = true },
             onVoice = openVoice,
             onDismiss = { showAudio = false },
+            onFindMusic = { showMusicIdeas = true },
         )
     }
 
@@ -501,11 +516,21 @@ fun TimelineScreen(
         )
     }
 
+    if (showGraphics) {
+        GraphicsSheet(
+            loadContext = { viewModel.graphicsContext() },
+            aiTitles = { ctx -> viewModel.aiTitles(ctx) },
+            onAdd = viewModel::addGraphics,
+            onDismiss = { showGraphics = false },
+        )
+    }
+
     if (showAddText) {
         AddTextSheet(
             onAddText = { t, p -> viewModel.addText(t, p); showAddText = false },
             onAddSticker = { s -> viewModel.addSticker(s); showAddText = false },
             onDismiss = { showAddText = false },
+            onSuggest = { showAddText = false; showGraphics = true },
         )
     }
 

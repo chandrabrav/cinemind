@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -115,9 +116,10 @@ internal fun EditorBottomBar(title: String?, actions: List<EditorAction>, onClos
 
 /** Audio: background music, sound effects, voiceover. */
 @Composable
-internal fun AudioMenuSheet(hasMusic: Boolean, onMusic: () -> Unit, onSounds: () -> Unit, onVoice: () -> Unit, onDismiss: () -> Unit) {
+internal fun AudioMenuSheet(hasMusic: Boolean, onMusic: () -> Unit, onSounds: () -> Unit, onVoice: () -> Unit, onDismiss: () -> Unit, onFindMusic: () -> Unit = {}) {
     CineMindSheet(onDismiss = onDismiss, title = "Audio") {
         MenuRow(Icons.Default.MusicNote, "Music", if (hasMusic) "Change the song, volume, beats" else "Add a song from your phone; cut to its beat") { onDismiss(); onMusic() }
+        MenuRow(Icons.Default.Search, "Find music", "Song ideas for this video, free music libraries, Instagram sounds") { onDismiss(); onFindMusic() }
         MenuRow(Icons.Default.GraphicEq, "Sound effects", "Whoosh, impact, pop, ding… or your own sounds") { onDismiss(); onSounds() }
         MenuRow(Icons.Default.Mic, "Voiceover", "Record narration over the video") { onDismiss(); onVoice() }
     }

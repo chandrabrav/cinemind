@@ -67,6 +67,17 @@ android {
                 signingConfig = signingConfigs.getByName("release")
             }
         }
+        // Optimised build of the *same* test app (same package and signing key, so it installs
+        // over the debug build and keeps projects and models): R8-shrunk, not debuggable, so it
+        // runs as fast as a store release. This is the build to judge smoothness on.
+        create("fast") {
+            initWith(getByName("release"))
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-fast"
+            isDebuggable = false
+            matchingFallbacks += listOf("release")
+            signingConfig = if (debugKeystore != null) signingConfigs.getByName("stableDebug") else signingConfigs.getByName("debug")
+        }
         debug {
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-debug"

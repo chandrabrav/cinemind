@@ -113,6 +113,7 @@ class TimelineViewModel @Inject constructor(
     private val lutLibrary: com.cinemind.feature.color.library.LutLibrary,
     private val briefRepository: com.cinemind.core.domain.repository.EditBriefRepository,
     private val textRepository: com.cinemind.core.domain.repository.TextLayerRepository,
+    private val llm: com.cinemind.feature.ai.llm.ondevice.OnDeviceLlm,
 ) : ViewModel() {
 
     private val preview = PreviewPlayer(appContext)
@@ -466,6 +467,39 @@ class TimelineViewModel @Inject constructor(
         _editor.value = _editor.value.copy(sfx = tracks, canUndo = undoKinds.isNotEmpty(), canRedo = redoKinds.isNotEmpty())
         preview.setSfx(tracks)
         analyseWaves(tracks.flatten().map { it.asset })
+    }
+
+    // ---- Context-aware graphics -----------------------------------------------------------------
+
+    data class GraphicsContext(val projectName: String, val brief: String, val totalUs: Long, val filmedAt: Long?, val aiAvailable: Boolean)
+
+    suspend fun graphicsContext(): GraphicsContext {
+        val brief = projectId.value?.let { id -> runCatching { briefRepository.observeBrief(id).first() }.getOrNull() }
+        val briefText = listOfNotNull(brief?.prompt, brief?.style?.label).joinToString(" ")
+        val firstDate = history?.present.orEmpty().firstNotNullOfOrNull { assets[it.assetId]?.dateTaken }
+        return GraphicsContext(project.value?.name.orEmpty(), briefText, mainLengthUs(), firstDate, llm.installedModel() != null)
+    }
+
+    /** Title options written by the on-device AI (empty if no model or it fails). */
+    suspend fun aiTitles(ctx: GraphicsContext): List<String> = runCatching {
+        com.cinemind.core.common.BackgroundWork.run(appContext, "Writing titles") {
+            com.cinemind.core.domain.text.GraphicsAdvisor.parseTitles(
+                llm.ask(com.cinemind.core.domain.text.GraphicsAdvisor.titlePrompt(ctx.projectName, ctx.brief), maxOutputTokens = 64),
+            )
+        }
+    }.getOrElse {
+        CineMindLogger.w("AI titles failed: ${it.message}")
+        emptyList()
+    }
+
+    /** Adds the chosen suggestions as normal text layers (one undo step). */
+    fun addGraphics(items: List<com.cinemind.core.domain.text.GraphicSuggestion>) {
+        val project = projectId.value ?: return
+        if (items.isEmpty()) return
+        var layers = textHistory.present
+        items.forEach { s -> layers = layers + com.cinemind.core.domain.text.GraphicsAdvisor.toLayer(project, s, layers) }
+        commitText(layers, select = null)
+        Toast.makeText(appContext, "Added ${items.size} graphic(s); tap one on the preview to edit it", Toast.LENGTH_SHORT).show()
     }
 
     // ---- Text, titles & stickers -------------------------------------------------------------
