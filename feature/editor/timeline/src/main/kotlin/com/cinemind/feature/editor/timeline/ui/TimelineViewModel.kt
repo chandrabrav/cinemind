@@ -75,6 +75,13 @@ data class EditorState(
     /** Titles, labels and stickers. */
     val texts: List<com.cinemind.core.domain.text.TextLayer> = emptyList(),
     val selectedTextId: String? = null,
+    /** Song waveform peaks, beat times on the timeline and tempo (empty until analysed). */
+    val musicPeaks: FloatArray? = null,
+    val beatsUs: List<Long> = emptyList(),
+    val bpm: Float = 0f,
+    val analysingBeats: Boolean = false,
+    /** Waveform peaks of recordings by asset id. */
+    val waves: Map<String, FloatArray> = emptyMap(),
 )
 
 /** The voiceover recorder as shown in its sheet. */
@@ -536,6 +543,73 @@ class TimelineViewModel @Inject constructor(
             originalVolume = audio.originalVolume,
         )
         refreshMusicPlayback()
+        analyseMusic()
+    }
+
+    // ---- Waveforms & beats --------------------------------------------------------------------
+
+    private val audioAnalysis = com.cinemind.feature.editor.timeline.audio.AudioAnalysis(appContext)
+    private var musicBeats: com.cinemind.core.domain.audio.BeatInfo? = null
+    private var analysedMusicId: String? = null
+
+    /** Decodes the song once (cached) for its waveform and beats; shows "finding beats…" meanwhile. */
+    private fun analyseMusic() {
+        val a = musicAsset
+        if (a == null) {
+            musicBeats = null
+            analysedMusicId = null
+            _editor.value = _editor.value.copy(musicPeaks = null, beatsUs = emptyList(), bpm = 0f, analysingBeats = false)
+            return
+        }
+        if (analysedMusicId == a.id) { refreshBeats(); return }
+        analysedMusicId = a.id
+        _editor.value = _editor.value.copy(analysingBeats = true)
+        viewModelScope.launch {
+            val peaks = audioAnalysis.peaks(a)
+            _editor.value = _editor.value.copy(musicPeaks = peaks)
+            musicBeats = audioAnalysis.beats(a)
+            _editor.value = _editor.value.copy(analysingBeats = false)
+            refreshBeats()
+        }
+    }
+
+    /** Beat times on the timeline (they move with the song's start point and loop). */
+    private fun refreshBeats() {
+        val b = musicBeats
+        val a = musicAsset
+        val m = audio.music
+        val total = mainLengthUs()
+        val beats = if (b == null || a == null || m == null || total <= 0) emptyList()
+        else com.cinemind.core.domain.audio.BeatSync.beatsOnTimeline(b, a.durationUs, m.startOffsetUs, total)
+        _editor.value = _editor.value.copy(beatsUs = beats, bpm = b?.bpm ?: 0f)
+    }
+
+    /** Waveforms of voiceover / sound-effect recordings (decoded once each). */
+    private fun analyseWaves(items: List<MediaAsset?>) {
+        items.filterNotNull().filter { it.id !in _editor.value.waves }.distinctBy { it.id }.forEach { a ->
+            audioAnalysis.cachedPeaks(a)?.let { p -> _editor.value = _editor.value.copy(waves = _editor.value.waves + (a.id to p)); return@forEach }
+            viewModelScope.launch {
+                audioAnalysis.peaks(a)?.let { p -> _editor.value = _editor.value.copy(waves = _editor.value.waves + (a.id to p)) }
+            }
+        }
+    }
+
+    /**
+     * Shortens clips so each cut lands on the music's beat (every [every]-th beat), one undo step.
+     * Videos only get shorter; photos may grow to the next beat.
+     */
+    fun cutToBeats(every: Int) {
+        val clips = history?.present ?: return
+        val beats = _editor.value.beatsUs
+        if (beats.isEmpty()) {
+            Toast.makeText(appContext, "No beats found in this song yet", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val next = com.cinemind.core.domain.audio.BeatSync.cutToBeats(clips, beats, every) { limitsFor(it).isStill }
+        val off = com.cinemind.core.domain.audio.BeatSync.offBeatUs(next, beats)
+        val onBeat = off.count { it <= 40_000 }
+        commit(next, selectAfter = _editor.value.selectedClipId)
+        Toast.makeText(appContext, "$onBeat of ${off.size} cuts are on the beat", Toast.LENGTH_SHORT).show()
     }
 
     private fun refreshMusicPlayback() {
@@ -890,6 +964,7 @@ class TimelineViewModel @Inject constructor(
             canRedo = redoKinds.isNotEmpty(),
         )
         preview.setVoiceover(voice, voiceSettings())
+        analyseWaves(voice.map { it.asset })
     }
 
     // ---- Overlay track (picture-in-picture) ------------------------------------------------
@@ -1028,6 +1103,7 @@ class TimelineViewModel @Inject constructor(
         publishVoice()
         refreshMusicPlayback()
         publishTexts()
+        refreshBeats()
         if (seekToSelection) {
             val index = h.present.indexOfFirst { it.id == _editor.value.selectedClipId }
             if (index >= 0) preview.seekToClip(index)

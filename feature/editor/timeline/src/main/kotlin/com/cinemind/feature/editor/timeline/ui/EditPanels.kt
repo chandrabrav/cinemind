@@ -279,10 +279,34 @@ internal fun MusicSheet(
     onRemove: () -> Unit,
     onOriginalVolume: (Float) -> Unit,
     onDismiss: () -> Unit,
+    bpm: Float = 0f,
+    beatCount: Int = 0,
+    analysingBeats: Boolean = false,
+    onCutToBeats: (Int) -> Unit = {},
 ) {
     val c = CineMind.colors
     val sliderColors = SliderDefaults.colors(thumbColor = c.accent, activeTrackColor = c.accent, inactiveTrackColor = c.surfaceSunken)
     CineMindSheet(onDismiss = onDismiss, title = "Music") {
+        if (music != null) {
+            Text(
+                when {
+                    analysingBeats -> "Finding the beats…"
+                    beatCount > 0 -> "Tempo about ${bpm.toInt()} BPM · $beatCount beats under this video (ticks on the music lane)"
+                    else -> "No steady beat found in this song"
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = c.textSecondary,
+            )
+            if (beatCount > 0) {
+                Label("Cut the clips to the beat (clips only get shorter)")
+                Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+                    TextButton(onClick = { onCutToBeats(1) }) { Text("Every beat") }
+                    TextButton(onClick = { onCutToBeats(2) }) { Text("Every 2") }
+                    TextButton(onClick = { onCutToBeats(4) }) { Text("Every bar (4)") }
+                }
+            }
+            Spacer(Modifier.height(Spacing.s))
+        }
         if (music == null) {
             Text(
                 "Add a song from your phone (MP3, M4A, WAV…). It plays under the whole video, loops if it's shorter, and fades in and out.",

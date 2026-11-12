@@ -274,6 +274,9 @@ fun TimelineScreen(
         MultiTrackTimeline(
             clips = clips,
             music = editor.music,
+            musicPeaks = editor.musicPeaks,
+            beatsUs = editor.beatsUs,
+            waves = editor.waves,
             totalUs = totalUs,
             positionUs = preview.positionUs,
             isPlaying = preview.isPlaying,
@@ -519,6 +522,10 @@ fun TimelineScreen(
             onRemove = viewModel::removeMusic,
             onOriginalVolume = viewModel::setOriginalVolume,
             onDismiss = { showMusic = false },
+            bpm = editor.bpm,
+            beatCount = editor.beatsUs.size,
+            analysingBeats = editor.analysingBeats,
+            onCutToBeats = { every -> viewModel.cutToBeats(every); showMusic = false },
         )
     }
 

@@ -61,6 +61,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -134,6 +135,9 @@ internal fun MultiTrackTimeline(
     selectedTextId: String? = null,
     onTextTap: (String) -> Unit = {},
     onAddText: () -> Unit = {},
+    musicPeaks: FloatArray? = null,
+    beatsUs: List<Long> = emptyList(),
+    waves: Map<String, FloatArray> = emptyMap(),
 ) {
     val c = CineMind.colors
     val density = LocalDensity.current
@@ -292,6 +296,10 @@ internal fun MultiTrackTimeline(
                             music = music,
                             xPx = leadPx,
                             widthPx = if (music != null) TimelineLayout.xForUs(totalUs, pps) else viewportPx - leadPx * 2,
+                            peaks = musicPeaks,
+                            beatsUs = beatsUs,
+                            totalUs = totalUs,
+                            pps = pps,
                             onTap = onMusicTap,
                         )
                     }
@@ -313,6 +321,7 @@ internal fun MultiTrackTimeline(
                                     widthPx = TimelineLayout.xForUs(v.clip.timelineOutUs - v.clip.timelineInUs, pps),
                                     selected = v.clip.id == selectedVoiceId,
                                     onTap = { onVoiceTap(v.clip.id) },
+                                    wave = v.asset?.id?.let { waves[it] },
                                 )
                             }
                         }
@@ -553,7 +562,21 @@ private fun TrimHandle(alignStart: Boolean, modifier: Modifier) {
 }
 
 @Composable
-private fun MusicBlock(music: MusicUi?, xPx: Float, widthPx: Float, onTap: () -> Unit) {
+private fun MusicBlock(
+    music: MusicUi?,
+    xPx: Float,
+    widthPx: Float,
+    onTap: () -> Unit,
+    peaks: FloatArray? = null,
+    beatsUs: List<Long> = emptyList(),
+    totalUs: Long = 0,
+    pps: Float = 1f,
+) {
+    val waveColor = CineMind.colors.clipLabel.copy(alpha = 0.35f)
+    val beatColor = CineMind.colors.clipLabel.copy(alpha = 0.7f)
+    val segments = remember(music, totalUs) {
+        music?.let { com.cinemind.core.domain.audio.MusicLayout.segments(it.durationUs, it.settings.startOffsetUs, totalUs) }.orEmpty()
+    }
     val c = CineMind.colors
     val density = LocalDensity.current
     val shape = RoundedCornerShape(Radius.s)
@@ -569,6 +592,29 @@ private fun MusicBlock(music: MusicUi?, xPx: Float, widthPx: Float, onTap: () ->
                 if (music != null) Modifier.background(c.trackMusic)
                 else Modifier.border(1.dp, c.textTertiary.copy(alpha = 0.6f), shape),
             )
+            .drawBehind {
+                if (music == null) return@drawBehind
+                val p = peaks
+                if (p != null && p.isNotEmpty()) {
+                    val step = 3f
+                    var x = 0f
+                    while (x < size.width) {
+                        val t = (x / pps * 1_000_000f).toLong()
+                        val seg = segments.firstOrNull { t >= it.timelineStartUs && t < it.timelineStartUs + it.lengthUs }
+                        if (seg != null) {
+                            val src = seg.sourceInUs + (t - seg.timelineStartUs)
+                            val v = p[(src / com.cinemind.core.domain.audio.Waveform.BUCKET_US).toInt().coerceIn(0, p.lastIndex)]
+                            val h = size.height * 0.8f * v.coerceAtLeast(0.04f)
+                            drawLine(waveColor, Offset(x, (size.height - h) / 2f), Offset(x, (size.height + h) / 2f), strokeWidth = 2f)
+                        }
+                        x += step
+                    }
+                }
+                beatsUs.forEach { b ->
+                    val bx = TimelineLayout.xForUs(b, pps)
+                    if (bx in 0f..size.width) drawLine(beatColor, Offset(bx, size.height * 0.62f), Offset(bx, size.height), strokeWidth = 2f)
+                }
+            }
             .clickable(onClick = hapticClick(onClick = onTap))
             .padding(horizontal = Spacing.s),
     ) {
@@ -591,8 +637,9 @@ private fun MusicBlock(music: MusicUi?, xPx: Float, widthPx: Float, onTap: () ->
 
 /** A recording on the voiceover lane (or, with null, the "Record voiceover" hint). */
 @Composable
-private fun VoiceBlock(item: PreviewClip?, xPx: Float, widthPx: Float, selected: Boolean, onTap: () -> Unit) {
+private fun VoiceBlock(item: PreviewClip?, xPx: Float, widthPx: Float, selected: Boolean, onTap: () -> Unit, wave: FloatArray? = null) {
     val c = CineMind.colors
+    val waveColor = c.clipLabel.copy(alpha = 0.4f)
     val density = LocalDensity.current
     val shape = RoundedCornerShape(Radius.xs)
     Row(
@@ -604,6 +651,17 @@ private fun VoiceBlock(item: PreviewClip?, xPx: Float, widthPx: Float, selected:
             .padding(vertical = Spacing.xxs, horizontal = 1.dp)
             .clip(shape)
             .then(if (item != null) Modifier.background(c.trackMusic) else Modifier.border(1.dp, c.textTertiary.copy(alpha = 0.6f), shape))
+            .drawBehind {
+                val w = wave ?: return@drawBehind
+                val clip = item?.clip ?: return@drawBehind
+                val count = (size.width / 3f).toInt().coerceAtLeast(1)
+                val vals = com.cinemind.core.domain.audio.Waveform.slice(w, clip.sourceInUs, clip.sourceOutUs, count)
+                vals.forEachIndexed { i, v ->
+                    val x = i * 3f
+                    val h = size.height * 0.8f * v.coerceAtLeast(0.04f)
+                    drawLine(waveColor, Offset(x, (size.height - h) / 2f), Offset(x, (size.height + h) / 2f), strokeWidth = 2f)
+                }
+            }
             .then(if (selected) Modifier.border(2.dp, c.selection, shape) else Modifier)
             .semantics {
                 contentDescription = if (item == null) "Record a voiceover"
