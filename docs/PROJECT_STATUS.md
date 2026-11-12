@@ -190,6 +190,12 @@ Owner request: OriginOS-7-inspired redesign of the whole app + persistent Light/
 - **Export**: `CaptionBitmapOverlay` (Media3 `BitmapOverlay`, lazily allocated frame-sized bitmap, redrawn only when the frame changes) added last to each clip's effects.
 - **Tests**: `TransliteratorTest`, `WordTimesTest`, `CaptionLayoutTest`, `CaptionEditingTest` (domain); `PcmTest`, `SpeechSegmenterTest`, `SpeechPromptsTest` (captions); emulator: `SpeechAudioTest` (real AAC decode, trimmed range, burst timing, unreadable file) and `ExportEndToEndTest.burnsInCaptionsAtTheirTimes` (pixels in the caption band only while the caption is on; frame saved as `export_caption_frame.png`).
 
+## Memory (build #109, 2026-11-12)
+
+- **Owner's #105 report:** no crashes after installing #105; Android killed CineMind in the background for **low memory at 5.1 GB PSS** (04:49). Cause: the on-device Gemma model stayed loaded after speech-to-text / translation / benchmark (only Smart edit unloaded it).
+- **Fix (`95408bf`):** model freed when those jobs end (also on failure/cancel), after 60 s idle (`OnDeviceLlm` idle timer), and on `onTrimMemory(UI_HIDDEN / RUNNING_LOW)` unless a request is running. Diagnostics keeps a memory log (app PSS, Java/native heap, phone free RAM) at model load/unload, export stages and memory-pressure events.
+- **Build #109** (run 43195939194): unit ✓, emulator ✓ (all export tests, update test, preview, full screen). Not yet confirmed on the phone: export on Android 17, memory log showing the unload.
+
 ## Device test of build #103 and fixes in #105 (2026-11-12, owner's Vivo X200 Pro, Android 17 / API 37, MT6991)
 
 | Owner result (#103) | Root cause | Fix (#105, commit `b707b66`) | Verified |
