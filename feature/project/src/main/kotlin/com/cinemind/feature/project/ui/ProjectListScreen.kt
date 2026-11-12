@@ -118,6 +118,7 @@ fun ProjectListScreen(
                             subtitle = "${projects.size} project${if (projects.size == 1) "" else "s"}",
                         )
                     }
+                    item { BetaCard() }
                     item { NewProjectCard(onNewProject) }
                     items(projects, key = { it.project.id }) { summary ->
                         ProjectCard(
