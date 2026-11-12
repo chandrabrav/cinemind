@@ -1189,6 +1189,22 @@ class TimelineViewModel @Inject constructor(
         refreshPreview()
     }
 
+    /** Selection without toggling or seeking (timeline drag start). */
+    fun selectVoice(id: String) {
+        _editor.value = _editor.value.copy(selectedVoiceId = id, selectedClipId = null, selectedOverlayId = null, selectedSfxId = null, selectedTextId = null)
+    }
+
+    fun selectSfx(id: String) {
+        _editor.value = _editor.value.copy(selectedSfxId = id, selectedClipId = null, selectedOverlayId = null, selectedVoiceId = null, selectedTextId = null)
+    }
+
+    /** Moves a main-track clip to another place in the order (one undo step). */
+    fun moveClip(from: Int, to: Int) {
+        val clips = history?.present ?: return
+        val id = clips.getOrNull(from)?.id ?: return
+        commit(TimelineEditing.move(clips, from, to), selectAfter = id)
+    }
+
     /** Selects an overlay tapped on the preview (no seeking); null clears. */
     fun selectOverlay(id: String?) {
         _editor.value = _editor.value.copy(selectedOverlayId = id, selectedClipId = if (id != null) null else _editor.value.selectedClipId, selectedTextId = if (id != null) null else _editor.value.selectedTextId)

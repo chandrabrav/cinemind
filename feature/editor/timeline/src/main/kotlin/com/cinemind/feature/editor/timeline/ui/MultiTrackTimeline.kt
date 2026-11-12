@@ -140,6 +140,11 @@ internal fun MultiTrackTimeline(
     beatsUs: List<Long> = emptyList(),
     waves: Map<String, FloatArray> = emptyMap(),
     sfx: List<List<PreviewClip>> = emptyList(),
+    /** Long-press + drag: select the item, then move it by a time delta (one undo step). */
+    onDragSelect: (DragKind, String) -> Unit = { _, _ -> },
+    onDragMove: (DragKind, String, Long) -> Unit = { _, _, _ -> },
+    /** Long-press + drag a video clip to a new place in the order. */
+    onClipReorder: (Int, Int) -> Unit = { _, _ -> },
     selectedSfxId: String? = null,
     onSfxTap: (String) -> Unit = {},
     onAddSfx: () -> Unit = {},
@@ -254,6 +259,13 @@ internal fun MultiTrackTimeline(
                     ) {
                         clips.forEachIndexed { index, item ->
                             val clip = item.clip
+                            val drag = rememberTimeDrag(clip.id, pps, onStart = { if (clip.id != selectedClipId) onClipTap(index) }) { _, px ->
+                                val mid = TimelineLayout.xForUs((clip.timelineInUs + clip.timelineOutUs) / 2, pps) + px
+                                val target = clips.indices.filter { it != index }.count { j ->
+                                    TimelineLayout.xForUs((clips[j].clip.timelineInUs + clips[j].clip.timelineOutUs) / 2, pps) < mid
+                                }
+                                if (target != index) onClipReorder(index, target)
+                            }
                             ClipBlock(
                                 index = index,
                                 item = item,
@@ -264,6 +276,8 @@ internal fun MultiTrackTimeline(
                                 limits = limitsFor(clip),
                                 onTap = { onClipTap(index) },
                                 onTrim = onTrim,
+                                dragPx = drag.px,
+                                dragModifier = drag.modifier,
                             )
                         }
                     }
@@ -279,12 +293,15 @@ internal fun MultiTrackTimeline(
                             OverlayBlock(null, leadPx, viewportPx - leadPx * 2, selected = false, onTap = onAddOverlay)
                         } else {
                             overlays.forEach { o ->
+                                val drag = rememberTimeDrag(o.clip.id, pps, onStart = { onDragSelect(DragKind.OVERLAY, o.clip.id) }) { d, _ -> onDragMove(DragKind.OVERLAY, o.clip.id, d) }
                                 OverlayBlock(
                                     item = o,
                                     xPx = leadPx + TimelineLayout.xForUs(o.clip.timelineInUs, pps),
                                     widthPx = TimelineLayout.xForUs(o.clip.timelineOutUs - o.clip.timelineInUs, pps),
                                     selected = o.clip.id == selectedOverlayId,
                                     onTap = { onOverlayTap(o.clip.id) },
+                                    dragPx = drag.px,
+                                    dragModifier = drag.modifier,
                                 )
                             }
                         }
@@ -320,12 +337,15 @@ internal fun MultiTrackTimeline(
                             VoiceBlock(null, leadPx, viewportPx - leadPx * 2, selected = false, onTap = onAddVoice)
                         } else {
                             voiceClips.forEach { v ->
+                                val drag = rememberTimeDrag(v.clip.id, pps, onStart = { onDragSelect(DragKind.VOICE, v.clip.id) }) { d, _ -> onDragMove(DragKind.VOICE, v.clip.id, d) }
                                 VoiceBlock(
                                     item = v,
                                     xPx = leadPx + TimelineLayout.xForUs(v.clip.timelineInUs, pps),
                                     widthPx = TimelineLayout.xForUs(v.clip.timelineOutUs - v.clip.timelineInUs, pps),
                                     selected = v.clip.id == selectedVoiceId,
                                     onTap = { onVoiceTap(v.clip.id) },
+                                    dragPx = drag.px,
+                                    dragModifier = drag.modifier,
                                     wave = v.asset?.id?.let { waves[it] },
                                 )
                             }
@@ -345,12 +365,15 @@ internal fun MultiTrackTimeline(
                                 VoiceBlock(null, leadPx, viewportPx - leadPx * 2, selected = false, onTap = onAddSfx, emptyLabel = "Add sound effects", icon = Icons.Default.GraphicEq)
                             } else {
                                 lane.forEach { s ->
+                                    val drag = rememberTimeDrag(s.clip.id, pps, onStart = { onDragSelect(DragKind.SFX, s.clip.id) }) { d, _ -> onDragMove(DragKind.SFX, s.clip.id, d) }
                                     VoiceBlock(
                                         item = s,
                                         xPx = leadPx + TimelineLayout.xForUs(s.clip.timelineInUs, pps),
                                         widthPx = TimelineLayout.xForUs(s.clip.timelineOutUs - s.clip.timelineInUs, pps),
                                         selected = s.clip.id == selectedSfxId,
                                         onTap = { onSfxTap(s.clip.id) },
+                                        dragPx = drag.px,
+                                        dragModifier = drag.modifier,
                                         wave = s.asset?.id?.let { waves[it] },
                                         icon = Icons.Default.GraphicEq,
                                         itemFallback = "Sound",
@@ -392,12 +415,15 @@ internal fun MultiTrackTimeline(
                             TextBlock(null, leadPx, viewportPx - leadPx * 2, selected = false, onTap = onAddText)
                         } else {
                             texts.sortedBy { it.id == selectedTextId }.forEach { t ->
+                                val drag = rememberTimeDrag(t.id, pps, onStart = { onDragSelect(DragKind.TEXT, t.id) }) { d, _ -> onDragMove(DragKind.TEXT, t.id, d) }
                                 TextBlock(
                                     layer = t,
                                     xPx = leadPx + TimelineLayout.xForUs(t.startUs, pps),
                                     widthPx = TimelineLayout.xForUs(t.endUs - t.startUs, pps),
                                     selected = t.id == selectedTextId,
                                     onTap = { onTextTap(t.id) },
+                                    dragPx = drag.px,
+                                    dragModifier = drag.modifier,
                                 )
                             }
                         }
@@ -466,6 +492,8 @@ private fun ClipBlock(
     limits: ClipLimits,
     onTap: () -> Unit,
     onTrim: (Long, Long) -> Unit,
+    dragPx: Float = 0f,
+    dragModifier: Modifier = Modifier,
 ) {
     val c = CineMind.colors
     val density = LocalDensity.current
@@ -481,7 +509,8 @@ private fun ClipBlock(
 
     Box(
         modifier = Modifier
-            .offset { IntOffset((xPx + dragLeft).roundToInt(), 0) }
+            .offset { IntOffset((xPx + dragLeft + dragPx).roundToInt(), 0) }
+            .then(dragModifier)
             .width(with(density) { shownWidth.toDp() })
             .fillMaxHeight()
             .padding(vertical = Spacing.xs, horizontal = 1.dp)
@@ -680,6 +709,8 @@ private fun VoiceBlock(
     emptyLabel: String = "Record voiceover",
     icon: androidx.compose.ui.graphics.vector.ImageVector = Icons.Default.Mic,
     itemFallback: String = "Voiceover",
+    dragPx: Float = 0f,
+    dragModifier: Modifier = Modifier,
 ) {
     val c = CineMind.colors
     val waveColor = c.clipLabel.copy(alpha = 0.4f)
@@ -688,7 +719,8 @@ private fun VoiceBlock(
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
-            .offset { IntOffset(xPx.roundToInt(), 0) }
+            .offset { IntOffset((xPx + dragPx).roundToInt(), 0) }
+            .then(dragModifier)
             .width(with(density) { widthPx.coerceAtLeast(10.dp.toPx()).toDp() })
             .fillMaxHeight()
             .padding(vertical = Spacing.xxs, horizontal = 1.dp)
@@ -727,14 +759,15 @@ private fun VoiceBlock(
 
 /** An overlay clip on the overlay lane (or, with null, the "Add overlay" hint). */
 @Composable
-private fun OverlayBlock(item: PreviewClip?, xPx: Float, widthPx: Float, selected: Boolean, onTap: () -> Unit) {
+private fun OverlayBlock(item: PreviewClip?, xPx: Float, widthPx: Float, selected: Boolean, onTap: () -> Unit, dragPx: Float = 0f, dragModifier: Modifier = Modifier) {
     val c = CineMind.colors
     val density = LocalDensity.current
     val shape = RoundedCornerShape(Radius.xs)
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
-            .offset { IntOffset(xPx.roundToInt(), 0) }
+            .offset { IntOffset((xPx + dragPx).roundToInt(), 0) }
+            .then(dragModifier)
             .width(with(density) { widthPx.coerceAtLeast(10.dp.toPx()).toDp() })
             .fillMaxHeight()
             .padding(vertical = Spacing.xxs, horizontal = 1.dp)
@@ -799,14 +832,15 @@ private fun CaptionBlock(caption: com.cinemind.core.domain.captions.Caption?, xP
 
 /** A title or sticker on the text lane (or, with null, the "Add text" hint). */
 @Composable
-private fun TextBlock(layer: com.cinemind.core.domain.text.TextLayer?, xPx: Float, widthPx: Float, selected: Boolean, onTap: () -> Unit) {
+private fun TextBlock(layer: com.cinemind.core.domain.text.TextLayer?, xPx: Float, widthPx: Float, selected: Boolean, onTap: () -> Unit, dragPx: Float = 0f, dragModifier: Modifier = Modifier) {
     val c = CineMind.colors
     val density = LocalDensity.current
     val shape = RoundedCornerShape(Radius.xs)
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
-            .offset { IntOffset(xPx.roundToInt(), 0) }
+            .offset { IntOffset((xPx + dragPx).roundToInt(), 0) }
+            .then(dragModifier)
             .width(with(density) { widthPx.coerceAtLeast(6.dp.toPx()).toDp() })
             .fillMaxHeight()
             .padding(vertical = Spacing.xxs, horizontal = 1.dp)

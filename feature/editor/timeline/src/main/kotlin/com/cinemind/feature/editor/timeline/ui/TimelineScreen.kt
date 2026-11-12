@@ -319,6 +319,23 @@ fun TimelineScreen(
                     selectedSfxId = editor.selectedSfxId,
                     onSfxTap = viewModel::onSfxTapped,
                     onAddSfx = { showSounds = true },
+                    onDragSelect = { kind, id ->
+                        when (kind) {
+                            DragKind.OVERLAY -> viewModel.selectOverlay(id)
+                            DragKind.VOICE -> viewModel.selectVoice(id)
+                            DragKind.SFX -> viewModel.selectSfx(id)
+                            DragKind.TEXT -> viewModel.selectText(id)
+                        }
+                    },
+                    onDragMove = { kind, id, d ->
+                        when (kind) {
+                            DragKind.OVERLAY -> viewModel.moveOverlay(d)
+                            DragKind.VOICE -> viewModel.moveVoice(d)
+                            DragKind.SFX -> viewModel.moveSfx(d)
+                            DragKind.TEXT -> viewModel.moveText(id, d)
+                        }
+                    },
+                    onClipReorder = viewModel::moveClip,
                     totalUs = totalUs,
                     positionUs = preview.positionUs,
                     isPlaying = preview.isPlaying,
