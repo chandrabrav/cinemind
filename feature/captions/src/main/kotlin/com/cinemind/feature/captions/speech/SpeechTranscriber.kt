@@ -22,6 +22,8 @@ data class SpeechSource(
     val sourceInUs: Long,
     val sourceOutUs: Long,
     val timelineInUs: Long,
+    /** Offset in the trimmed sound → offset on the timeline (differs when the clip's speed is changed). */
+    val toTimelineOffset: (Long) -> Long = { it },
 )
 
 data class TranscriptionProgress(val fraction: Float, val message: String)
@@ -98,8 +100,8 @@ class SpeechTranscriber @Inject constructor(
                         text = llm.ask(SpeechPrompts.translateToEnglish(text), maxOutputTokens = 160).trim().removeSurrounding("\"").ifBlank { text }
                         source = CaptionSource.TRANSLATION
                     }
-                    val start = src.timelineInUs + seg.startUs
-                    val end = src.timelineInUs + seg.endUs
+                    val start = src.timelineInUs + src.toTimelineOffset(seg.startUs)
+                    val end = src.timelineInUs + src.toTimelineOffset(seg.endUs)
                     captions += Caption(
                         projectId = projectId,
                         startUs = start,

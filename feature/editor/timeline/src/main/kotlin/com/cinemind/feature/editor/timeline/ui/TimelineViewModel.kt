@@ -218,7 +218,7 @@ class TimelineViewModel @Inject constructor(
             ?: clips.firstOrNull { pos >= it.clip.timelineInUs && pos < it.clip.timelineOutUs }
             ?: clips.firstOrNull()
         val asset = item?.asset
-        val timeUs = item?.let { (it.clip.sourceInUs + (pos - it.clip.timelineInUs).coerceIn(0, it.clip.timelineOutUs - it.clip.timelineInUs)) } ?: 0L
+        val timeUs = item?.let { it.clip.sourceInUs + com.cinemind.core.domain.editing.SpeedMath.timelineToSource(it.clip, (pos - it.clip.timelineInUs).coerceIn(0, it.clip.timelineOutUs - it.clip.timelineInUs)) } ?: 0L
         val brief = projectId.value?.let { id -> runCatching { briefRepository.observeBrief(id).first() }.getOrNull() }
         val theme = listOfNotNull(project.value?.name, brief?.prompt, brief?.style?.label).joinToString(" ")
         return ColorContext(asset?.uri, asset?.isVideo == true, timeUs, theme)
@@ -306,6 +306,102 @@ class TimelineViewModel @Inject constructor(
             return
         }
         commit(next, selectAfter = clip.id)
+    }
+
+    // ---- Speed ------------------------------------------------------------------------------
+
+    /** What the speed tool edits: the selected video clip (or the one under the playhead). */
+    data class SpeedTarget(val clip: Clip, val sourceFps: Float, val projectFps: Int)
+
+    fun speedTarget(): SpeedTarget? {
+        val clips = history?.present.orEmpty()
+        val pos = preview.currentPositionUs()
+        val clip = clips.firstOrNull { it.id == _editor.value.selectedClipId }
+            ?: clips.firstOrNull { pos >= it.timelineInUs && pos < it.timelineOutUs }
+            ?: return null
+        val asset = assets[clip.assetId]?.takeIf { it.isVideo } ?: return null
+        return SpeedTarget(clip, asset.frameRate, project.value?.frameRate ?: 30)
+    }
+
+    /** Constant speed for one clip, or for every video clip (one undo step). Clears any ramp. */
+    fun setClipSpeed(clipId: String, speed: Float, allClips: Boolean) {
+        val clips = history?.present ?: return
+        val s = com.cinemind.core.domain.editing.SpeedMath.clampSpeed(speed)
+        val next = clips.map { c ->
+            val isVideo = assets[c.assetId]?.isVideo == true
+            if (isVideo && (allClips || c.id == clipId)) c.copy(speed = s, speedCurve = "") else c
+        }
+        commit(TimelineEditing.relayout(next), selectAfter = clipId)
+    }
+
+    /** Speed ramp for one clip (one undo step); fewer than two points means back to constant speed. */
+    fun setClipRamp(clipId: String, points: List<com.cinemind.core.domain.editing.SpeedPoint>) {
+        val clips = history?.present ?: return
+        val next = clips.map { c ->
+            if (c.id != clipId) c
+            else if (points.size < 2) c.copy(speed = points.firstOrNull()?.speed ?: 1f, speedCurve = "")
+            else c.copy(speed = 1f, speedCurve = com.cinemind.core.domain.editing.SpeedMath.encode(points))
+        }
+        commit(TimelineEditing.relayout(next), selectAfter = clipId)
+    }
+
+    /**
+     * Freeze frame: grabs the video frame under the playhead as a full-size picture and holds it
+     * for [holdUs], splitting the clip there (one undo step). The picture keeps the clip's grade.
+     */
+    fun freezeFrameAtPlayhead(holdUs: Long = 2_000_000L) {
+        val clips = history?.present ?: return
+        val track = trackId ?: return
+        val pos = preview.currentPositionUs()
+        val clip = clips.firstOrNull { it.id == _editor.value.selectedClipId && pos >= it.timelineInUs && pos <= it.timelineOutUs }
+            ?: clips.firstOrNull { pos >= it.timelineInUs && pos < it.timelineOutUs }
+            ?: return
+        val asset = assets[clip.assetId]?.takeIf { it.isVideo } ?: run {
+            Toast.makeText(appContext, "Freeze frame works on video clips", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val offset = (pos - clip.timelineInUs).coerceIn(0, clip.timelineOutUs - clip.timelineInUs)
+        val sourceUs = clip.sourceInUs + com.cinemind.core.domain.editing.SpeedMath.timelineToSource(clip, offset)
+        viewModelScope.launch {
+            val still = withContext(kotlinx.coroutines.Dispatchers.IO) { grabFrame(asset, sourceUs) }
+            if (still == null) {
+                Toast.makeText(appContext, "Couldn't read that frame", Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+            assetRepository.createAsset(still)
+            assets[still.id] = still
+            val freeze = Clip(trackId = track, assetId = still.id, timelineInUs = 0, timelineOutUs = 0, sourceInUs = 0, sourceOutUs = holdUs, grade = clip.grade)
+            val current = history?.present ?: return@launch
+            commit(TimelineEditing.insertFreeze(current, clip.id, pos, freeze), selectAfter = freeze.id)
+        }
+    }
+
+    private fun grabFrame(asset: MediaAsset, sourceUs: Long): MediaAsset? {
+        val retriever = android.media.MediaMetadataRetriever()
+        return try {
+            retriever.setDataSource(appContext, Uri.parse(asset.uri))
+            val frame = retriever.getFrameAtTime(sourceUs, android.media.MediaMetadataRetriever.OPTION_CLOSEST) ?: return null
+            val dir = java.io.File(appContext.filesDir, "freeze").apply { mkdirs() }
+            val file = java.io.File(dir, java.util.UUID.randomUUID().toString() + ".jpg")
+            file.outputStream().use { frame.compress(android.graphics.Bitmap.CompressFormat.JPEG, 95, it) }
+            val w = frame.width
+            val h = frame.height
+            frame.recycle()
+            MediaAsset(
+                uri = Uri.fromFile(file).toString(),
+                mimeType = "image/jpeg",
+                width = w,
+                height = h,
+                durationUs = 0,
+                displayName = "Freeze frame",
+                sizeBytes = file.length(),
+            )
+        } catch (e: Exception) {
+            CineMindLogger.w("Freeze frame failed: ${e.message}")
+            null
+        } finally {
+            runCatching { retriever.release() }
+        }
     }
 
     // ---- Music & volume --------------------------------------------------------------------

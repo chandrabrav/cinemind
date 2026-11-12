@@ -108,6 +108,8 @@ data class Clip(
     @ColumnInfo(defaultValue = "'CUT'") val transitionInType: String = "CUT",
     /** Colour grade ([com.cinemind.core.domain.color.ColorGrade] encoded); "" = none. Added in schema v6. */
     @ColumnInfo(defaultValue = "''") val grade: String = "",
+    /** Speed ramp keyframes ([com.cinemind.core.domain.editing.SpeedMath] encoded); "" = constant [speed]. Schema v7. */
+    @ColumnInfo(defaultValue = "''") val speedCurve: String = "",
 )
 
 /**

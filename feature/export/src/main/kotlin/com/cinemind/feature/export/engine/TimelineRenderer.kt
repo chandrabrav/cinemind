@@ -126,6 +126,7 @@ class TimelineRenderer(private val context: Context) {
                 EditedMediaItem.Builder(mediaItem)
                     .setDurationUs(knownDurationUs(source.durationUs, clip.sourceOutUs))
                     .setEffects(Effects(clipAudio, effects))
+                    .apply { ClipSpeedProvider.forClip(clip)?.let { setSpeed(it) } }
                     .build()
             } else {
                 val mediaItem = MediaItem.Builder()
