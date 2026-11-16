@@ -13,6 +13,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Subtitles
+import androidx.compose.material.icons.filled.AutoAwesomeMosaic
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -28,7 +29,16 @@ import com.cinemind.core.ui.theme.Spacing
 
 /** Home entry for Teleprompter Studio. */
 @Composable
-internal fun TeleprompterCard(onClick: () -> Unit) {
+internal fun TeleprompterCard(onClick: () -> Unit) =
+    HomeActionCard(Icons.Default.Subtitles, "Teleprompter", "Read your script to the camera, part by part", onClick)
+
+/** Home entry for Templates. */
+@Composable
+internal fun TemplatesCard(onClick: () -> Unit) =
+    HomeActionCard(Icons.Default.AutoAwesomeMosaic, "Templates", "Ready-made edits: add your clips, done", onClick)
+
+@Composable
+private fun HomeActionCard(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, subtitle: String, onClick: () -> Unit) {
     val c = CineMind.colors
     GlassCard(onClick = onClick, modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.gutter)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -36,12 +46,12 @@ internal fun TeleprompterCard(onClick: () -> Unit) {
                 contentAlignment = Alignment.Center,
                 modifier = Modifier.size(52.dp).clip(RoundedCornerShape(Radius.m)).background(c.accentContainer),
             ) {
-                Icon(Icons.Default.Subtitles, contentDescription = null, tint = c.onAccentContainer)
+                Icon(icon, contentDescription = null, tint = c.onAccentContainer)
             }
             Spacer(Modifier.width(Spacing.m))
             Column(modifier = Modifier.weight(1f)) {
-                Text("Teleprompter", style = MaterialTheme.typography.titleMedium, color = c.textPrimary)
-                Text("Read your script to the camera, part by part", style = MaterialTheme.typography.bodySmall, color = c.textTertiary)
+                Text(title, style = MaterialTheme.typography.titleMedium, color = c.textPrimary)
+                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = c.textTertiary)
             }
             Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = c.textTertiary)
         }

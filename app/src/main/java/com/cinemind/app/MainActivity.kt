@@ -66,6 +66,7 @@ private object Routes {
     const val ABOUT = "about"
     const val DIAGNOSTICS = "diagnostics"
     const val TELEPROMPTER = "teleprompter"
+    const val TEMPLATES = "templates"
     fun editor(projectId: String) = "editor/$projectId"
     fun brief(projectId: String) = "brief/$projectId"
     fun export(projectId: String) = "export/$projectId"
@@ -107,6 +108,7 @@ class MainActivity : ComponentActivity() {
                         Routes.ABOUT -> "About"
                         Routes.DIAGNOSTICS -> "Diagnostics"
                         Routes.TELEPROMPTER -> "Teleprompter"
+                        Routes.TEMPLATES -> "Templates"
                         else -> com.cinemind.feature.settings.ui.Branding.APP_NAME
                     }
 
@@ -187,6 +189,7 @@ fun CineMindNavHost(
                 onNewProject = { navController.navigate(Routes.MEDIA_LIBRARY) },
                 onOpenProject = { id -> navController.navigate(Routes.editor(id)) },
                 onTeleprompter = { navController.navigate(Routes.TELEPROMPTER) },
+                onTemplates = { navController.navigate(Routes.TEMPLATES) },
             )
         }
         composable(Routes.MEDIA_LIBRARY) {
@@ -217,6 +220,11 @@ fun CineMindNavHost(
             )
         }
         composable(Routes.AI_MODELS) { AiModelsScreen() }
+        composable(Routes.TEMPLATES) {
+            com.cinemind.feature.media.ui.TemplatesScreen(
+                onProjectCreated = { id -> navController.navigate(Routes.editor(id)) { popUpTo(Routes.HOME) } },
+            )
+        }
         composable(Routes.TELEPROMPTER) {
             com.cinemind.feature.teleprompter.TeleprompterScreen(
                 // Open the new project; Back then returns to the project list.
