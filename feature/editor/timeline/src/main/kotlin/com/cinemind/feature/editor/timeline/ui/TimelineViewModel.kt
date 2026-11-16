@@ -690,7 +690,7 @@ class TimelineViewModel @Inject constructor(
                     if (c.transitionInType != "CUT") append(", transition in ").append(c.transitionInType)
                 }
             },
-            titles = textHistory.present.filter { it.kind == com.cinemind.core.domain.text.TextKind.TEXT }.map { it.text },
+            titles = textHistory.present.filter { it.kind == com.cinemind.core.domain.text.TextKind.TEXT.name }.map { it.text },
             captionsSample = previewCaptions?.captions?.joinToString(" ") { it.text }.orEmpty().take(400),
             bpm = _editor.value.bpm,
             hasMusic = _editor.value.music != null,
