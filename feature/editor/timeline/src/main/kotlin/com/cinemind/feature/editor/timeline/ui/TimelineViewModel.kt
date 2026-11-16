@@ -539,7 +539,6 @@ class TimelineViewModel @Inject constructor(
         com.cinemind.core.domain.text.LayerStack.entries(textHistory.present, _layerOrder.value, previewCaptions != null, overlayHistory.present.isNotEmpty())
 
     /**
-    /**
      * Timeline drag up/down: moves the stack entry with [key] by [steps] places (negative = to the
      * front) in one go. One undo step, whether it changed titles, the caption order, or both.
      */
