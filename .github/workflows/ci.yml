@@ -2,11 +2,15 @@ name: Android CI
 
 # All builds run here; nothing Android-related is installed on developer machines.
 on:
+  # Free CI minutes are limited (private repo: 2,000 min/month), so builds run only where they
+  # are needed: on pull requests (tests) and on main after a merge (APKs). Feature-branch pushes
+  # don't build; open a PR, or start a run by hand (Actions → Android CI → Run workflow).
   push:
-    branches: ["**"]
+    branches: ["main"]
     # Doc-only changes don't need a build.
     paths-ignore: ["docs/**", "**/*.md"]
   pull_request:
+    paths-ignore: ["docs/**", "**/*.md"]
   workflow_dispatch:
 
 concurrency:
@@ -95,6 +99,8 @@ jobs:
     # keeps data, but runs like a release. Also proves the minified build still works.
     name: Optimised APK
     runs-on: ubuntu-latest
+    # Beta APK for phones: after a merge to main, or by hand. Not on every PR update.
+    if: github.event_name != 'pull_request'
     timeout-minutes: 45
     steps:
       - name: Checkout
@@ -144,6 +150,8 @@ jobs:
   export-e2e:
     name: Export end-to-end (emulator)
     runs-on: ubuntu-latest
+    # The longest job (~20 min): runs on pull requests and by hand; already passed before a merge.
+    if: github.event_name != 'push'
     timeout-minutes: 50
     # Runs in parallel with the unit-test job; builds its own copy of this run's APK (same key).
     permissions:
