@@ -43,7 +43,7 @@ object Prompts {
             "\"order\" (chronological or hook_first), " +
             "\"transition\" (cut, fade, zoom_in, zoom_out, slide_left, slide_right or slide_up), " +
             "\"strict_quality\" (true if the user wants only sharp/steady/best shots). " +
-            "Use null for anything the request doesn't imply. Request: \"" + userText.replace("\"", "'") + "\""
+            "Use null for anything the request doesn't imply. Request: \"" + userText.take(1_500).replace("\"", "'") + "\""
 
     /** Extracts the first {...} block; tolerates code fences and chatter around it. */
     fun jsonBlock(reply: String): String? {

@@ -27,11 +27,11 @@ class ClaudeClient(apiKey: String, private val model: CloudModel) {
 
     private val client: AnthropicClient = AnthropicOkHttpClient.builder()
         .apiKey(apiKey)
-        .timeout(Duration.ofSeconds(90))
+        .timeout(Duration.ofSeconds(180))
         .maxRetries(2)
         .build()
 
-    suspend fun ask(system: String, user: String, schema: Map<String, Any>, maxTokens: Long = 4_000L): String = withContext(Dispatchers.IO) {
+    suspend fun ask(system: String, user: String, schema: Map<String, Any>, maxTokens: Long = 4_000L, effort: OutputConfig.Effort = OutputConfig.Effort.LOW): String = withContext(Dispatchers.IO) {
         val schemaBuilder = JsonOutputFormat.Schema.builder()
         schema.forEach { (k, v) -> schemaBuilder.putAdditionalProperty(k, JsonValue.from(v)) }
         val params = MessageCreateParams.builder()
@@ -41,7 +41,7 @@ class ClaudeClient(apiKey: String, private val model: CloudModel) {
             .addUserMessage(user)
             .outputConfig(
                 OutputConfig.builder()
-                    .effort(OutputConfig.Effort.LOW)
+                    .effort(effort)
                     .format(JsonOutputFormat.builder().schema(schemaBuilder.build()).build())
                     .build(),
             )

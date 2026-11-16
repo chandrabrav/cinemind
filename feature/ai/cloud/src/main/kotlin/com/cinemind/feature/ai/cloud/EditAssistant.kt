@@ -3,6 +3,9 @@ package com.cinemind.feature.ai.cloud
 import com.cinemind.core.domain.assistant.Assistant
 import com.cinemind.core.domain.assistant.AssistantPlan
 import com.cinemind.core.domain.assistant.ProjectBrief
+import com.cinemind.core.domain.aiedit.EditPlan
+import com.cinemind.core.domain.aiedit.EditPlanJson
+import com.cinemind.core.domain.aiedit.PlanRequest
 import com.cinemind.feature.ai.llm.ondevice.OnDeviceLlm
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -43,6 +46,24 @@ class EditAssistant @Inject constructor(
             )
         }
         return Assistant.parse(text, brief.clips.size)
+    }
+
+    /**
+     * A complete creative edit plan from Claude for Smart Edit, or null when cloud AI isn't set up
+     * (no key or no consent). Only the text footage report is sent: measurements, on-device
+     * descriptions and caption text — never pictures, video or sound. Throws [CloudAiException]
+     * with a readable message on any provider problem.
+     */
+    suspend fun planEdit(request: PlanRequest): EditPlan? {
+        if (!usesCloud) return null
+        val key = keys.apiKey() ?: return null
+        val client = ClaudeClient(key, keys.settings.value.model)
+        val text = try {
+            client.ask(EditPlanJson.systemPrompt, EditPlanJson.userPrompt(request), EditPlanJson.schema, 12_000L, com.anthropic.models.messages.OutputConfig.Effort.MEDIUM)
+        } finally {
+            client.close()
+        }
+        return EditPlanJson.parse(text) ?: throw CloudAiException("Claude's plan couldn't be read. Try again.")
     }
 
     /** A tiny request to check the saved key works; returns Claude's reply. */
