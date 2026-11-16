@@ -67,6 +67,7 @@ private object Routes {
     const val DIAGNOSTICS = "diagnostics"
     const val TELEPROMPTER = "teleprompter"
     const val TEMPLATES = "templates"
+    const val CLOUD_AI = "cloud_ai"
     fun editor(projectId: String) = "editor/$projectId"
     fun brief(projectId: String) = "brief/$projectId"
     fun export(projectId: String) = "export/$projectId"
@@ -109,6 +110,7 @@ class MainActivity : ComponentActivity() {
                         Routes.DIAGNOSTICS -> "Diagnostics"
                         Routes.TELEPROMPTER -> "Teleprompter"
                         Routes.TEMPLATES -> "Templates"
+                        Routes.CLOUD_AI -> "Cloud AI"
                         else -> com.cinemind.feature.settings.ui.Branding.APP_NAME
                     }
 
@@ -208,6 +210,7 @@ fun CineMindNavHost(
                 projectId = projectId,
                 onOpenBrief = { navController.navigate(Routes.brief(projectId)) },
                 onExport = { navController.navigate(Routes.export(projectId)) },
+                onOpenCloudAi = { navController.navigate(Routes.CLOUD_AI) },
                 onOpenAiModels = { navController.navigate(Routes.AI_MODELS) },
                 onBack = { navController.navigateUp() },
             )
@@ -220,6 +223,7 @@ fun CineMindNavHost(
             )
         }
         composable(Routes.AI_MODELS) { AiModelsScreen() }
+        composable(Routes.CLOUD_AI) { com.cinemind.feature.ai.cloud.ui.CloudAiScreen() }
         composable(Routes.TEMPLATES) {
             com.cinemind.feature.media.ui.TemplatesScreen(
                 onProjectCreated = { id -> navController.navigate(Routes.editor(id)) { popUpTo(Routes.HOME) } },
@@ -235,6 +239,7 @@ fun CineMindNavHost(
             SettingsScreen(
                 onOpenAiModels = { navController.navigate(Routes.AI_MODELS) },
                 onOpenAbout = { navController.navigate(Routes.ABOUT) },
+                onOpenCloudAi = { navController.navigate(Routes.CLOUD_AI) },
                 onOpenDiagnostics = { navController.navigate(Routes.DIAGNOSTICS) },
             )
         }

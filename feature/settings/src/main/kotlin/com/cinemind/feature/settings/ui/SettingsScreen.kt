@@ -25,6 +25,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.outlined.BugReport
 import androidx.compose.material.icons.outlined.Info
@@ -83,6 +84,7 @@ class SettingsViewModel @Inject constructor(
 fun SettingsScreen(
     onOpenAiModels: () -> Unit,
     onOpenAbout: () -> Unit = {},
+    onOpenCloudAi: () -> Unit = {},
     onOpenDiagnostics: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
@@ -131,6 +133,26 @@ fun SettingsScreen(
                     Text("On-device AI", style = MaterialTheme.typography.titleMedium, color = CineMind.colors.textPrimary)
                     Text(
                         "Download and benchmark AI models for Smart edit",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = CineMind.colors.textTertiary,
+                    )
+                }
+                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = CineMind.colors.textTertiary)
+            }
+        }
+        GlassCard(
+            onClick = onOpenCloudAi,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = Spacing.gutter, vertical = Spacing.s),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Cloud, contentDescription = null, tint = CineMind.colors.accent)
+                Spacer(Modifier.width(Spacing.m))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Cloud AI (optional)", style = MaterialTheme.typography.titleMedium, color = CineMind.colors.textPrimary)
+                    Text(
+                        "Use your own Claude API key for the editing assistant",
                         style = MaterialTheme.typography.bodySmall,
                         color = CineMind.colors.textTertiary,
                     )

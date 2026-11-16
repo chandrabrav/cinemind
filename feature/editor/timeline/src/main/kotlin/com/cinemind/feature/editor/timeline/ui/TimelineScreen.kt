@@ -124,6 +124,7 @@ fun TimelineScreen(
     onOpenBrief: () -> Unit,
     onExport: () -> Unit,
     onOpenAiModels: () -> Unit = {},
+    onOpenCloudAi: () -> Unit = {},
     /** Leaves the editor (the editor has its own header; the app bar is hidden here). */
     onBack: () -> Unit = {},
     viewModel: TimelineViewModel = hiltViewModel(),
@@ -234,8 +235,10 @@ fun TimelineScreen(
     var keyMaskSheet by remember { mutableStateOf<Boolean?>(null) }
     var showMusicIdeas by remember { mutableStateOf(false) }
     var showTts by remember { mutableStateOf(false) }
+    var showAssistant by remember { mutableStateOf(false) }
+    var musicMood by remember { mutableStateOf<String?>(null) }
     var musicTheme by remember { mutableStateOf("") }
-    LaunchedEffect(showMusicIdeas) { if (showMusicIdeas) musicTheme = viewModel.colorContext().themeText }
+    LaunchedEffect(showMusicIdeas) { if (showMusicIdeas) musicTheme = musicMood ?: viewModel.colorContext().themeText }
     var adjustOpen by remember { mutableStateOf(false) }
     val selectionKey = listOf(editor.selectedClipId, editor.selectedOverlayId, editor.selectedVoiceId, editor.selectedSfxId, editor.selectedTextId)
     LaunchedEffect(selectionKey) { adjustOpen = false }
@@ -256,6 +259,7 @@ fun TimelineScreen(
                     onRedo = viewModel::redo,
                     onExport = onExport,
                     onBack = onBack,
+                    onAssistant = { showAssistant = true },
                 )
             }
 
@@ -481,13 +485,22 @@ fun TimelineScreen(
         )
     }
 
+    if (showAssistant) {
+        AssistantSheet(
+            viewModel = viewModel,
+            onOpenSettings = { showAssistant = false; onOpenCloudAi() },
+            onMusic = { mood -> musicMood = mood; showAssistant = false; showMusicIdeas = true },
+            onDismiss = { showAssistant = false },
+        )
+    }
+
     if (showMusicIdeas) {
         MusicIdeasSheet(
             projectId = projectId,
             themeText = musicTheme,
             bpm = editor.bpm,
             onChooseFile = { musicPicker.launch(arrayOf("audio/*")) },
-            onDismiss = { showMusicIdeas = false },
+            onDismiss = { showMusicIdeas = false; musicMood = null },
         )
     }
 
@@ -753,6 +766,7 @@ private fun EditorHeader(
     onRedo: () -> Unit,
     onExport: (() -> Unit)? = null,
     onBack: () -> Unit = {},
+    onAssistant: () -> Unit = {},
 ) {
     val c = CineMind.colors
     Row(
@@ -779,6 +793,11 @@ private fun EditorHeader(
                     Spacer(Modifier.width(Spacing.xs))
                     Text("$clipCount clips · ${it.frameRate} fps", style = MaterialTheme.typography.labelSmall, color = c.textTertiary)
                 }
+            }
+        }
+        if (clipCount > 0) {
+            IconButton(onClick = hapticClick(onClick = onAssistant)) {
+                Icon(androidx.compose.material.icons.Icons.Default.AutoAwesome, contentDescription = "Assistant", tint = c.accent)
             }
         }
         IconButton(onClick = hapticClick(onClick = onUndo), enabled = canUndo) {
