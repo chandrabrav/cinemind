@@ -72,8 +72,15 @@ data class ClipFraming(
     val flipV: Boolean = false,
     val fill: Boolean = false,
     val keys: List<MotionKey> = emptyList(),
+    /** Green-screen key (removes a colour), or null. */
+    val chroma: ChromaKey? = null,
+    /** Shape the picture is cut to. */
+    val mask: MaskShape = MaskShape.NONE,
+    /** Soft edge of the mask, as a fraction of the picture (0..0.3). */
+    val maskFeather: Float = 0.04f,
 ) {
-    val isNone: Boolean get() = crop.isNone && quarterTurns % 4 == 0 && !flipH && !flipV && !fill && keys.all { it.isIdentity }
+    val isNone: Boolean get() = crop.isNone && quarterTurns % 4 == 0 && !flipH && !flipV && !fill && keys.all { it.isIdentity } && chroma == null && mask == MaskShape.NONE
+    val hasKeyOrMask: Boolean get() = chroma != null || mask != MaskShape.NONE
     val hasMotion: Boolean get() = keys.size >= 2 && keys.zipWithNext().any { (a, b) -> !a.sameLook(b) }
 
     fun encode(): String {
@@ -83,6 +90,8 @@ data class ClipFraming(
         if (quarterTurns % 4 != 0) parts += "turn=${((quarterTurns % 4) + 4) % 4}"
         if (flipH || flipV) parts += "flip=" + (if (flipH) "h" else "") + (if (flipV) "v" else "")
         if (fill) parts += "fill=1"
+        chroma?.let { parts += String.format(Locale.ROOT, "chroma=%08x,%.3f,%.3f", it.color, it.strength, it.softness) }
+        if (mask != MaskShape.NONE) parts += String.format(Locale.ROOT, "mask=%s,%.3f", mask.name, maskFeather)
         if (keys.isNotEmpty()) {
             parts += "keys=" + keys.sortedBy { it.sourceUs }.joinToString("|") {
                 String.format(Locale.ROOT, "%d:%.4f:%.4f:%.4f:%.2f:%.3f:%s", it.sourceUs, it.x, it.y, it.scale, it.rotation, it.opacity, it.ease.name)
@@ -109,6 +118,16 @@ data class ClipFraming(
                     "flip" -> f = f.copy(flipH = 'h' in v, flipV = 'v' in v)
                     "fill" -> f = f.copy(fill = v == "1")
                     "keys" -> f = f.copy(keys = v.split('|').mapNotNull(::decodeKey).sortedBy { it.sourceUs })
+                    "chroma" -> v.split(',').let { p ->
+                        val col = p.getOrNull(0)?.toLongOrNull(16)?.toInt()
+                        if (col != null) f = f.copy(chroma = ChromaKey(col, p.getOrNull(1)?.toFloatOrNull()?.coerceIn(0f, 1f) ?: 0.6f, p.getOrNull(2)?.toFloatOrNull()?.coerceIn(0f, 1f) ?: 0.1f))
+                    }
+                    "mask" -> v.split(',').let { p ->
+                        f = f.copy(
+                            mask = MaskShape.entries.firstOrNull { it.name == p.getOrNull(0) } ?: MaskShape.NONE,
+                            maskFeather = (p.getOrNull(1)?.toFloatOrNull() ?: 0.04f).coerceIn(0f, 0.3f),
+                        )
+                    }
                 }
             }
             return f
@@ -131,6 +150,39 @@ data class ClipFraming(
         }
     }
 }
+
+/**
+ * Green screen: pixels close to [color] (in colour, ignoring brightness) become transparent.
+ * [strength] 0..1 how much around the key colour is removed; [softness] 0..1 the soft edge.
+ */
+data class ChromaKey(val color: Int = GREEN, val strength: Float = 0.6f, val softness: Float = 0.1f) {
+    companion object {
+        const val GREEN = 0xFF00B140.toInt()
+        const val BLUE = 0xFF0047BB.toInt()
+
+        /** Chroma (Cb, Cr) of an ARGB colour, 0..1 each; brightness-independent. */
+        fun chroma(argb: Int): Pair<Float, Float> {
+            val r = ((argb shr 16) and 0xFF) / 255f
+            val g = ((argb shr 8) and 0xFF) / 255f
+            val b = (argb and 0xFF) / 255f
+            return (-0.169f * r - 0.331f * g + 0.5f * b + 0.5f) to (0.5f * r - 0.419f * g - 0.081f * b + 0.5f)
+        }
+
+        /** How much of a pixel stays (0 = removed) for this key — the same formula as the GPU shader. */
+        fun keep(pixel: Int, key: ChromaKey): Float {
+            val (pu, pv) = chroma(pixel)
+            val (ku, kv) = chroma(key.color)
+            val d = kotlin.math.sqrt((pu - ku) * (pu - ku) + (pv - kv) * (pv - kv))
+            val lo = key.strength * 0.3f
+            val hi = lo + key.softness * 0.2f + 1e-4f
+            val t = ((d - lo) / (hi - lo)).coerceIn(0f, 1f)
+            return t * t * (3 - 2 * t)
+        }
+    }
+}
+
+/** Shapes a picture can be cut to. */
+enum class MaskShape(val label: String) { NONE("None"), CIRCLE("Circle"), ROUNDED("Rounded"), HEART("Heart"), DIAMOND("Diamond") }
 
 object TransformMath {
 

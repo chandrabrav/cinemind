@@ -131,6 +131,7 @@ class TimelineRenderer(private val context: Context) {
                 add(if (framing.fill) fill else fit)
                 // Colour grade (look + adjustments baked into one LUT), before transitions so fades dim the graded picture.
                 grades[clip.id]?.let { add(ColorLutEffect.create(it)) }
+                if (framing.hasKeyOrMask) add(KeyMaskEffect(framing))
                 // Keyframed position / zoom / rotation / opacity, before transitions so those act on the moved picture.
                 if (framing.keys.any { !it.isIdentity }) {
                     add(ClipMotion(clip, framing, clip.timelineInUs, size.width.toFloat() / size.height))
@@ -304,6 +305,7 @@ class TimelineRenderer(private val context: Context) {
                             .build()
                         val effects = buildList<Effect> {
                             if (o.source.frameRate > fps + 1) add(FrameDropEffect.createDefaultFrameDropEffect(fps.toFloat()))
+                            ClipFraming.decode(c.framing).takeIf { it.hasKeyOrMask }?.let { add(KeyMaskEffect(it)) }
                         }
                         EditedMediaItem.Builder(mediaItem)
                             .setDurationUs(knownDurationUs(o.source.durationUs, c.sourceOutUs))
@@ -313,6 +315,7 @@ class TimelineRenderer(private val context: Context) {
                         EditedMediaItem.Builder(MediaItem.Builder().setUri(o.source.uri).setImageDurationMs(piece.durationUs / 1_000).build())
                             .setDurationUs(piece.durationUs / 1_000 * 1_000)
                             .setFrameRate(fps)
+                            .setEffects(Effects(emptyList(), listOfNotNull(ClipFraming.decode(c.framing).takeIf { it.hasKeyOrMask }?.let { KeyMaskEffect(it) })))
                             .build()
                     }
                 })

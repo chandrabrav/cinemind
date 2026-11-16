@@ -1327,6 +1327,14 @@ class TimelineViewModel @Inject constructor(
         OverlayEditing.trim(clips, c.id, c.timelineInUs + startDeltaUs, c.timelineOutUs + endDeltaUs, src, mainLengthUs())
     }
 
+    /** Green screen / mask of the selected overlay (one undo step). */
+    fun setOverlayKeyMask(chroma: com.cinemind.core.domain.editing.ChromaKey?, mask: com.cinemind.core.domain.editing.MaskShape, feather: Float) = editOverlay { clips, c ->
+        clips.map {
+            if (it.id != c.id) it
+            else it.copy(framing = com.cinemind.core.domain.editing.ClipFraming.decode(it.framing).copy(chroma = chroma, mask = mask, maskFeather = feather.coerceIn(0f, 0.3f)).encode())
+        }
+    }
+
     fun setOverlayTransform(x: Float, y: Float, scale: Float, rotation: Float, opacity: Float) = editOverlay { clips, c ->
         OverlayEditing.setTransform(clips, c.id, x, y, scale, rotation, opacity)
     }
