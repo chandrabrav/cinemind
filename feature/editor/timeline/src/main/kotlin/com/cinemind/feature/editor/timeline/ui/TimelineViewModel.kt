@@ -188,6 +188,7 @@ class TimelineViewModel @Inject constructor(
             voiceHistory = EditHistory(voiceClips)
             textHistory = EditHistory(runCatching { textRepository.get(id) }.getOrDefault(emptyList()))
             _layerOrder.value = com.cinemind.feature.export.engine.LayerOrderStore.get(appContext, id)
+            orderHistory = EditHistory(_layerOrder.value)
             sfxTracks.clear()
             timeline?.tracks.orEmpty().filter { it.type == TrackType.SFX }.sortedBy { it.index }.forEach { sfxTracks += it }
             val sfxClips = timeline?.clips.orEmpty().filter { c -> sfxTracks.any { it.id == c.trackId } }
@@ -538,34 +539,53 @@ class TimelineViewModel @Inject constructor(
         com.cinemind.core.domain.text.LayerStack.entries(textHistory.present, _layerOrder.value, previewCaptions != null, overlayHistory.present.isNotEmpty())
 
     /**
+    /**
      * Timeline drag up/down: moves the stack entry with [key] by [steps] places (negative = to the
-     * front) in one go — one undo step for titles; caption order is saved at once.
+     * front) in one go. One undo step, whether it changed titles, the caption order, or both.
      */
     fun moveLayerBy(key: String, steps: Int) {
         if (steps == 0) return
-        val project = projectId.value ?: return
         val (texts, order) = com.cinemind.core.domain.text.LayerStack.moveBy(
-            textHistory.present, _layerOrder.value, previewCaptions != null, overlayHistory.present.isNotEmpty(), key, steps,
+            textHistory.present, orderHistory.present, previewCaptions != null, overlayHistory.present.isNotEmpty(), key, steps,
         )
-        if (order != _layerOrder.value) {
-            _layerOrder.value = order
-            com.cinemind.feature.export.engine.LayerOrderStore.set(appContext, project, order)
-        }
-        if (texts != textHistory.present) commitText(texts, select = _editor.value.selectedTextId) else pushUnderLayers()
+        commitStack(texts, order)
     }
 
-    /** Moves one entry of the stack up or down (titles: one undo step; captions: saved at once). */
+    /** Moves one entry of the stack up or down (Layers sheet). One undo step. */
     fun moveLayer(entry: com.cinemind.core.domain.text.LayerEntry, up: Boolean) {
-        val project = projectId.value ?: return
         val (texts, order) = com.cinemind.core.domain.text.LayerStack.move(
-            textHistory.present, _layerOrder.value, previewCaptions != null, overlayHistory.present.isNotEmpty(), entry, up,
+            textHistory.present, orderHistory.present, previewCaptions != null, overlayHistory.present.isNotEmpty(), entry, up,
         )
-        if (order != _layerOrder.value) {
-            _layerOrder.value = order
-            com.cinemind.feature.export.engine.LayerOrderStore.set(appContext, project, order)
-        }
-        if (texts != textHistory.present) commitText(texts, select = _editor.value.selectedTextId) else pushUnderLayers()
+        commitStack(texts, order)
     }
+
+    /** Caption order (above/below titles and the PiP), undoable like any edit; saved per project. */
+    private var orderHistory = EditHistory(com.cinemind.core.domain.text.LayerOrder())
+
+    private fun commitStack(texts: List<com.cinemind.core.domain.text.TextLayer>, order: com.cinemind.core.domain.text.LayerOrder) {
+        val textChanged = texts != textHistory.present
+        val orderChanged = order != orderHistory.present
+        if (!textChanged && !orderChanged) return
+        if (textChanged) textHistory.push(texts)
+        if (orderChanged) orderHistory.push(order)
+        undoKinds.addLast(
+            when {
+                textChanged && orderChanged -> Layer.TEXT_ORDER
+                textChanged -> Layer.TEXT
+                else -> Layer.ORDER
+            },
+        )
+        redoKinds.clear()
+        if (textChanged) afterTextChange()
+        if (orderChanged) afterOrderChange() else publishTexts()
+    }
+
+    private fun afterOrderChange() {
+        _layerOrder.value = orderHistory.present
+        projectId.value?.let { com.cinemind.feature.export.engine.LayerOrderStore.set(appContext, it, orderHistory.present) }
+        publishTexts()
+    }
+
 
     // ---- Text to speech ----------------------------------------------------------------------
 
@@ -1186,7 +1206,7 @@ class TimelineViewModel @Inject constructor(
 
     // Each track keeps its own history; this records which one each step changed, so undo/redo
     // walk all edits in the order they were made.
-    private enum class Layer { MAIN, OVERLAY, VOICE, TEXT, SFX }
+    private enum class Layer { MAIN, OVERLAY, VOICE, TEXT, SFX, ORDER, TEXT_ORDER }
     private val undoKinds = ArrayDeque<Layer>()
     private val redoKinds = ArrayDeque<Layer>()
 
@@ -1194,7 +1214,7 @@ class TimelineViewModel @Inject constructor(
         Layer.MAIN -> history
         Layer.OVERLAY -> overlayHistory
         Layer.VOICE -> voiceHistory
-        Layer.TEXT -> null
+        Layer.TEXT, Layer.ORDER, Layer.TEXT_ORDER -> null
         Layer.SFX -> sfxHistory
     }
 
@@ -1204,11 +1224,18 @@ class TimelineViewModel @Inject constructor(
         Layer.VOICE -> afterVoiceChange()
         Layer.TEXT -> afterTextChange()
         Layer.SFX -> afterSfxChange()
+        Layer.ORDER -> afterOrderChange()
+        Layer.TEXT_ORDER -> { afterTextChange(); afterOrderChange() }
     }
 
     fun undo() {
         val layer = undoKinds.removeLastOrNull() ?: return
-        val ok = if (layer == Layer.TEXT) textHistory.undo() else historyOf(layer)?.undo() == true
+        val ok = when (layer) {
+            Layer.TEXT -> textHistory.undo()
+            Layer.ORDER -> orderHistory.undo()
+            Layer.TEXT_ORDER -> textHistory.undo() and orderHistory.undo()
+            else -> historyOf(layer)?.undo() == true
+        }
         if (!ok) return
         redoKinds.addLast(layer)
         afterChange(layer)
@@ -1216,7 +1243,12 @@ class TimelineViewModel @Inject constructor(
 
     fun redo() {
         val layer = redoKinds.removeLastOrNull() ?: return
-        val ok = if (layer == Layer.TEXT) textHistory.redo() else historyOf(layer)?.redo() == true
+        val ok = when (layer) {
+            Layer.TEXT -> textHistory.redo()
+            Layer.ORDER -> orderHistory.redo()
+            Layer.TEXT_ORDER -> textHistory.redo() and orderHistory.redo()
+            else -> historyOf(layer)?.redo() == true
+        }
         if (!ok) return
         undoKinds.addLast(layer)
         afterChange(layer)

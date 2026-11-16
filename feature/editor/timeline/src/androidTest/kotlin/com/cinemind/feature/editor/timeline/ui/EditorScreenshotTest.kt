@@ -80,7 +80,7 @@ class EditorScreenshotTest {
                         // Nothing selected: the main tools.
                         EditorBottomBar(
                             title = null,
-                            actions = listOf("Add", "Audio", "Text", "Captions", "Overlay", "Colour")
+                            actions = listOf("Edit", "Audio", "Text", "Captions", "Overlay", "Colour", "Speed")
                                 .map { EditorAction(androidx.compose.material.icons.Icons.Default.Tune, it) {} },
                         )
                     }
