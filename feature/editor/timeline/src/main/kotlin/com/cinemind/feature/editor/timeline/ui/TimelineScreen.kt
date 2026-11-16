@@ -368,8 +368,14 @@ fun TimelineScreen(
                     onClipTap = viewModel::onClipTapped,
                     onTrim = viewModel::trimSelected,
                     onMusicTap = { showMusic = true },
-                    // Fixed height: lanes scroll inside it, and nothing below can push it off screen.
-                    modifier = Modifier.fillMaxWidth().height(TIMELINE_HEIGHT),
+                    // As tall as its lanes (two for a new project), at most TIMELINE_HEIGHT: more lanes
+                    // scroll inside it, so the preview keeps its room and nothing is pushed off screen.
+                    modifier = Modifier.fillMaxWidth().heightIn(max = TIMELINE_HEIGHT),
+                    layers = remember(editor.texts, layerOrder, captionsUi.captions, editor.overlays) {
+                        com.cinemind.core.domain.text.LayerStack.entries(editor.texts, layerOrder, captionsUi.captions.isNotEmpty(), editor.overlays.isNotEmpty())
+                            .filter { it != com.cinemind.core.domain.text.LayerEntry.MainVideo }
+                    },
+                    onLayerMove = viewModel::moveLayerBy,
                     captions = captionsUi.captions,
                     onCaptionsTap = { showCaptions = true },
                     fps = fps,
@@ -1058,4 +1064,4 @@ private fun Scrubber(
 }
 
 /** The timeline keeps this height; its lanes scroll inside it. */
-private val TIMELINE_HEIGHT = 208.dp
+private val TIMELINE_HEIGHT = 236.dp

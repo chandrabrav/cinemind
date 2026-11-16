@@ -64,6 +64,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.zIndex
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -100,6 +101,7 @@ private val OVERLAY_LANE = 34.dp
 private val VOICE_LANE = 30.dp
 private val RULER = 24.dp
 private val LANE_GAP = 6.dp
+private val LAYER_LANE = 32.dp
 private val MIN_CLIP = 28.dp
 private val HANDLE = 18.dp
 
@@ -151,9 +153,14 @@ internal fun MultiTrackTimeline(
     selectedSfxId: String? = null,
     onSfxTap: (String) -> Unit = {},
     onAddSfx: () -> Unit = {},
+    /** Visual layers, front first (titles, stickers, captions, PiP group), without the main video. */
+    layers: List<com.cinemind.core.domain.text.LayerEntry> = emptyList(),
+    /** Drag up/down: move the layer with this key by that many places (negative = to the front). */
+    onLayerMove: (key: String, steps: Int) -> Unit = { _, _ -> },
 ) {
     val c = CineMind.colors
     val density = LocalDensity.current
+    val haptics = LocalHapticFeedback.current
     var pps by rememberSaveable { mutableFloatStateOf(with(density) { TimelineLayout.DEFAULT_DP_PER_SECOND.dp.toPx() }) }
     val scroll = rememberScrollState()
     // Scroll target computed with the new zoom; applied after the wider/narrower row is laid out.
@@ -164,6 +171,10 @@ internal fun MultiTrackTimeline(
         scroll.scrollTo(target.roundToInt())
         pendingScroll = null
     }
+    // Layer being dragged up/down (its key) and how far.
+    var layerDragKey by remember { mutableStateOf<String?>(null) }
+    var layerDragY by remember { mutableFloatStateOf(0f) }
+    val layerStepPx = with(density) { (LAYER_LANE + LANE_GAP).toPx() }
 
     BoxWithConstraints(modifier = modifier) {
         val viewportPx = constraints.maxWidth.toFloat()
@@ -184,18 +195,28 @@ internal fun MultiTrackTimeline(
             pps = next
             pendingScroll = TimelineLayout.scrollToShow(startUs, leadPx, next)
         }
-        val playheadViewportX = (leadPx + TimelineLayout.xForUs(positionUs, pps) - scroll.value).coerceIn(0f, viewportPx)
         val selected = clips.firstOrNull { it.clip.id == selectedClipId }?.clip
         val zoom by rememberUpdatedState<(Float, Float) -> Unit>({ factor, anchor -> zoomTo(pps * factor, anchor) })
 
+        // Where a dragged layer would land (index in [layers]) — drawn as an insertion line.
+        val dragFrom = layers.indexOfFirst { com.cinemind.core.domain.text.LayerStack.keyOf(it) == layerDragKey }
+        val dragTarget = if (dragFrom < 0) -1 else (dragFrom + (layerDragY / layerStepPx).roundToInt()).coerceIn(0, layers.lastIndex)
+        LaunchedEffect(dragTarget) { if (dragTarget >= 0 && dragTarget != dragFrom) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove) }
+        fun layerDrag(key: String): Pair<(Float) -> Unit, (Float) -> Unit> =
+            { dy: Float -> layerDragKey = key; layerDragY = dy } to { dy: Float ->
+                val from = layers.indexOfFirst { com.cinemind.core.domain.text.LayerStack.keyOf(it) == key }
+                val to = if (from < 0) from else (from + (dy / layerStepPx).roundToInt()).coerceIn(0, layers.lastIndex)
+                layerDragKey = null
+                layerDragY = 0f
+                if (from >= 0 && to != from) onLayerMove(key, to - from)
+            }
+
     Column {
+        // Compact header: length, and one button that fits the whole video (or the selected clip).
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = Spacing.gutter, end = Spacing.xs)) {
             Text(formatDuration(totalUs), style = MaterialTheme.typography.labelLarge, color = c.textPrimary, modifier = Modifier.weight(1f))
-            IconButton(onClick = hapticClick { onSeek(0); pendingScroll = 0f }) {
-                Icon(Icons.Default.FirstPage, contentDescription = "Go to start", tint = c.textSecondary)
-            }
-            IconButton(onClick = hapticClick { onSeek(totalUs); pendingScroll = TimelineLayout.xForUs(totalUs, pps) + leadPx - viewportPx * 0.6f }) {
-                Icon(Icons.AutoMirrored.Filled.LastPage, contentDescription = "Go to end", tint = c.textSecondary)
+            if (layers.isNotEmpty()) {
+                Text("Hold & drag ↕ to layer · ↔ to move", style = MaterialTheme.typography.labelSmall, color = c.textTertiary, modifier = Modifier.padding(end = Spacing.xs))
             }
             IconButton(onClick = hapticClick { if (selected != null) fit(selected.timelineInUs, selected.timelineOutUs) else fit(0, totalUs) }) {
                 Icon(
@@ -203,12 +224,6 @@ internal fun MultiTrackTimeline(
                     contentDescription = if (selected != null) "Zoom to selected clip" else "Zoom to fit the whole video",
                     tint = c.textSecondary,
                 )
-            }
-            IconButton(onClick = hapticClick { zoomTo(pps / 1.6f, playheadViewportX) }, enabled = pps > range.start + 0.01f) {
-                Icon(Icons.Default.Remove, contentDescription = "Zoom out", tint = c.textSecondary)
-            }
-            IconButton(onClick = hapticClick { zoomTo(pps * 1.6f, playheadViewportX) }, enabled = pps < range.endInclusive - 0.01f) {
-                Icon(Icons.Default.Add, contentDescription = "Zoom in", tint = c.textSecondary)
             }
         }
 
@@ -248,13 +263,168 @@ internal fun MultiTrackTimeline(
                             } while (event.changes.any { it.pressed })
                         }
                     }
-                    .semantics { contentDescription = "Timeline. Pinch with two fingers to zoom, or use the zoom buttons." }
+                    .semantics { contentDescription = "Timeline. Pinch with two fingers to zoom." }
                     .horizontalScroll(scroll),
             ) {
                 Column(modifier = Modifier.width(with(density) { contentPx.toDp() })) {
                     Ruler(totalUs, pps, leadPx, fps, scroll, viewportPx, onSeek, onScrub)
                     Spacer(Modifier.height(Spacing.xs))
-                    // Video lane
+
+                    // ── Audio: music is always there (top); voiceover and sounds only when they exist.
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(MUSIC_LANE)
+                            .background(c.timelineLane),
+                    ) {
+                        LaneTag("Music", scroll)
+                        MusicBlock(
+                            music = music,
+                            xPx = leadPx,
+                            widthPx = if (music != null) TimelineLayout.xForUs(totalUs, pps) else (viewportPx - leadPx * 2).coerceAtMost(TimelineLayout.xForUs(totalUs, pps).coerceAtLeast(viewportPx * 0.5f)),
+                            peaks = musicPeaks,
+                            beatsUs = beatsUs,
+                            totalUs = totalUs,
+                            pps = pps,
+                            onTap = onMusicTap,
+                        )
+                    }
+                    Spacer(Modifier.height(LANE_GAP))
+                    if (voiceClips.isNotEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(VOICE_LANE)
+                                .background(c.timelineLane),
+                        ) {
+                            LaneTag("Voice", scroll)
+                            voiceClips.forEach { v ->
+                                val drag = rememberTimeDrag(v.clip.id, pps, onStart = { onDragSelect(DragKind.VOICE, v.clip.id) }) { d, _ -> onDragMove(DragKind.VOICE, v.clip.id, d) }
+                                VoiceBlock(
+                                    item = v,
+                                    xPx = leadPx + TimelineLayout.xForUs(v.clip.timelineInUs, pps),
+                                    widthPx = TimelineLayout.xForUs(v.clip.timelineOutUs - v.clip.timelineInUs, pps),
+                                    selected = v.clip.id == selectedVoiceId,
+                                    onTap = { onVoiceTap(v.clip.id) },
+                                    dragPx = drag.px,
+                                    dragModifier = drag.modifier,
+                                    wave = v.asset?.id?.let { waves[it] },
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(LANE_GAP))
+                    }
+                    sfx.filter { it.isNotEmpty() }.forEach { lane ->
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(VOICE_LANE)
+                                .background(c.timelineLane),
+                        ) {
+                            LaneTag("Sounds", scroll)
+                            lane.forEach { s ->
+                                val drag = rememberTimeDrag(s.clip.id, pps, onStart = { onDragSelect(DragKind.SFX, s.clip.id) }) { d, _ -> onDragMove(DragKind.SFX, s.clip.id, d) }
+                                VoiceBlock(
+                                    item = s,
+                                    xPx = leadPx + TimelineLayout.xForUs(s.clip.timelineInUs, pps),
+                                    widthPx = TimelineLayout.xForUs(s.clip.timelineOutUs - s.clip.timelineInUs, pps),
+                                    selected = s.clip.id == selectedSfxId,
+                                    onTap = { onSfxTap(s.clip.id) },
+                                    dragPx = drag.px,
+                                    dragModifier = drag.modifier,
+                                    wave = s.asset?.id?.let { waves[it] },
+                                    icon = Icons.Default.GraphicEq,
+                                    itemFallback = "Sound",
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(LANE_GAP))
+                    }
+
+                    // ── Visual layers, front first: each title/sticker, the captions and the PiP group
+                    // get their own lane. Long-press + drag up/down changes what's in front.
+                    layers.forEachIndexed { index, entry ->
+                        val key = com.cinemind.core.domain.text.LayerStack.keyOf(entry)
+                        val (onV, onVEnd) = layerDrag(key)
+                        val dragging = key == layerDragKey
+                        if (dragTarget == index && dragFrom >= 0 && dragTarget < dragFrom) InsertLine()
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(LAYER_LANE)
+                                .zIndex(if (dragging) 2f else 0f)
+                                .graphicsLayer {
+                                    if (dragging) {
+                                        translationY = layerDragY
+                                        shadowElevation = 8f
+                                        alpha = 0.92f
+                                    }
+                                }
+                                .background(if (dragging) c.surfaceRaised else c.timelineLane)
+                                .then(if (dragging) Modifier.border(1.dp, c.accent, RoundedCornerShape(Radius.xs)) else Modifier),
+                        ) {
+                            when (entry) {
+                                is com.cinemind.core.domain.text.LayerEntry.Title -> {
+                                    val t = entry.layer
+                                    LaneTag(if (t.kindEnum == com.cinemind.core.domain.text.TextKind.STICKER) "Sticker" else "Text", scroll)
+                                    val drag = rememberTimeDrag(
+                                        t.id, pps,
+                                        onStart = { onDragSelect(DragKind.TEXT, t.id) },
+                                        onVertical = onV,
+                                        onVerticalEnd = onVEnd,
+                                    ) { d, _ -> onDragMove(DragKind.TEXT, t.id, d) }
+                                    TextBlock(
+                                        layer = t,
+                                        xPx = leadPx + TimelineLayout.xForUs(t.startUs, pps),
+                                        widthPx = TimelineLayout.xForUs(t.endUs - t.startUs, pps),
+                                        selected = t.id == selectedTextId,
+                                        onTap = { onTextTap(t.id) },
+                                        dragPx = drag.px,
+                                        dragModifier = drag.modifier,
+                                    )
+                                }
+                                com.cinemind.core.domain.text.LayerEntry.Captions -> {
+                                    // Captions are timed in the captions editor; here they only move in the stack.
+                                    val drag = rememberTimeDrag("captions-lane", pps, onStart = {}, onVertical = onV, onVerticalEnd = onVEnd) { _, _ -> }
+                                    LaneTag("Captions", scroll)
+                                    captions.forEach { cap ->
+                                        CaptionBlock(
+                                            caption = cap,
+                                            xPx = leadPx + TimelineLayout.xForUs(cap.startUs, pps),
+                                            widthPx = TimelineLayout.xForUs(cap.endUs - cap.startUs, pps),
+                                            onTap = onCaptionsTap,
+                                            dragModifier = drag.modifier,
+                                        )
+                                    }
+                                }
+                                com.cinemind.core.domain.text.LayerEntry.PictureInPicture -> {
+                                    LaneTag("Overlay", scroll)
+                                    overlays.forEach { o ->
+                                        val drag = rememberTimeDrag(
+                                            o.clip.id, pps,
+                                            onStart = { onDragSelect(DragKind.OVERLAY, o.clip.id) },
+                                            onVertical = onV,
+                                            onVerticalEnd = onVEnd,
+                                        ) { d, _ -> onDragMove(DragKind.OVERLAY, o.clip.id, d) }
+                                        OverlayBlock(
+                                            item = o,
+                                            xPx = leadPx + TimelineLayout.xForUs(o.clip.timelineInUs, pps),
+                                            widthPx = TimelineLayout.xForUs(o.clip.timelineOutUs - o.clip.timelineInUs, pps),
+                                            selected = o.clip.id == selectedOverlayId,
+                                            onTap = { onOverlayTap(o.clip.id) },
+                                            dragPx = drag.px,
+                                            dragModifier = drag.modifier,
+                                        )
+                                    }
+                                }
+                                com.cinemind.core.domain.text.LayerEntry.MainVideo -> Unit
+                            }
+                        }
+                        if (dragTarget == index && dragFrom >= 0 && dragTarget > dragFrom) InsertLine()
+                        Spacer(Modifier.height(LANE_GAP))
+                    }
+
+                    // ── Video: always there, at the bottom of the stack.
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -287,169 +457,30 @@ internal fun MultiTrackTimeline(
                         }
                     }
                     Spacer(Modifier.height(LANE_GAP))
-                    // Overlay lane (picture-in-picture): clips at free times, drawn above the video.
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(OVERLAY_LANE)
-                            .background(c.timelineLane),
-                    ) {
-                        LaneTag("Overlay", scroll)
-                        if (overlays.isEmpty()) {
-                            OverlayBlock(null, leadPx, viewportPx - leadPx * 2, selected = false, onTap = onAddOverlay)
-                        } else {
-                            overlays.forEach { o ->
-                                val drag = rememberTimeDrag(o.clip.id, pps, onStart = { onDragSelect(DragKind.OVERLAY, o.clip.id) }) { d, _ -> onDragMove(DragKind.OVERLAY, o.clip.id, d) }
-                                OverlayBlock(
-                                    item = o,
-                                    xPx = leadPx + TimelineLayout.xForUs(o.clip.timelineInUs, pps),
-                                    widthPx = TimelineLayout.xForUs(o.clip.timelineOutUs - o.clip.timelineInUs, pps),
-                                    selected = o.clip.id == selectedOverlayId,
-                                    onTap = { onOverlayTap(o.clip.id) },
-                                    dragPx = drag.px,
-                                    dragModifier = drag.modifier,
-                                )
-                            }
-                        }
-                    }
-                    Spacer(Modifier.height(LANE_GAP))
-                    // Music lane
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(MUSIC_LANE)
-                            .background(c.timelineLane),
-                    ) {
-                        LaneTag("Music", scroll)
-                        MusicBlock(
-                            music = music,
-                            xPx = leadPx,
-                            widthPx = if (music != null) TimelineLayout.xForUs(totalUs, pps) else viewportPx - leadPx * 2,
-                            peaks = musicPeaks,
-                            beatsUs = beatsUs,
-                            totalUs = totalUs,
-                            pps = pps,
-                            onTap = onMusicTap,
-                        )
-                    }
-                    Spacer(Modifier.height(LANE_GAP))
-                    // Voiceover lane: recorded narration at its timeline times.
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(VOICE_LANE)
-                            .background(c.timelineLane),
-                    ) {
-                        LaneTag("Voice", scroll)
-                        if (voiceClips.isEmpty()) {
-                            VoiceBlock(null, leadPx, viewportPx - leadPx * 2, selected = false, onTap = onAddVoice)
-                        } else {
-                            voiceClips.forEach { v ->
-                                val drag = rememberTimeDrag(v.clip.id, pps, onStart = { onDragSelect(DragKind.VOICE, v.clip.id) }) { d, _ -> onDragMove(DragKind.VOICE, v.clip.id, d) }
-                                VoiceBlock(
-                                    item = v,
-                                    xPx = leadPx + TimelineLayout.xForUs(v.clip.timelineInUs, pps),
-                                    widthPx = TimelineLayout.xForUs(v.clip.timelineOutUs - v.clip.timelineInUs, pps),
-                                    selected = v.clip.id == selectedVoiceId,
-                                    onTap = { onVoiceTap(v.clip.id) },
-                                    dragPx = drag.px,
-                                    dragModifier = drag.modifier,
-                                    wave = v.asset?.id?.let { waves[it] },
-                                )
-                            }
-                        }
-                    }
-                    Spacer(Modifier.height(LANE_GAP))
-                    // Sound-effect lanes (one per SFX track; a hint lane when there are none).
-                    val sfxLanes = if (sfx.isEmpty()) listOf(emptyList()) else sfx
-                    sfxLanes.forEach { lane ->
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(VOICE_LANE)
-                                .background(c.timelineLane),
-                        ) {
-                            LaneTag("Sounds", scroll)
-                            if (lane.isEmpty() && sfx.isEmpty()) {
-                                VoiceBlock(null, leadPx, viewportPx - leadPx * 2, selected = false, onTap = onAddSfx, emptyLabel = "Add sound effects", icon = Icons.Default.GraphicEq)
-                            } else {
-                                lane.forEach { s ->
-                                    val drag = rememberTimeDrag(s.clip.id, pps, onStart = { onDragSelect(DragKind.SFX, s.clip.id) }) { d, _ -> onDragMove(DragKind.SFX, s.clip.id, d) }
-                                    VoiceBlock(
-                                        item = s,
-                                        xPx = leadPx + TimelineLayout.xForUs(s.clip.timelineInUs, pps),
-                                        widthPx = TimelineLayout.xForUs(s.clip.timelineOutUs - s.clip.timelineInUs, pps),
-                                        selected = s.clip.id == selectedSfxId,
-                                        onTap = { onSfxTap(s.clip.id) },
-                                        dragPx = drag.px,
-                                        dragModifier = drag.modifier,
-                                        wave = s.asset?.id?.let { waves[it] },
-                                        icon = Icons.Default.GraphicEq,
-                                        itemFallback = "Sound",
-                                    )
-                                }
-                            }
-                        }
-                        Spacer(Modifier.height(LANE_GAP))
-                    }
-                    // Caption lane: one block per caption, at its timeline time.
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(CAPTION_LANE)
-                            .background(c.timelineLane),
-                    ) {
-                        LaneTag("Captions", scroll)
-                        if (captions.isEmpty()) {
-                            CaptionBlock(null, leadPx, viewportPx - leadPx * 2, onCaptionsTap)
-                        } else {
-                            captions.forEach { cap ->
-                                CaptionBlock(
-                                    caption = cap,
-                                    xPx = leadPx + TimelineLayout.xForUs(cap.startUs, pps),
-                                    widthPx = TimelineLayout.xForUs(cap.endUs - cap.startUs, pps),
-                                    onTap = onCaptionsTap,
-                                )
-                            }
-                        }
-                    }
-                    Spacer(Modifier.height(LANE_GAP))
-                    // Text lane: titles and stickers at their timeline time (overlapping ones share the lane).
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(CAPTION_LANE)
-                            .background(c.timelineLane),
-                    ) {
-                        LaneTag("Text", scroll)
-                        if (texts.isEmpty()) {
-                            TextBlock(null, leadPx, viewportPx - leadPx * 2, selected = false, onTap = onAddText)
-                        } else {
-                            texts.sortedBy { it.id == selectedTextId }.forEach { t ->
-                                val drag = rememberTimeDrag(t.id, pps, onStart = { onDragSelect(DragKind.TEXT, t.id) }) { d, _ -> onDragMove(DragKind.TEXT, t.id, d) }
-                                TextBlock(
-                                    layer = t,
-                                    xPx = leadPx + TimelineLayout.xForUs(t.startUs, pps),
-                                    widthPx = TimelineLayout.xForUs(t.endUs - t.startUs, pps),
-                                    selected = t.id == selectedTextId,
-                                    onTap = { onTextTap(t.id) },
-                                    dragPx = drag.px,
-                                    dragModifier = drag.modifier,
-                                )
-                            }
-                        }
-                    }
                 }
-                Playhead(
-                    xPx = playheadX,
-                    extraLanes = 1 + maxOf(1, sfx.size),
-                    onDrag = { dxPx -> val next = ((dragUs ?: positionUs) + (dxPx / pps * 1_000_000f).toLong()).coerceIn(0, totalUs); dragUs = next; onScrub(next) },
-                    onDragEnd = { dragUs?.let { onSeek(it.coerceIn(0, totalUs)) }; dragUs = null },
-                )
+                // The playhead spans whatever lanes are showing.
+                Box(Modifier.matchParentSize()) {
+                    Playhead(
+                        xPx = playheadX,
+                        onDrag = { dxPx -> val next = ((dragUs ?: positionUs) + (dxPx / pps * 1_000_000f).toLong()).coerceIn(0, totalUs); dragUs = next; onScrub(next) },
+                        onDragEnd = { dragUs?.let { onSeek(it.coerceIn(0, totalUs)) }; dragUs = null },
+                    )
+                }
             }
         }
     }
 }
+}
+
+/** Where a dragged layer will land. */
+@Composable
+private fun InsertLine() {
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .height(2.dp)
+            .background(CineMind.colors.accent),
+    )
 }
 
 @Composable
@@ -827,7 +858,7 @@ private fun OverlayBlock(item: PreviewClip?, xPx: Float, widthPx: Float, selecte
 
 /** A caption on the caption lane (or, with null, the "Add captions" hint). */
 @Composable
-private fun CaptionBlock(caption: com.cinemind.core.domain.captions.Caption?, xPx: Float, widthPx: Float, onTap: () -> Unit) {
+private fun CaptionBlock(caption: com.cinemind.core.domain.captions.Caption?, xPx: Float, widthPx: Float, onTap: () -> Unit, dragModifier: Modifier = Modifier) {
     val c = CineMind.colors
     val density = LocalDensity.current
     val shape = RoundedCornerShape(Radius.xs)
@@ -835,6 +866,7 @@ private fun CaptionBlock(caption: com.cinemind.core.domain.captions.Caption?, xP
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .offset { IntOffset(xPx.roundToInt(), 0) }
+            .then(dragModifier)
             .width(with(density) { widthPx.coerceAtLeast(6.dp.toPx()).toDp() })
             .fillMaxHeight()
             .padding(vertical = Spacing.xxs, horizontal = 1.dp)
@@ -918,7 +950,7 @@ private fun TextBlock(layer: com.cinemind.core.domain.text.TextLayer?, xPx: Floa
 
 /** 2 dp line with a knob, drawn over all lanes. */
 @Composable
-private fun Playhead(xPx: Float, extraLanes: Int = 0, onDrag: (Float) -> Unit = {}, onDragEnd: () -> Unit = {}) {
+private fun Playhead(xPx: Float, onDrag: (Float) -> Unit = {}, onDragEnd: () -> Unit = {}) {
     val c = CineMind.colors
     val density = LocalDensity.current
     val knob = 10.dp
@@ -946,7 +978,7 @@ private fun Playhead(xPx: Float, extraLanes: Int = 0, onDrag: (Float) -> Unit = 
         modifier = Modifier
             .offset { IntOffset((xPx - with(density) { (knob / 2).toPx() }).roundToInt(), 0) }
             .width(knob)
-            .height(RULER + Spacing.xs + VIDEO_LANE + LANE_GAP + OVERLAY_LANE + LANE_GAP + MUSIC_LANE + LANE_GAP + VOICE_LANE + LANE_GAP + CAPTION_LANE + (LANE_GAP + CAPTION_LANE) * extraLanes),
+            .fillMaxHeight(),
     ) {
         Box(
             Modifier

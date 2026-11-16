@@ -537,6 +537,23 @@ class TimelineViewModel @Inject constructor(
     fun layerEntries(): List<com.cinemind.core.domain.text.LayerEntry> =
         com.cinemind.core.domain.text.LayerStack.entries(textHistory.present, _layerOrder.value, previewCaptions != null, overlayHistory.present.isNotEmpty())
 
+    /**
+     * Timeline drag up/down: moves the stack entry with [key] by [steps] places (negative = to the
+     * front) in one go — one undo step for titles; caption order is saved at once.
+     */
+    fun moveLayerBy(key: String, steps: Int) {
+        if (steps == 0) return
+        val project = projectId.value ?: return
+        val (texts, order) = com.cinemind.core.domain.text.LayerStack.moveBy(
+            textHistory.present, _layerOrder.value, previewCaptions != null, overlayHistory.present.isNotEmpty(), key, steps,
+        )
+        if (order != _layerOrder.value) {
+            _layerOrder.value = order
+            com.cinemind.feature.export.engine.LayerOrderStore.set(appContext, project, order)
+        }
+        if (texts != textHistory.present) commitText(texts, select = _editor.value.selectedTextId) else pushUnderLayers()
+    }
+
     /** Moves one entry of the stack up or down (titles: one undo step; captions: saved at once). */
     fun moveLayer(entry: com.cinemind.core.domain.text.LayerEntry, up: Boolean) {
         val project = projectId.value ?: return

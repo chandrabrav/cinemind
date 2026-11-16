@@ -295,4 +295,40 @@ object LayerStack {
             else -> texts to order
         }
     }
+
+    /** Stable identity of an entry (titles change their data when they move). */
+    fun keyOf(entry: LayerEntry): String = when (entry) {
+        is LayerEntry.Title -> "title:" + entry.layer.id
+        LayerEntry.Captions -> "captions"
+        LayerEntry.PictureInPicture -> "pip"
+        LayerEntry.MainVideo -> "video"
+    }
+
+    /**
+     * Moves the entry with [key] by [steps] places (negative = towards the front / up), as far as
+     * the rules allow; one result, so the editor can make it a single undo step. The picture-in-
+     * picture group moves by passing its neighbours over it. The main video never moves.
+     */
+    fun moveBy(texts: List<TextLayer>, order: LayerOrder, hasCaptions: Boolean, hasOverlays: Boolean, key: String, steps: Int): Pair<List<TextLayer>, LayerOrder> {
+        var t = texts
+        var o = order
+        val up = steps < 0
+        repeat(kotlin.math.abs(steps)) {
+            val list = entries(t, o, hasCaptions, hasOverlays)
+            val i = list.indexOfFirst { keyOf(it) == key }
+            if (i < 0) return t to o
+            val entry = list[i]
+            val next = if (entry == LayerEntry.PictureInPicture) {
+                val n = list.getOrNull(if (up) i - 1 else i + 1) ?: return t to o
+                if (n == LayerEntry.MainVideo) return t to o
+                move(t, o, hasCaptions, hasOverlays, n, up = !up)
+            } else {
+                move(t, o, hasCaptions, hasOverlays, entry, up)
+            }
+            if (next.first == t && next.second == o) return t to o
+            t = next.first
+            o = next.second
+        }
+        return t to o
+    }
 }
