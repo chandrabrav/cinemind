@@ -11,6 +11,18 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Voiceover recording inside the editor (asked only when the user taps Record). -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+
+    <!-- Android 11+ package visibility: the phone's text-to-speech engine and speech recogniser. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
+    </queries>
 
     <application
         android:name="com.cinemind.app.di.CineMindApplication"

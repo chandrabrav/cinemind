@@ -32,6 +32,7 @@ include(":feature:export")
 include(":feature:settings")
 include(":feature:captions")
 include(":feature:color")
+include(":feature:teleprompter")
 
 // Scaffolded but empty (build files only, no sources). Re-include each one when
 // it gets real code so CI stays green and fast:

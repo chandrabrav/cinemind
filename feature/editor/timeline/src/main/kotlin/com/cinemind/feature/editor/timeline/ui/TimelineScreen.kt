@@ -229,6 +229,7 @@ fun TimelineScreen(
     var textBounds by remember { mutableStateOf<Map<String, android.graphics.RectF>>(emptyMap()) }
     var showAudio by remember { mutableStateOf(false) }
     var showMusicIdeas by remember { mutableStateOf(false) }
+    var showTts by remember { mutableStateOf(false) }
     var musicTheme by remember { mutableStateOf("") }
     LaunchedEffect(showMusicIdeas) { if (showMusicIdeas) musicTheme = viewModel.colorContext().themeText }
     var adjustOpen by remember { mutableStateOf(false) }
@@ -465,6 +466,14 @@ fun TimelineScreen(
         }
     }
 
+    if (showTts) {
+        TtsSheet(
+            loadVoices = { viewModel.ttsVoices() },
+            onAdd = { t, v, r, p, done -> viewModel.addSpeech(t, v, r, p, done) },
+            onDismiss = { showTts = false },
+        )
+    }
+
     if (showMusicIdeas) {
         MusicIdeasSheet(
             projectId = projectId,
@@ -491,6 +500,7 @@ fun TimelineScreen(
             onVoice = openVoice,
             onDismiss = { showAudio = false },
             onFindMusic = { showMusicIdeas = true },
+            onTts = { showTts = true },
         )
     }
 
