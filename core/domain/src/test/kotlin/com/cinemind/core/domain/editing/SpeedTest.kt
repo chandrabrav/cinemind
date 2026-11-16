@@ -106,3 +106,20 @@ class SpeedTest {
         assertEquals(1f, SpeedMath.smoothSlowestSpeed(30f, 30), 1e-4f)
     }
 }
+
+class KeepPitchTest {
+    private fun clip(curve: String = "") = Clip(id = "a", trackId = "t", assetId = "a", timelineInUs = 0, timelineOutUs = 0, sourceInUs = 0, sourceOutUs = 2_000_000, speed = 2f, speedCurve = curve)
+
+    @Test
+    fun flagSurvivesRampsAndIsIgnoredByTiming() {
+        val ramp = SpeedMath.encode(listOf(SpeedPoint(0, 1f), SpeedPoint(2_000_000, 2f)))
+        val withFlag = SpeedMath.withKeepPitch(ramp, true)
+        assertTrue(SpeedMath.keepsPitch(clip(withFlag)))
+        assertEquals(SpeedMath.decode(ramp), SpeedMath.decode(withFlag))
+        assertEquals(SpeedMath.timelineDurationUs(clip(ramp)), SpeedMath.timelineDurationUs(clip(withFlag)))
+        // Constant speed: the flag alone is not a ramp.
+        val constant = clip(SpeedMath.withKeepPitch("", true))
+        assertEquals(1_000_000L, SpeedMath.timelineDurationUs(constant))
+        assertEquals(ramp, SpeedMath.withKeepPitch(withFlag, false))
+    }
+}

@@ -115,6 +115,7 @@ dependencies {
     implementation(project(":feature:project"))
     implementation(project(":feature:ai:generation"))
     implementation(project(":feature:ai:llm"))
+    implementation(project(":feature:ai:cloud"))
     implementation(project(":feature:export"))
     implementation(project(":feature:settings"))
     implementation(project(":feature:captions"))

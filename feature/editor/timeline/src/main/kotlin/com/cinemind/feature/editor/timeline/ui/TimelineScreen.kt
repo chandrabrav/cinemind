@@ -2,6 +2,7 @@ package com.cinemind.feature.editor.timeline.ui
 
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.SettingsBackupRestore
 import androidx.compose.material.icons.filled.Wallpaper
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.ContentCut
@@ -123,6 +124,7 @@ fun TimelineScreen(
     onOpenBrief: () -> Unit,
     onExport: () -> Unit,
     onOpenAiModels: () -> Unit = {},
+    onOpenCloudAi: () -> Unit = {},
     /** Leaves the editor (the editor has its own header; the app bar is hidden here). */
     onBack: () -> Unit = {},
     viewModel: TimelineViewModel = hiltViewModel(),
@@ -145,6 +147,7 @@ fun TimelineScreen(
     val editor by viewModel.editor.collectAsStateWithLifecycle()
     val previewPlayer by viewModel.playerFlow.collectAsStateWithLifecycle()
     val previewBuilding by viewModel.previewBuilding.collectAsStateWithLifecycle()
+    val reversing by viewModel.reversing.collectAsStateWithLifecycle()
     val layerOrder by viewModel.layerOrder.collectAsStateWithLifecycle()
     var showLayers by remember { mutableStateOf(false) }
     LaunchedEffect(captionsUi.captions, captionsUi.style) { viewModel.setPreviewCaptions(captionsUi.captions, captionsUi.style) }
@@ -232,8 +235,10 @@ fun TimelineScreen(
     var keyMaskSheet by remember { mutableStateOf<Boolean?>(null) }
     var showMusicIdeas by remember { mutableStateOf(false) }
     var showTts by remember { mutableStateOf(false) }
+    var showAssistant by remember { mutableStateOf(false) }
+    var musicMood by remember { mutableStateOf<String?>(null) }
     var musicTheme by remember { mutableStateOf("") }
-    LaunchedEffect(showMusicIdeas) { if (showMusicIdeas) musicTheme = viewModel.colorContext().themeText }
+    LaunchedEffect(showMusicIdeas) { if (showMusicIdeas) musicTheme = musicMood ?: viewModel.colorContext().themeText }
     var adjustOpen by remember { mutableStateOf(false) }
     val selectionKey = listOf(editor.selectedClipId, editor.selectedOverlayId, editor.selectedVoiceId, editor.selectedSfxId, editor.selectedTextId)
     LaunchedEffect(selectionKey) { adjustOpen = false }
@@ -254,6 +259,7 @@ fun TimelineScreen(
                     onRedo = viewModel::redo,
                     onExport = onExport,
                     onBack = onBack,
+                    onAssistant = { showAssistant = true },
                 )
             }
 
@@ -308,7 +314,7 @@ fun TimelineScreen(
                     .weight(1f)
                     .then(if (fullscreen) Modifier else Modifier.padding(horizontal = Spacing.gutter)),
                 showPlayer = true,
-                building = previewBuilding,
+                building = previewBuilding || reversing != null,
                 onFullscreen = if (fullscreen) null else ({ fullscreen = true; controlsVisible = true }),
             )
 
@@ -394,6 +400,7 @@ fun TimelineScreen(
                             EditorAction(Icons.Default.Palette, "Colour") { showColor = true },
                             EditorAction(Icons.Default.Animation, "Transition") { adjustOpen = true },
                             EditorAction(Icons.Default.AcUnit, "Freeze", enabled = selected.asset?.isVideo == true) { viewModel.freezeFrameAtPlayhead() },
+                            EditorAction(Icons.Default.SettingsBackupRestore, "Reverse", enabled = selected.asset?.isVideo == true && reversing == null) { viewModel.reverseSelected() },
                             EditorAction(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Move left", enabled = clips.indexOf(selected) > 0) { viewModel.moveSelected(-1) },
                             EditorAction(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Move right", enabled = clips.indexOf(selected) < clips.lastIndex) { viewModel.moveSelected(1) },
                             EditorAction(Icons.Default.Delete, "Delete") { viewModel.deleteSelected() },
@@ -478,13 +485,22 @@ fun TimelineScreen(
         )
     }
 
+    if (showAssistant) {
+        AssistantSheet(
+            viewModel = viewModel,
+            onOpenSettings = { showAssistant = false; onOpenCloudAi() },
+            onMusic = { mood -> musicMood = mood; showAssistant = false; showMusicIdeas = true },
+            onDismiss = { showAssistant = false },
+        )
+    }
+
     if (showMusicIdeas) {
         MusicIdeasSheet(
             projectId = projectId,
             themeText = musicTheme,
             bpm = editor.bpm,
             onChooseFile = { musicPicker.launch(arrayOf("audio/*")) },
-            onDismiss = { showMusicIdeas = false },
+            onDismiss = { showMusicIdeas = false; musicMood = null },
         )
     }
 
@@ -638,6 +654,7 @@ fun TimelineScreen(
                 target = target,
                 onConstant = { s, all -> viewModel.setClipSpeed(target.clip.id, s, all) },
                 onRamp = { pts -> viewModel.setClipRamp(target.clip.id, pts) },
+                onKeepPitch = { on -> viewModel.setKeepPitch(target.clip.id, on) },
                 onFreeze = {
                     viewModel.freezeFrameAtPlayhead()
                     showSpeed = false
@@ -749,6 +766,7 @@ private fun EditorHeader(
     onRedo: () -> Unit,
     onExport: (() -> Unit)? = null,
     onBack: () -> Unit = {},
+    onAssistant: () -> Unit = {},
 ) {
     val c = CineMind.colors
     Row(
@@ -775,6 +793,11 @@ private fun EditorHeader(
                     Spacer(Modifier.width(Spacing.xs))
                     Text("$clipCount clips · ${it.frameRate} fps", style = MaterialTheme.typography.labelSmall, color = c.textTertiary)
                 }
+            }
+        }
+        if (clipCount > 0) {
+            IconButton(onClick = hapticClick(onClick = onAssistant)) {
+                Icon(androidx.compose.material.icons.Icons.Default.AutoAwesome, contentDescription = "Assistant", tint = c.accent)
             }
         }
         IconButton(onClick = hapticClick(onClick = onUndo), enabled = canUndo) {

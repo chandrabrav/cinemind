@@ -1,0 +1,15 @@
+# Anthropic Java SDK: Jackson reflection over SDK models, Kotlin metadata.
+-keep class com.anthropic.** { *; }
+-keepattributes Signature,*Annotation*,InnerClasses,EnclosingMethod
+-dontwarn com.anthropic.**
+-dontwarn com.fasterxml.jackson.**
+-dontwarn okhttp3.**
+-dontwarn okio.**
+-dontwarn org.slf4j.**
+-dontwarn java.beans.**
+-dontwarn javax.annotation.**
+-dontwarn org.jetbrains.annotations.**
+-dontwarn com.google.errorprone.annotations.**
+-dontwarn kotlin.reflect.jvm.internal.**
+-keep class com.fasterxml.jackson.** { *; }
+-keep class kotlin.Metadata { *; }

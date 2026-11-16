@@ -114,6 +114,7 @@ class TimelineViewModel @Inject constructor(
     private val briefRepository: com.cinemind.core.domain.repository.EditBriefRepository,
     private val textRepository: com.cinemind.core.domain.repository.TextLayerRepository,
     private val llm: com.cinemind.feature.ai.llm.ondevice.OnDeviceLlm,
+    private val assistant: com.cinemind.feature.ai.cloud.EditAssistant,
 ) : ViewModel() {
 
     private val preview = PreviewPlayer(appContext)
@@ -345,7 +346,11 @@ class TimelineViewModel @Inject constructor(
 
     /** Adds a built-in sound at the playhead (generated once into files/sfx). */
     fun addSoundEffect(effect: com.cinemind.core.domain.audio.SoundEffect) {
-        viewModelScope.launch {
+        viewModelScope.launch { addSoundEffectNow(effect, null) }
+    }
+
+    private suspend fun addSoundEffectNow(effect: com.cinemind.core.domain.audio.SoundEffect, atUs: Long?) {
+        run {
             val asset = withContext(kotlinx.coroutines.Dispatchers.Default) {
                 val dir = java.io.File(appContext.filesDir, "sfx").apply { mkdirs() }
                 val file = java.io.File(dir, effect.name.lowercase() + ".wav")
@@ -363,7 +368,7 @@ class TimelineViewModel @Inject constructor(
                 )
             }
             assetRepository.createAsset(asset)
-            placeSound(asset)
+            placeSound(asset, atUs)
         }
     }
 
@@ -380,12 +385,12 @@ class TimelineViewModel @Inject constructor(
     }
 
     /** Puts a sound at the playhead on the first sound track with room (a new track if none has). */
-    private suspend fun placeSound(asset: MediaAsset) {
+    private suspend fun placeSound(asset: MediaAsset, atUs: Long? = null) {
         val project = projectId.value ?: return
         assets[asset.id] = asset
         val total = mainLengthUs()
         if (total <= 0) return
-        val at = preview.currentPositionUs().coerceIn(0, (total - 100_000).coerceAtLeast(0))
+        val at = (atUs ?: preview.currentPositionUs()).coerceIn(0, (total - 100_000).coerceAtLeast(0))
         val length = minOf(asset.durationUs, total - at)
         for (t in sfxTracks) {
             val base = Clip(trackId = t.id, assetId = asset.id, timelineInUs = 0, timelineOutUs = 0, sourceInUs = 0, sourceOutUs = length, opacity = 1f)
@@ -595,6 +600,164 @@ class TimelineViewModel @Inject constructor(
         }
     }
 
+    // ---- Reverse ------------------------------------------------------------------------------
+
+    private val _reversing = MutableStateFlow<Float?>(null)
+    /** Progress 0..1 while a reversed copy is being made (null otherwise). */
+    val reversing: StateFlow<Float?> = _reversing.asStateFlow()
+
+    /**
+     * Plays the selected video clip backwards: makes a reversed, silent copy of its range (kept in
+     * app storage) and swaps it in. One undo step (undo brings the original back).
+     */
+    fun reverseSelected() {
+        val clips = history?.present ?: return
+        val clip = clips.firstOrNull { it.id == _editor.value.selectedClipId } ?: return
+        val asset = assets[clip.assetId]?.takeIf { it.isVideo } ?: run {
+            Toast.makeText(appContext, "Reverse works on video clips", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (_reversing.value != null) return
+        _reversing.value = 0f
+        viewModelScope.launch {
+            val result = runCatching {
+                com.cinemind.core.common.BackgroundWork.run(appContext, "Reversing a clip") {
+                    com.cinemind.feature.editor.timeline.reverse.ReverseMaker(appContext)
+                        .reverse(Uri.parse(asset.uri), clip.sourceInUs, clip.sourceOutUs) { _reversing.value = it }
+                }
+            }
+            _reversing.value = null
+            result.onFailure {
+                CineMindLogger.e(it, "Reverse failed")
+                Toast.makeText(appContext, it.message ?: "Couldn't reverse this clip", Toast.LENGTH_LONG).show()
+            }
+            val r = result.getOrNull() ?: return@launch
+            val reversed = MediaAsset(
+                uri = Uri.fromFile(r.file).toString(),
+                mimeType = "video/mp4",
+                width = r.width,
+                height = r.height,
+                durationUs = r.durationUs,
+                frameRate = r.fps,
+                hasAudio = false,
+                displayName = "Reversed " + asset.displayName,
+                sizeBytes = r.file.length(),
+            )
+            assetRepository.createAsset(reversed)
+            assets[reversed.id] = reversed
+            val current = history?.present ?: return@launch
+            // Ramps and motion keyframes refer to the original footage's times: they're dropped.
+            val framing = com.cinemind.core.domain.editing.ClipFraming.decode(clip.framing).copy(keys = emptyList())
+            val next = current.map {
+                if (it.id != clip.id) it
+                else it.copy(
+                    assetId = reversed.id,
+                    sourceInUs = 0,
+                    sourceOutUs = r.durationUs,
+                    speedCurve = com.cinemind.core.domain.editing.SpeedMath.withKeepPitch("", com.cinemind.core.domain.editing.SpeedMath.keepsPitch(it)),
+                    framing = framing.encode(),
+                )
+            }
+            commit(TimelineEditing.relayout(next), selectAfter = clip.id)
+            Toast.makeText(appContext, "Reversed (no sound). Undo to get the original back.", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    // ---- Assistant ---------------------------------------------------------------------------
+
+    data class AssistantTurn(val request: String, val reply: String? = null, val actions: List<com.cinemind.core.domain.assistant.AssistantAction> = emptyList(), val error: String? = null, val applied: Boolean = false)
+
+    private val _assistant = MutableStateFlow<List<AssistantTurn>>(emptyList())
+    /** The assistant conversation for this editing session (not saved). */
+    val assistantTurns: StateFlow<List<AssistantTurn>> = _assistant.asStateFlow()
+    private val _assistantBusy = MutableStateFlow(false)
+    val assistantBusy: StateFlow<Boolean> = _assistantBusy.asStateFlow()
+    val assistantEngine: String get() = assistant.engineName
+
+    private fun projectBrief(): com.cinemind.core.domain.assistant.ProjectBrief {
+        val clips = history?.present.orEmpty()
+        return com.cinemind.core.domain.assistant.ProjectBrief(
+            name = project.value?.name.orEmpty(),
+            totalSeconds = mainLengthUs() / 1e6,
+            clips = clips.map { c ->
+                val a = assets[c.assetId]
+                val kind = if (a?.isVideo == true) "video" else "photo"
+                val look = com.cinemind.core.domain.color.ColorGrade.decode(c.grade).lutId?.removePrefix("builtin:")
+                buildString {
+                    append(kind).append(" %.1f s".format(java.util.Locale.ROOT, (c.timelineOutUs - c.timelineInUs) / 1e6))
+                    if (c.speed != 1f) append(", speed ").append(c.speed).append("×")
+                    if (look != null) append(", look ").append(look)
+                    if (c.transitionInType != "CUT") append(", transition in ").append(c.transitionInType)
+                }
+            },
+            titles = textHistory.present.filter { it.kind == com.cinemind.core.domain.text.TextKind.TEXT }.map { it.text },
+            captionsSample = previewCaptions?.captions?.joinToString(" ") { it.text }.orEmpty().take(400),
+            bpm = _editor.value.bpm,
+            hasMusic = _editor.value.music != null,
+        )
+    }
+
+    fun askAssistant(request: String) {
+        val text = request.trim()
+        if (text.isEmpty() || _assistantBusy.value) return
+        _assistant.value = _assistant.value + AssistantTurn(text)
+        _assistantBusy.value = true
+        viewModelScope.launch {
+            val result = runCatching { assistant.plan(projectBrief(), text) }
+            result.onFailure { CineMindLogger.e(it, "Assistant failed") }
+            val turn = result.fold(
+                onSuccess = { AssistantTurn(text, it.reply, it.actions) },
+                onFailure = { AssistantTurn(text, error = it.message ?: "Something went wrong") },
+            )
+            _assistant.value = _assistant.value.dropLast(1) + turn
+            _assistantBusy.value = false
+        }
+    }
+
+    /**
+     * Applies the proposed edits of turn [index] (each one is a normal undo step). Returns a music
+     * mood when one of them asks to find music (the screen opens music ideas).
+     */
+    fun applyAssistant(index: Int, onMusic: (String) -> Unit) {
+        val turn = _assistant.value.getOrNull(index) ?: return
+        if (turn.applied || turn.actions.isEmpty()) return
+        _assistant.value = _assistant.value.mapIndexed { i, t -> if (i == index) t.copy(applied = true) else t }
+        viewModelScope.launch {
+            val total = mainLengthUs()
+            fun at(seconds: Double) = (seconds * 1e6).toLong().coerceIn(0, (total - 100_000).coerceAtLeast(0))
+            for (a in turn.actions) {
+                val clips = history?.present.orEmpty()
+                val clipId = if (a.clip in 1..clips.size) clips[a.clip - 1].id else null
+                when (a.type) {
+                    com.cinemind.core.domain.assistant.AssistantActionType.ADD_TITLE ->
+                        addLayer(a.text, com.cinemind.core.domain.text.TextKind.TEXT, com.cinemind.core.domain.text.TextPreset.entries.firstOrNull { it.name == a.name } ?: com.cinemind.core.domain.text.TextPreset.BOLD_TITLE, at(a.atSeconds))
+                    com.cinemind.core.domain.assistant.AssistantActionType.ADD_STICKER ->
+                        addLayer(a.name, com.cinemind.core.domain.text.TextKind.STICKER, null, at(a.atSeconds))
+                    com.cinemind.core.domain.assistant.AssistantActionType.APPLY_LOOK -> {
+                        val look = com.cinemind.core.domain.color.BuiltInLooks.byKey(a.name) ?: continue
+                        val grade = com.cinemind.core.domain.color.ColorGrade(lutId = look.id)
+                        val encoded = grade.encode()
+                        commit(clips.map { c -> if (clipId == null || c.id == clipId) c.copy(grade = encoded) else c }, selectAfter = _editor.value.selectedClipId)
+                    }
+                    com.cinemind.core.domain.assistant.AssistantActionType.SET_SPEED ->
+                        setClipSpeed(clipId ?: clips.firstOrNull()?.id ?: continue, a.value.toFloat(), allClips = clipId == null)
+                    com.cinemind.core.domain.assistant.AssistantActionType.SET_TRANSITIONS ->
+                        applyTransitionToAll(ClipTransition.fromName(a.name), (a.value.coerceIn(0.2, 1.5) * 1000).toLong())
+                    com.cinemind.core.domain.assistant.AssistantActionType.CUT_TO_BEATS -> cutToBeats(a.value.toInt())
+                    com.cinemind.core.domain.assistant.AssistantActionType.ADD_SOUND -> {
+                        val effect = com.cinemind.core.domain.audio.SoundEffect.entries.firstOrNull { it.name == a.name } ?: continue
+                        addSoundEffectNow(effect, at(a.atSeconds))
+                    }
+                    com.cinemind.core.domain.assistant.AssistantActionType.FIND_MUSIC -> onMusic(a.text)
+                }
+            }
+        }
+    }
+
+    fun clearAssistant() {
+        if (!_assistantBusy.value) _assistant.value = emptyList()
+    }
+
     // ---- Text, titles & stickers -------------------------------------------------------------
 
     private var textHistory = EditHistory<List<com.cinemind.core.domain.text.TextLayer>>(emptyList())
@@ -606,11 +769,11 @@ class TimelineViewModel @Inject constructor(
     /** Adds an emoji / symbol sticker at the playhead. */
     fun addSticker(symbol: String) = addLayer(symbol, com.cinemind.core.domain.text.TextKind.STICKER, null)
 
-    private fun addLayer(text: String, kind: com.cinemind.core.domain.text.TextKind, preset: com.cinemind.core.domain.text.TextPreset?) {
+    private fun addLayer(text: String, kind: com.cinemind.core.domain.text.TextKind, preset: com.cinemind.core.domain.text.TextPreset?, atUs: Long? = null) {
         val project = projectId.value ?: return
         val total = mainLengthUs()
         if (total <= 0) return
-        val layer = com.cinemind.core.domain.text.TextLayerEditing.create(project, textHistory.present, preview.currentPositionUs(), total, text, kind, preset)
+        val layer = com.cinemind.core.domain.text.TextLayerEditing.create(project, textHistory.present, atUs ?: preview.currentPositionUs(), total, text, kind, preset)
         commitText(textHistory.present + layer, select = layer.id)
     }
 
@@ -739,9 +902,15 @@ class TimelineViewModel @Inject constructor(
         val s = com.cinemind.core.domain.editing.SpeedMath.clampSpeed(speed)
         val next = clips.map { c ->
             val isVideo = assets[c.assetId]?.isVideo == true
-            if (isVideo && (allClips || c.id == clipId)) c.copy(speed = s, speedCurve = "") else c
+            if (isVideo && (allClips || c.id == clipId)) c.copy(speed = s, speedCurve = com.cinemind.core.domain.editing.SpeedMath.withKeepPitch("", com.cinemind.core.domain.editing.SpeedMath.keepsPitch(c))) else c
         }
         commit(TimelineEditing.relayout(next), selectAfter = clipId)
+    }
+
+    /** Keep the sound's pitch when this clip is sped up or slowed (one undo step). */
+    fun setKeepPitch(clipId: String, on: Boolean) {
+        val clips = history?.present ?: return
+        commit(clips.map { if (it.id == clipId) it.copy(speedCurve = com.cinemind.core.domain.editing.SpeedMath.withKeepPitch(it.speedCurve, on)) else it }, selectAfter = clipId)
     }
 
     /** Speed ramp for one clip (one undo step); fewer than two points means back to constant speed. */
@@ -749,8 +918,8 @@ class TimelineViewModel @Inject constructor(
         val clips = history?.present ?: return
         val next = clips.map { c ->
             if (c.id != clipId) c
-            else if (points.size < 2) c.copy(speed = points.firstOrNull()?.speed ?: 1f, speedCurve = "")
-            else c.copy(speed = 1f, speedCurve = com.cinemind.core.domain.editing.SpeedMath.encode(points))
+            else if (points.size < 2) c.copy(speed = points.firstOrNull()?.speed ?: 1f, speedCurve = com.cinemind.core.domain.editing.SpeedMath.withKeepPitch("", com.cinemind.core.domain.editing.SpeedMath.keepsPitch(c)))
+            else c.copy(speed = 1f, speedCurve = com.cinemind.core.domain.editing.SpeedMath.withKeepPitch(com.cinemind.core.domain.editing.SpeedMath.encode(points), com.cinemind.core.domain.editing.SpeedMath.keepsPitch(c)))
         }
         commit(TimelineEditing.relayout(next), selectAfter = clipId)
     }
