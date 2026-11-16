@@ -119,6 +119,7 @@ dependencies {
     implementation(project(":feature:settings"))
     implementation(project(":feature:captions"))
     implementation(project(":feature:color"))
+    implementation(project(":feature:teleprompter"))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)

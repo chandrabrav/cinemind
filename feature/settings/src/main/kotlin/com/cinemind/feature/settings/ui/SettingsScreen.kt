@@ -23,6 +23,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.outlined.BugReport
@@ -30,6 +31,7 @@ import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -138,6 +140,33 @@ fun SettingsScreen(
         }
 
         SectionHeader("Help", modifier = Modifier.padding(top = Spacing.l))
+        var showFeedback by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+        GlassCard(
+            onClick = { showFeedback = true },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = Spacing.gutter, vertical = Spacing.xs),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, tint = CineMind.colors.accent)
+                Spacer(Modifier.width(Spacing.m))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Send feedback", style = MaterialTheme.typography.titleSmall, color = CineMind.colors.textPrimary)
+                    Text(
+                        "Tell us what works and what doesn't (beta)",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = CineMind.colors.textTertiary,
+                    )
+                }
+                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = CineMind.colors.textTertiary)
+            }
+        }
+        if (showFeedback) {
+            com.cinemind.core.ui.components.FeedbackSheet(
+                onSend = { note, mood, diag -> com.cinemind.core.common.Feedback.share(context, note, mood, diag) },
+                onDismiss = { showFeedback = false },
+            )
+        }
         GlassCard(
             onClick = onOpenDiagnostics,
             modifier = Modifier

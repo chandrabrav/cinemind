@@ -68,7 +68,7 @@ class PreviewPlaybackTest {
         try {
             instrumentation.waitForIdleSync()
             onMain {
-                preview.player.setVideoSurface(surface, Size(720, 1280))
+                (preview.player as androidx.media3.transformer.CompositionPlayer).setVideoSurface(surface, Size(720, 1280))
                 preview.togglePlayPause()
             }
             var maxPos = 0L

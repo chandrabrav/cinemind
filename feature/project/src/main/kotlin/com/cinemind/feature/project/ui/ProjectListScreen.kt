@@ -73,6 +73,8 @@ import com.cinemind.core.ui.theme.Spacing
 fun ProjectListScreen(
     onNewProject: () -> Unit,
     onOpenProject: (String) -> Unit,
+    onTeleprompter: () -> Unit = {},
+    onTemplates: () -> Unit = {},
     viewModel: ProjectListViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -107,6 +109,8 @@ fun ProjectListScreen(
                     body = "Import videos and photos, describe the reel you want, and CineMind builds an editable project.",
                 ) {
                     GradientButton("New project", onClick = onNewProject, icon = Icons.Default.Add)
+                    androidx.compose.material3.TextButton(onClick = onTemplates) { Text("Start from a template") }
+                    androidx.compose.material3.TextButton(onClick = onTeleprompter) { Text("Record with the teleprompter") }
                 }
                 else -> LazyColumn(
                     contentPadding = PaddingValues(bottom = Spacing.xxl),
@@ -118,7 +122,10 @@ fun ProjectListScreen(
                             subtitle = "${projects.size} project${if (projects.size == 1) "" else "s"}",
                         )
                     }
+                    item { BetaCard() }
                     item { NewProjectCard(onNewProject) }
+                    item { TemplatesCard(onTemplates) }
+                    item { TeleprompterCard(onTeleprompter) }
                     items(projects, key = { it.project.id }) { summary ->
                         ProjectCard(
                             summary = summary,

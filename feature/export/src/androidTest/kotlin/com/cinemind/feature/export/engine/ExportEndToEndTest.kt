@@ -178,6 +178,64 @@ class ExportEndToEndTest {
         }
     }
 
+    /** A solid-colour square picture for overlay tests. */
+    private fun solidPng(name: String, argb: Int): File {
+        val bmp = Bitmap.createBitmap(400, 400, Bitmap.Config.ARGB_8888).apply { eraseColor(argb) }
+        return File(context.cacheDir, "e2e-$name.png").apply { outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) } }
+    }
+
+    private fun exportWithOverlay(name: String, overlayFile: File, framing: com.cinemind.core.domain.editing.ClipFraming): MediaMetadataRetriever = runBlocking {
+        val black = asset("black.mp4")
+        val clips = TimelineEditing.relayout(listOf(clip("v", 0, 2_000_000)))
+        val sources = listOf(RenderSource(Uri.fromFile(black).toString(), isVideo = true, hasAudio = false, frameRate = 30f, durationUs = 2_000_000))
+        val o = Clip(id = "o", trackId = "ov", assetId = "o", timelineInUs = 0, timelineOutUs = 2_000_000, sourceInUs = 0, sourceOutUs = 2_000_000,
+            transformX = 0.5f, transformY = 0.5f, scale = 1f, framing = framing.encode())
+        val overlay = RenderOverlay(o, RenderSource(Uri.fromFile(overlayFile).toString(), isVideo = false, hasAudio = false, frameRate = 0f, durationUs = 0), 400, 400)
+        val out = File(context.cacheDir, "e2e-$name.mp4").apply { delete() }
+        val progressScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+        withContext(Dispatchers.Main) {
+            val renderer = TimelineRenderer(context)
+            val composition = renderer.buildComposition(clips.zip(sources), OutputSize(720, 1280), fps = 30, overlays = listOf(listOf(overlay)))
+            renderer.render(composition, out, videoBitrateBps = 3_000_000, progressScope = progressScope)
+        }
+        progressScope.cancel()
+        MediaMetadataRetriever().apply { setDataSource(out.absolutePath) }
+    }
+
+    /** Green screen: a solid green overlay with the key on disappears (the black video shows through). */
+    @Test
+    fun greenScreenRemovesTheKeyColour() {
+        val green = solidPng("green", 0xFF00B140.toInt())
+        val keyed = exportWithOverlay("chroma", green, com.cinemind.core.domain.editing.ClipFraming(chroma = com.cinemind.core.domain.editing.ChromaKey()))
+        val plain = exportWithOverlay("nochroma", green, com.cinemind.core.domain.editing.ClipFraming())
+        try {
+            val k = bandLuma(keyed.getFrameAtTime(1_000_000, MediaMetadataRetriever.OPTION_CLOSEST)!!, 0.4f, 0.6f)
+            val p = bandLuma(plain.getFrameAtTime(1_000_000, MediaMetadataRetriever.OPTION_CLOSEST)!!, 0.4f, 0.6f)
+            assertTrue("green overlay visible without the key ($p)", p > 0.2f)
+            assertTrue("green removed by the key ($k)", k < 0.05f)
+        } finally {
+            keyed.release()
+            plain.release()
+        }
+    }
+
+    /** Mask: a white overlay cut to a circle is bright in the middle and mostly gone near its top edge. */
+    @Test
+    fun circleMaskCutsTheOverlay() {
+        val white = solidPng("white", 0xFFFFFFFF.toInt())
+        val r = exportWithOverlay("mask", white, com.cinemind.core.domain.editing.ClipFraming(mask = com.cinemind.core.domain.editing.MaskShape.CIRCLE, maskFeather = 0.01f))
+        try {
+            val frame = r.getFrameAtTime(1_000_000, MediaMetadataRetriever.OPTION_CLOSEST)!!
+            saveForReview(frame, "export_mask_circle")
+            val middle = bandLuma(frame, 0.47f, 0.53f)
+            val nearTop = bandLuma(frame, 0.225f, 0.24f)
+            assertTrue("circle's middle row is white ($middle)", middle > 0.8f)
+            assertTrue("near the top only a narrow part of the circle remains ($nearTop)", nearTop < 0.45f)
+        } finally {
+            r.release()
+        }
+    }
+
     /**
      * Cross-dissolve: black clip (trimmed, so it has footage after its out-point) dissolving into a
      * photo over 1 s. Around the cut the picture must be part-way between black and the photo,
@@ -213,7 +271,7 @@ class ExportEndToEndTest {
             saveForReview(r.getFrameAtTime(1_450_000, MediaMetadataRetriever.OPTION_CLOSEST)!!, "export_dissolve_mid")
             assertTrue("black at the start ($start)", start < 0.05f)
             assertTrue("photo at the end ($end)", end > 0.12f)
-            val curve = listOf(1_000_000L, 1_250_000L, 1_450_000L, 1_600_000L, 1_750_000L, 1_950_000L, 2_300_000L).joinToString { t -> "${t / 1000}ms=" + String.format(java.util.Locale.ROOT, "%.3f", luma(r, t)) }
+            val curve = listOf(1_000_000L, 1_150_000L, 1_250_000L, 1_300_000L, 1_350_000L, 1_400_000L, 1_450_000L, 1_500_000L, 1_600_000L, 1_750_000L, 1_950_000L, 2_300_000L).joinToString { t -> "${t / 1000}ms=" + String.format(java.util.Locale.ROOT, "%.3f", luma(r, t)) }
             assertTrue("blend at the cut: between black ($start) and photo ($end), was $mid; curve $curve", mid > start + 0.03f && mid < end - 0.02f)
         } finally {
             r.release()

@@ -113,3 +113,27 @@ class TransformTest {
         assertEquals(1f, TransformMath.shownAspect(2000, 1000, ClipFraming(crop = CropRect(left = 0.25f, right = 0.25f))), 1e-4f)
     }
 }
+
+class KeyMaskTest {
+
+    @Test
+    fun chromaAndMaskRoundTrip() {
+        val f = ClipFraming(chroma = ChromaKey(ChromaKey.BLUE, 0.6f, 0.2f), mask = MaskShape.HEART, maskFeather = 0.1f)
+        val back = ClipFraming.decode(f.encode())
+        assertEquals(f.chroma, back.chroma)
+        assertEquals(MaskShape.HEART, back.mask)
+        assertEquals(0.1f, back.maskFeather, 1e-4f)
+        assertTrue(back.hasKeyOrMask)
+        assertFalse(ClipFraming().hasKeyOrMask)
+        assertEquals("", ClipFraming().encode())
+    }
+
+    @Test
+    fun greenIsRemovedSkinAndShadowsHandled() {
+        val key = ChromaKey()
+        assertTrue(ChromaKey.keep(0xFF00B140.toInt(), key) < 0.05f)       // the screen
+        assertTrue(ChromaKey.keep(0xFF0A6A28.toInt(), key) < 0.2f)        // the screen in shadow
+        assertTrue(ChromaKey.keep(0xFFE0AC90.toInt(), key) > 0.95f)       // skin
+        assertTrue(ChromaKey.keep(0xFF202020.toInt(), key) > 0.95f)       // dark hair / clothes
+    }
+}

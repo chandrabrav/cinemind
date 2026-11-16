@@ -2,6 +2,7 @@ package com.cinemind.feature.editor.timeline.ui
 
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Wallpaper
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.ContentCut
 import androidx.compose.material.icons.filled.Speed
@@ -228,7 +229,9 @@ fun TimelineScreen(
     var liveText by remember { mutableStateOf<com.cinemind.core.domain.text.TextLayer?>(null) }
     var textBounds by remember { mutableStateOf<Map<String, android.graphics.RectF>>(emptyMap()) }
     var showAudio by remember { mutableStateOf(false) }
+    var keyMaskSheet by remember { mutableStateOf<Boolean?>(null) }
     var showMusicIdeas by remember { mutableStateOf(false) }
+    var showTts by remember { mutableStateOf(false) }
     var musicTheme by remember { mutableStateOf("") }
     LaunchedEffect(showMusicIdeas) { if (showMusicIdeas) musicTheme = viewModel.colorContext().themeText }
     var adjustOpen by remember { mutableStateOf(false) }
@@ -401,6 +404,8 @@ fun TimelineScreen(
                         onClose = viewModel::clearOverlaySelection,
                         actions = listOf(
                             EditorAction(Icons.Default.Tune, "Adjust") { adjustOpen = true },
+                            EditorAction(Icons.Default.Wallpaper, "Green screen") { keyMaskSheet = false },
+                            EditorAction(Icons.Default.Crop, "Mask") { keyMaskSheet = true },
                             EditorAction(Icons.Default.Delete, "Delete") { viewModel.deleteOverlay() },
                         ),
                     )
@@ -465,6 +470,14 @@ fun TimelineScreen(
         }
     }
 
+    if (showTts) {
+        TtsSheet(
+            loadVoices = { viewModel.ttsVoices() },
+            onAdd = { t, v, r, p, done -> viewModel.addSpeech(t, v, r, p, done) },
+            onDismiss = { showTts = false },
+        )
+    }
+
     if (showMusicIdeas) {
         MusicIdeasSheet(
             projectId = projectId,
@@ -483,6 +496,16 @@ fun TimelineScreen(
         )
     }
 
+    keyMaskSheet?.let { maskMode ->
+        val o = selectedOverlay
+        if (o == null) LaunchedEffect(Unit) { keyMaskSheet = null } else KeyMaskSheet(
+            framing = com.cinemind.core.domain.editing.ClipFraming.decode(o.clip.framing),
+            startWithMask = maskMode,
+            onChange = viewModel::setOverlayKeyMask,
+            onDismiss = { keyMaskSheet = null },
+        )
+    }
+
     if (showAudio) {
         AudioMenuSheet(
             hasMusic = editor.music != null,
@@ -491,6 +514,7 @@ fun TimelineScreen(
             onVoice = openVoice,
             onDismiss = { showAudio = false },
             onFindMusic = { showMusicIdeas = true },
+            onTts = { showTts = true },
         )
     }
 

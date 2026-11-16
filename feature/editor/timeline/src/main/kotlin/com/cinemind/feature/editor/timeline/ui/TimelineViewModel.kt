@@ -545,6 +545,56 @@ class TimelineViewModel @Inject constructor(
         if (texts != textHistory.present) commitText(texts, select = _editor.value.selectedTextId) else pushUnderLayers()
     }
 
+    // ---- Text to speech ----------------------------------------------------------------------
+
+    private val speechSynth by lazy { com.cinemind.feature.editor.timeline.voiceover.SpeechSynth(appContext) }
+
+    suspend fun ttsVoices(): List<com.cinemind.feature.editor.timeline.voiceover.TtsVoice> =
+        runCatching { speechSynth.voices() }.getOrElse {
+            CineMindLogger.w("No text-to-speech voices: ${it.message}")
+            emptyList()
+        }
+
+    /**
+     * Speaks [text] with the phone's own voice and puts it on the voiceover track at the playhead
+     * (shortened if it would run past the end or into another recording). One undo step.
+     * [onDone] gets null on success, else a message.
+     */
+    fun addSpeech(text: String, voice: String?, rate: Float, pitch: Float, onDone: (String?) -> Unit) {
+        val project = projectId.value ?: return
+        val at = preview.currentPositionUs()
+        viewModelScope.launch {
+            val result = runCatching {
+                val file = com.cinemind.core.common.BackgroundWork.run(appContext, "Making the voice") { speechSynth.synthesize(text, voice, rate, pitch) }
+                val durationUs = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    android.media.MediaMetadataRetriever().use { r ->
+                        r.setDataSource(file.absolutePath)
+                        (r.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L) * 1_000
+                    }
+                }
+                require(durationUs > 0) { "The speech came out empty" }
+                val asset = MediaAsset(
+                    uri = Uri.fromFile(file).toString(),
+                    mimeType = "audio/wav",
+                    width = 0,
+                    height = 0,
+                    durationUs = durationUs,
+                    hasAudio = true,
+                    displayName = "Voice: " + text.take(24),
+                    sizeBytes = file.length(),
+                )
+                assetRepository.createAsset(asset)
+                assets[asset.id] = asset
+                val track = voiceTrack ?: projectRepository.ensureVoiceoverTrack(project).also { voiceTrack = it }
+                val base = Clip(trackId = track.id, assetId = asset.id, timelineInUs = 0, timelineOutUs = 0, sourceInUs = 0, sourceOutUs = durationUs)
+                val placed = OverlayEditing.place(voiceHistory.present, base, at, durationUs, mainLengthUs())
+                    ?: error("There's already a voiceover at the playhead. Move the playhead to an empty spot.")
+                commitVoice(placed, select = base.id)
+            }
+            onDone(result.exceptionOrNull()?.message)
+        }
+    }
+
     // ---- Text, titles & stickers -------------------------------------------------------------
 
     private var textHistory = EditHistory<List<com.cinemind.core.domain.text.TextLayer>>(emptyList())
@@ -1275,6 +1325,14 @@ class TimelineViewModel @Inject constructor(
     fun trimOverlay(startDeltaUs: Long, endDeltaUs: Long) = editOverlay { clips, c ->
         val src = assets[c.assetId]?.takeIf { it.isVideo }?.durationUs
         OverlayEditing.trim(clips, c.id, c.timelineInUs + startDeltaUs, c.timelineOutUs + endDeltaUs, src, mainLengthUs())
+    }
+
+    /** Green screen / mask of the selected overlay (one undo step). */
+    fun setOverlayKeyMask(chroma: com.cinemind.core.domain.editing.ChromaKey?, mask: com.cinemind.core.domain.editing.MaskShape, feather: Float) = editOverlay { clips, c ->
+        clips.map {
+            if (it.id != c.id) it
+            else it.copy(framing = com.cinemind.core.domain.editing.ClipFraming.decode(it.framing).copy(chroma = chroma, mask = mask, maskFeather = feather.coerceIn(0f, 0.3f)).encode())
+        }
     }
 
     fun setOverlayTransform(x: Float, y: Float, scale: Float, rotation: Float, opacity: Float) = editOverlay { clips, c ->
