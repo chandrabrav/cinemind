@@ -69,6 +69,8 @@ class EditorScreenshotTest {
                             onMusicTap = {},
                             modifier = Modifier.fillMaxWidth(),
                             captions = captions,
+                            // Visual lanes come from the layer stack (as in the editor): captions exist.
+                            layers = listOf(com.cinemind.core.domain.text.LayerEntry.Captions),
                         )
                         // Clip selected: the bottom bar shows only that clip's actions.
                         EditorBottomBar(
