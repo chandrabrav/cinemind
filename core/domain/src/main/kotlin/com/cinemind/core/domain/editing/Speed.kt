@@ -133,6 +133,18 @@ object SpeedMath {
     fun edgeSpeed(clip: Clip, atStart: Boolean): Float =
         segments(clip).let { if (atStart) it.firstOrNull() else it.lastOrNull() }?.speed ?: clampSpeed(clip.speed)
 
+    /** Flag kept in [Clip.speedCurve] next to the ramp points (ignored by [decode]). */
+    const val KEEP_PITCH = "keepPitch"
+
+    /** Whether sound keeps its pitch when the speed changes (voices don't sound higher / lower). */
+    fun keepsPitch(clip: Clip): Boolean = clip.speedCurve.split(';').any { it == KEEP_PITCH }
+
+    /** [curve] with the keep-pitch flag set or cleared. */
+    fun withKeepPitch(curve: String, on: Boolean): String {
+        val parts = curve.split(';').filter { it.isNotBlank() && it != KEEP_PITCH }
+        return (if (on) parts + KEEP_PITCH else parts).joinToString(";")
+    }
+
     fun isChanged(clip: Clip): Boolean = clip.speed != 1f || decode(clip.speedCurve).size >= 2
 
     /** Slowest speed anywhere in the clip (for the slow-motion smoothness warning). */

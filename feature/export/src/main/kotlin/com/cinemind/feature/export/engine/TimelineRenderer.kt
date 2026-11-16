@@ -166,7 +166,12 @@ class TimelineRenderer(private val context: Context) {
                 EditedMediaItem.Builder(mediaItem)
                     .setDurationUs(knownDurationUs(source.durationUs, clip.sourceOutUs))
                     .setEffects(Effects(clipAudio, effects))
-                    .apply { ClipSpeedProvider.forClip(clip)?.let { setSpeed(it) } }
+                    .apply {
+                        ClipSpeedProvider.forClip(clip)?.let { provider ->
+                            // "Keep voice pitch": time-stretch the sound instead of resampling it.
+                            if (com.cinemind.core.domain.editing.SpeedMath.keepsPitch(clip)) setSpeed(androidx.media3.common.SpeedParameters(provider, true)) else setSpeed(provider)
+                        }
+                    }
                     .build()
             } else {
                 val mediaItem = MediaItem.Builder()

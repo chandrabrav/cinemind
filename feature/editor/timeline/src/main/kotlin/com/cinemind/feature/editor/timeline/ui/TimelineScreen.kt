@@ -2,6 +2,7 @@ package com.cinemind.feature.editor.timeline.ui
 
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.SettingsBackupRestore
 import androidx.compose.material.icons.filled.Wallpaper
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.ContentCut
@@ -145,6 +146,7 @@ fun TimelineScreen(
     val editor by viewModel.editor.collectAsStateWithLifecycle()
     val previewPlayer by viewModel.playerFlow.collectAsStateWithLifecycle()
     val previewBuilding by viewModel.previewBuilding.collectAsStateWithLifecycle()
+    val reversing by viewModel.reversing.collectAsStateWithLifecycle()
     val layerOrder by viewModel.layerOrder.collectAsStateWithLifecycle()
     var showLayers by remember { mutableStateOf(false) }
     LaunchedEffect(captionsUi.captions, captionsUi.style) { viewModel.setPreviewCaptions(captionsUi.captions, captionsUi.style) }
@@ -308,7 +310,7 @@ fun TimelineScreen(
                     .weight(1f)
                     .then(if (fullscreen) Modifier else Modifier.padding(horizontal = Spacing.gutter)),
                 showPlayer = true,
-                building = previewBuilding,
+                building = previewBuilding || reversing != null,
                 onFullscreen = if (fullscreen) null else ({ fullscreen = true; controlsVisible = true }),
             )
 
@@ -394,6 +396,7 @@ fun TimelineScreen(
                             EditorAction(Icons.Default.Palette, "Colour") { showColor = true },
                             EditorAction(Icons.Default.Animation, "Transition") { adjustOpen = true },
                             EditorAction(Icons.Default.AcUnit, "Freeze", enabled = selected.asset?.isVideo == true) { viewModel.freezeFrameAtPlayhead() },
+                            EditorAction(Icons.Default.SettingsBackupRestore, "Reverse", enabled = selected.asset?.isVideo == true && reversing == null) { viewModel.reverseSelected() },
                             EditorAction(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Move left", enabled = clips.indexOf(selected) > 0) { viewModel.moveSelected(-1) },
                             EditorAction(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Move right", enabled = clips.indexOf(selected) < clips.lastIndex) { viewModel.moveSelected(1) },
                             EditorAction(Icons.Default.Delete, "Delete") { viewModel.deleteSelected() },
@@ -638,6 +641,7 @@ fun TimelineScreen(
                 target = target,
                 onConstant = { s, all -> viewModel.setClipSpeed(target.clip.id, s, all) },
                 onRamp = { pts -> viewModel.setClipRamp(target.clip.id, pts) },
+                onKeepPitch = { on -> viewModel.setKeepPitch(target.clip.id, on) },
                 onFreeze = {
                     viewModel.freezeFrameAtPlayhead()
                     showSpeed = false

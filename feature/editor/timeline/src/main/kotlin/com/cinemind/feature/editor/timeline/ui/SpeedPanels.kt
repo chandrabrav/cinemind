@@ -85,6 +85,7 @@ internal fun SpeedSheet(
     onRamp: (List<SpeedPoint>) -> Unit,
     onFreeze: () -> Unit,
     onDismiss: () -> Unit,
+    onKeepPitch: (Boolean) -> Unit = {},
 ) {
     val c = CineMind.colors
     val clip = target.clip
@@ -122,8 +123,11 @@ internal fun SpeedSheet(
             Spacer(Modifier.padding(start = Spacing.s))
             Text("Freeze frame at the playhead (holds 2 s)", style = MaterialTheme.typography.bodyMedium, color = c.textPrimary)
         }
+        SettingRow("Keep voice pitch", subtitle = "Voices stay natural when sped up or slowed (off: the sound changes pitch with the speed)") {
+            Switch(checked = SpeedMath.keepsPitch(clip), onCheckedChange = onKeepPitch)
+        }
         Text(
-            "Speed works on the main video track. Sound follows the speed (higher or lower pitch).",
+            "Speed works on the main video track.",
             style = MaterialTheme.typography.bodySmall,
             color = c.textTertiary,
             modifier = Modifier.padding(top = Spacing.s),

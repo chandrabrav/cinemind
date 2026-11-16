@@ -595,6 +595,69 @@ class TimelineViewModel @Inject constructor(
         }
     }
 
+    // ---- Reverse ------------------------------------------------------------------------------
+
+    private val _reversing = MutableStateFlow<Float?>(null)
+    /** Progress 0..1 while a reversed copy is being made (null otherwise). */
+    val reversing: StateFlow<Float?> = _reversing.asStateFlow()
+
+    /**
+     * Plays the selected video clip backwards: makes a reversed, silent copy of its range (kept in
+     * app storage) and swaps it in. One undo step (undo brings the original back).
+     */
+    fun reverseSelected() {
+        val clips = history?.present ?: return
+        val clip = clips.firstOrNull { it.id == _editor.value.selectedClipId } ?: return
+        val asset = assets[clip.assetId]?.takeIf { it.isVideo } ?: run {
+            Toast.makeText(appContext, "Reverse works on video clips", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (_reversing.value != null) return
+        _reversing.value = 0f
+        viewModelScope.launch {
+            val result = runCatching {
+                com.cinemind.core.common.BackgroundWork.run(appContext, "Reversing a clip") {
+                    com.cinemind.feature.editor.timeline.reverse.ReverseMaker(appContext)
+                        .reverse(Uri.parse(asset.uri), clip.sourceInUs, clip.sourceOutUs) { _reversing.value = it }
+                }
+            }
+            _reversing.value = null
+            result.onFailure {
+                CineMindLogger.e(it, "Reverse failed")
+                Toast.makeText(appContext, it.message ?: "Couldn't reverse this clip", Toast.LENGTH_LONG).show()
+            }
+            val r = result.getOrNull() ?: return@launch
+            val reversed = MediaAsset(
+                uri = Uri.fromFile(r.file).toString(),
+                mimeType = "video/mp4",
+                width = r.width,
+                height = r.height,
+                durationUs = r.durationUs,
+                frameRate = r.fps,
+                hasAudio = false,
+                displayName = "Reversed " + asset.displayName,
+                sizeBytes = r.file.length(),
+            )
+            assetRepository.createAsset(reversed)
+            assets[reversed.id] = reversed
+            val current = history?.present ?: return@launch
+            // Ramps and motion keyframes refer to the original footage's times: they're dropped.
+            val framing = com.cinemind.core.domain.editing.ClipFraming.decode(clip.framing).copy(keys = emptyList())
+            val next = current.map {
+                if (it.id != clip.id) it
+                else it.copy(
+                    assetId = reversed.id,
+                    sourceInUs = 0,
+                    sourceOutUs = r.durationUs,
+                    speedCurve = com.cinemind.core.domain.editing.SpeedMath.withKeepPitch("", com.cinemind.core.domain.editing.SpeedMath.keepsPitch(it)),
+                    framing = framing.encode(),
+                )
+            }
+            commit(TimelineEditing.relayout(next), selectAfter = clip.id)
+            Toast.makeText(appContext, "Reversed (no sound). Undo to get the original back.", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     // ---- Text, titles & stickers -------------------------------------------------------------
 
     private var textHistory = EditHistory<List<com.cinemind.core.domain.text.TextLayer>>(emptyList())
@@ -739,9 +802,15 @@ class TimelineViewModel @Inject constructor(
         val s = com.cinemind.core.domain.editing.SpeedMath.clampSpeed(speed)
         val next = clips.map { c ->
             val isVideo = assets[c.assetId]?.isVideo == true
-            if (isVideo && (allClips || c.id == clipId)) c.copy(speed = s, speedCurve = "") else c
+            if (isVideo && (allClips || c.id == clipId)) c.copy(speed = s, speedCurve = com.cinemind.core.domain.editing.SpeedMath.withKeepPitch("", com.cinemind.core.domain.editing.SpeedMath.keepsPitch(c))) else c
         }
         commit(TimelineEditing.relayout(next), selectAfter = clipId)
+    }
+
+    /** Keep the sound's pitch when this clip is sped up or slowed (one undo step). */
+    fun setKeepPitch(clipId: String, on: Boolean) {
+        val clips = history?.present ?: return
+        commit(clips.map { if (it.id == clipId) it.copy(speedCurve = com.cinemind.core.domain.editing.SpeedMath.withKeepPitch(it.speedCurve, on)) else it }, selectAfter = clipId)
     }
 
     /** Speed ramp for one clip (one undo step); fewer than two points means back to constant speed. */
@@ -749,8 +818,8 @@ class TimelineViewModel @Inject constructor(
         val clips = history?.present ?: return
         val next = clips.map { c ->
             if (c.id != clipId) c
-            else if (points.size < 2) c.copy(speed = points.firstOrNull()?.speed ?: 1f, speedCurve = "")
-            else c.copy(speed = 1f, speedCurve = com.cinemind.core.domain.editing.SpeedMath.encode(points))
+            else if (points.size < 2) c.copy(speed = points.firstOrNull()?.speed ?: 1f, speedCurve = com.cinemind.core.domain.editing.SpeedMath.withKeepPitch("", com.cinemind.core.domain.editing.SpeedMath.keepsPitch(c)))
+            else c.copy(speed = 1f, speedCurve = com.cinemind.core.domain.editing.SpeedMath.withKeepPitch(com.cinemind.core.domain.editing.SpeedMath.encode(points), com.cinemind.core.domain.editing.SpeedMath.keepsPitch(c)))
         }
         commit(TimelineEditing.relayout(next), selectAfter = clipId)
     }
