@@ -3,7 +3,7 @@
 > Handoff document for any Claude / Codex / ChatGPT session. Update after every milestone.
 > Never put API keys, keystore passwords or tokens in this file.
 
-_Last updated: 2026-11-12_
+_Last updated: 2026-11-16_
 
 ## Current position
 
@@ -16,8 +16,8 @@ _Last updated: 2026-11-12_
 | **UI redesign (new, 2026-11-11)** | Whole app moved onto a central design system (light + dark tokens, contrast-tested), persistent Light / Dark / System theme in a new Settings screen, every screen redesigned, editor rebuilt around a time-scaled multitrack timeline with drag-to-trim. See "UI redesign & design system". |
 | **Captions & speech (new, 2026-11-11)** | Editable caption layer (timeline lane, preview overlay, burned into export by the same painter), 7 style presets + full styling, sentence/phrase/word modes, karaoke highlight, animations; on-device speech-to-text with Gemma 4's audio encoder: Hinglish / Roman / native script / English translation as separate operations; Devanagari→Roman transliterator. See "Captions & speech-to-text". **Speech recognition itself is not yet run on a phone.** |
 | **Branding (new)** | "CineMind AI" on launch (wordmark after the system splash), home title and Settings → About CineMind AI (logo, version + build, "Developed by Gautam", description, privacy facts, open-source licences). |
-| **Current task** | Beta: owner and friends test optimised build #143 (run 43244368625, `34ab744`, all green: unit, emulator incl. cross-dissolve, update test, optimised APK). Feedback comes in via Settings → Send feedback. Next dev work: Teleprompter Studio. |
-| **Branch** | `speed` (from `color-luts`, from `voiceover`); PRs merged by the owner |
+| **Current task** | Beta feedback on #143 (owner + friends). Since then: Teleprompter Studio + voice-follow, 8 templates, green screen + shape masks (PR #27 `teleprompter`), keep voice pitch + reverse, and the editing assistant with optional Claude key (branch `studio-extras`). |
+| **Branch** | `studio-extras` (from `teleprompter`); PR #27 `teleprompter` → `main` open, owner asked to merge once CI is green |
 | **Latest verified build** | CI run 43071502601 (#82), commit `baa29f9`: **all green** — 164 unit tests + 12 instrumented (export e2e ×3 incl. caption burn-in, speech audio ×3, screenshots ×6) — https://github.com/chandrabrav/cinemind/actions/runs/43071502601 — artifact `cinemind-debug-82` |
 | **Previous fully verified build** | CI run 43061916979 (#73), commit `82f97fa`: build + 131 unit + 6 instrumented tests. |
 
@@ -359,6 +359,20 @@ Acceptance for each: unit tests for the maths, emulator export test that inspect
 - **Smart edit with AI** (`feature/ai/generation/smartedit`): if a model is installed and enabled → load → `Prompts.brief` turns the prompt into JSON (style, pacing, target_seconds, order, transition, strict_quality), merged by `AiAssist.mergeBrief` (explicit brief settings win, then model, then keywords) → up to 3 key frames per source (best measured sample per third; max 24 total) sent to `Prompts.FRAME` → `ShotInsight` (subject, scene, shot size, people, quality, interest; tolerant JSON parsing) → planner multiplies window scores by `AiAssist.weight` and penalises the same scene from different clips → decisions list what the AI saw. Model is unloaded afterwards; any failure falls back to the measurement-only edit with a note. Results are named "… · AI edit".
 - Tests: `PromptsTest` (9), `AiAssistTest` (8). Not testable in CI: actual inference (needs the 2.6 GB model and a phone GPU).
 - Privacy: inference is fully on-device; only the model file is downloaded (from huggingface.co). No user media leaves the phone.
+
+## Teleprompter, templates, green screen (2026-11-13..15, branch `teleprompter`, PR #27)
+
+- **Teleprompter Studio** (`feature/teleprompter`): CameraX recording with a scrolling script, adjustable speed/size/mirror; **voice-follow (beta)** scrolls with your speech via the on-device recogniser (API 33+, own 48 kHz WAV recording + 16 kHz feed); takes joined into a new project (`TakeJoiner`).
+- **Templates** (`core/domain/templates`): 8 ready-made edits with slots (travel, wedding, gym, food, day-in-my-life, festival, cinematic, product) → project + titles.
+- **Green screen & shape masks** on overlays (`KeyMaskEffect` GLSL: chroma key with spill removal; circle/rounded/heart/diamond masks with feather), in preview and export (emulator pixel tests).
+
+## Keep pitch, reverse, editing assistant (2026-11-16, branch `studio-extras`)
+
+- **Keep voice pitch** when speeding up/slowing (`SpeedParameters` with pitch kept; flag stored in the speed curve).
+- **Reverse** a video clip (≤ 30 s): a reversed, silent copy is made on the phone (`ReverseMaker`) and swapped in as one undo step.
+- **Editing assistant** (✦ in the editor header): describe a change; it proposes edits (title, sticker, look, speed, transitions, cut to beats, sound, music ideas) that you review and **Apply** (normal undo steps). Domain: `core/domain/assistant` (flat action schema, text-only project brief, tolerant JSON parser, `AssistantTest`).
+- **Cloud AI (optional, bring your own key)**, Settings → Cloud AI: the user's own Claude API key, encrypted with an Android Keystore AES-GCM key, never logged or put in feedback. Calls Claude through the official Anthropic Java SDK (`com.anthropic:anthropic-java:3.3.0`). Default model is Claude Opus 5.5 (Sonnet 5.5 / Haiku 5.5 selectable), at low effort, with a JSON reply constrained by a schema. Refusal, limit and network errors are shown in plain words. It sends only the request plus a text summary (clip lengths, titles, start of captions), and only after the user turns on consent. Without a key the assistant runs on the on-device model.
+- **Not yet verified on a phone** with a real key (CI can't call the API). R8 keep rules for the SDK are in `feature/ai/cloud/consumer-rules.pro`; check the optimised build's assistant on device.
 
 ## Split
 
