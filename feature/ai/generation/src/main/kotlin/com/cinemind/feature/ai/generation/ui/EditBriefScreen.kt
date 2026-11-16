@@ -44,6 +44,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -91,10 +92,23 @@ fun EditBriefScreen(
     val project by viewModel.project.collectAsStateWithLifecycle()
     val smartEdit by viewModel.smartEdit.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    // The finished edit is reported (what changed, what was adjusted or skipped, open questions)
+    // before the user opens it.
+    var report by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf<String?>(null) }
+    val results = androidx.compose.runtime.remember { mutableMapOf<String, com.cinemind.feature.ai.generation.smartedit.SmartEditResult>() }
     LaunchedEffect(viewModel) {
         viewModel.createdFlow.collect { result ->
-            Toast.makeText(context, "Smart edit ready: " + result.decisions.first(), Toast.LENGTH_LONG).show()
-            onSmartEditCreated(result.projectId)
+            results[result.projectId] = result
+            report = result.projectId
+        }
+    }
+    report?.let { id ->
+        val result = results[id]
+        if (result == null) {
+            // Recreated after a configuration change: the project exists, open it.
+            LaunchedEffect(id) { report = null; onSmartEditCreated(id) }
+        } else {
+            SmartEditReport(result, onOpen = { report = null; onSmartEditCreated(id) })
         }
     }
 

@@ -66,7 +66,7 @@ enum class ProjectFormat(val ratio: String, val width: Int, val height: Int, val
 
 /** Validation and guidance for an [EditBrief]. Pure logic. */
 object EditBriefRules {
-    const val MAX_PROMPT_LENGTH = 1000
+    const val MAX_PROMPT_LENGTH = 6000
     val DURATION_OPTIONS_SEC = listOf(15, 30, 60, 90)
 
     /** Starter phrases the user can tap to add to their prompt. */

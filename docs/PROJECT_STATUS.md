@@ -16,8 +16,8 @@ _Last updated: 2026-11-16_
 | **UI redesign (new, 2026-11-11)** | Whole app moved onto a central design system (light + dark tokens, contrast-tested), persistent Light / Dark / System theme in a new Settings screen, every screen redesigned, editor rebuilt around a time-scaled multitrack timeline with drag-to-trim. See "UI redesign & design system". |
 | **Captions & speech (new, 2026-11-11)** | Editable caption layer (timeline lane, preview overlay, burned into export by the same painter), 7 style presets + full styling, sentence/phrase/word modes, karaoke highlight, animations; on-device speech-to-text with Gemma 4's audio encoder: Hinglish / Roman / native script / English translation as separate operations; Devanagari→Roman transliterator. See "Captions & speech-to-text". **Speech recognition itself is not yet run on a phone.** |
 | **Branding (new)** | "CineMind AI" on launch (wordmark after the system splash), home title and Settings → About CineMind AI (logo, version + build, "Developed by Gautam", description, privacy facts, open-source licences). |
-| **Current task** | Beta feedback on #143 (owner + friends). Since then: Teleprompter Studio + voice-follow, 8 templates, green screen + shape masks (PR #27 `teleprompter`), keep voice pitch + reverse, and the editing assistant with optional Claude key (branch `studio-extras`). |
-| **Branch** | `studio-extras` (from `teleprompter`); PR #27 `teleprompter` → `main` open, owner asked to merge once CI is green |
+| **Current task** | Owner tests beta **#165** (run 43843978429, `992cf45`, optimised APK): UX redesign M1, M3, M4a, M4b, M5 (two-lane timeline, drag up/down to layer, category tool bar, undoable layer order) + editing assistant with optional Claude key. Repo is **public** since 2026-11-16 (free CI minutes ran out; owner can't pay). Next: per-overlay stacking (M4c), home screen (M6). **AI editing overhaul** (owner brief 2026-11-16) started: M1 audit + M2 structured edit plans on branch `ai-edit-engine` (PR #33). See `docs/AI_EDITING.md`. |
+| **Branch** | `main` (PRs #27–#31 merged); open: #32 (screenshot test fix), #33 (AI edit engine, stacked on #32). Feature pushes don't build any more — open a PR or run the workflow by hand. |
 | **Latest verified build** | CI run 43071502601 (#82), commit `baa29f9`: **all green** — 164 unit tests + 12 instrumented (export e2e ×3 incl. caption burn-in, speech audio ×3, screenshots ×6) — https://github.com/chandrabrav/cinemind/actions/runs/43071502601 — artifact `cinemind-debug-82` |
 | **Previous fully verified build** | CI run 43061916979 (#73), commit `82f97fa`: build + 131 unit + 6 instrumented tests. |
 
@@ -387,3 +387,12 @@ Acceptance for each: unit tests for the maths, emulator export test that inspect
 3. Tune from real numbers: frames per source, image size (768 px), prompt wording; consider keeping the engine warm between runs if load time is high.
 4. Stage 3: multi-track timeline (real cross-dissolves), speed changes, beat markers / beat sync, color + LUTs, voice-over.
 5. Captions / Hindi-Hinglish speech-to-text: needs the updated master spec; Gemma 4 E2B/E4B also accept audio, so on-device transcription can reuse this runtime.
+
+## AI editing engine (2026-11-16, branch `ai-edit-engine`, PR #33)
+- **Audit (M1).** Smart Edit's plan could only express shots plus one transition type, so it behaved as a trimmer. The colour, text, caption, ramp, sound and music engines were never reached. Details are in `docs/AI_EDITING.md`.
+- **M2.**
+  - `core/domain/aiedit/`: a versioned `EditPlan`, `CreativeDirector` (on-device planner), `EditPlanValidator` (capability and footage checks; ungrounded facts become questions) and `EditPlanExecutor` (real clips, grades, ramps, transitions, animated titles, re-timed captions, caption style, music levels, sound effects).
+  - Claude plans the edit when the user has a key and has consented (text footage report, strict schema).
+  - A result dialog lists every step as applied, adjusted or skipped.
+  - The brief prompt cap is now 6000 characters.
+- **Not yet:** vision input, OpenAI and OpenRouter, prompt library, follow-up conversations, non-text graphics. No phone test yet.

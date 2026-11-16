@@ -183,10 +183,16 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      - name: Install ffmpeg (static build, no apt)
+      - name: Install ffmpeg (static build)
+        # Fast path; it has failed now and then resolving "release", so apt is the fallback below.
+        continue-on-error: true
         uses: FedericoCarboni/setup-ffmpeg@v3
         with:
           ffmpeg-version: release
+
+      - name: Install ffmpeg (apt fallback)
+        timeout-minutes: 8
+        run: command -v ffmpeg >/dev/null || (sudo apt-get update -q && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends ffmpeg)
 
       - name: Generate test media (ffmpeg)
         timeout-minutes: 10
