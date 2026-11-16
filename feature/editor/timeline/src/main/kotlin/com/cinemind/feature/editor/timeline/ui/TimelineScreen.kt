@@ -7,6 +7,10 @@ import androidx.compose.material.icons.filled.Wallpaper
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.ContentCut
 import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.RecordVoiceOver
+import androidx.compose.material.icons.filled.TravelExplore
+import androidx.compose.material.icons.filled.AutoFixHigh
+import androidx.compose.material.icons.filled.Title
 import androidx.compose.material.icons.filled.Crop
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Animation
@@ -236,6 +240,7 @@ fun TimelineScreen(
     var showMusicIdeas by remember { mutableStateOf(false) }
     var showTts by remember { mutableStateOf(false) }
     var showAssistant by remember { mutableStateOf(false) }
+    var toolCategory by remember { mutableStateOf<ToolCategory?>(null) }
     var musicMood by remember { mutableStateOf<String?>(null) }
     var musicTheme by remember { mutableStateOf("") }
     LaunchedEffect(showMusicIdeas) { if (showMusicIdeas) musicTheme = musicMood ?: viewModel.colorContext().themeText }
@@ -450,22 +455,88 @@ fun TimelineScreen(
                             EditorAction(Icons.Default.Delete, "Delete") { viewModel.deleteText(selectedText.id) },
                         ),
                     )
-                    else -> EditorBottomBar(
-                        title = null,
-                        actions = listOf(
-                            EditorAction(Icons.Default.AddPhotoAlternate, "Add") {
-                                addMediaPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
-                            },
-                            EditorAction(Icons.Default.MusicNote, "Audio", enabled = clips.isNotEmpty()) { showAudio = true },
-                            EditorAction(Icons.Default.TextFields, "Text", enabled = clips.isNotEmpty()) { showAddText = true },
-                            EditorAction(Icons.Default.ClosedCaption, "Captions", enabled = clips.isNotEmpty()) { showCaptions = true },
-                            EditorAction(Icons.Default.PictureInPicture, "Overlay", enabled = clips.isNotEmpty()) { pickOverlay() },
-                            EditorAction(Icons.Default.Palette, "Colour", enabled = clips.isNotEmpty()) { showColor = true },
-                            EditorAction(Icons.Default.Animation, "Transitions", enabled = clips.isNotEmpty()) { showTransitions = true },
-                            EditorAction(Icons.Default.Layers, "Layers", enabled = clips.isNotEmpty()) { showLayers = true },
-                            EditorAction(Icons.Default.AutoAwesome, "Smart edit", enabled = clips.isNotEmpty()) { onOpenBrief() },
-                        ),
-                    )
+                    else -> {
+                        val addClips = { addMediaPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)) }
+                        // Clip tools work on the selected clip, else on the clip under the playhead.
+                        fun atPlayhead(block: () -> Unit) {
+                            if (clips.isEmpty()) return
+                            if (editor.selectedClipId == null) viewModel.onClipTapped(preview.currentIndex.coerceIn(0, clips.lastIndex))
+                            block()
+                        }
+                        // A tool closes its category row (its sheet / the selection bar takes over).
+                        fun tool(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, enabled: Boolean = true, run: () -> Unit) =
+                            EditorAction(icon, label, enabled) { toolCategory = null; run() }
+                        val has = clips.isNotEmpty()
+                        when (toolCategory) {
+                            ToolCategory.EDIT -> EditorBottomBar(
+                                title = "Edit",
+                                onClose = { toolCategory = null },
+                                actions = listOf(
+                                    tool(Icons.Default.AddPhotoAlternate, "Add clips") { addClips() },
+                                    tool(Icons.Default.ContentCut, "Split", has) { atPlayhead { viewModel.splitSelectedAtPlayhead() } },
+                                    tool(Icons.Default.Tune, "Trim", has) { atPlayhead { adjustOpen = true } },
+                                    tool(Icons.Default.Crop, "Crop & move", has) { atPlayhead { showFraming = true } },
+                                    tool(Icons.Default.AcUnit, "Freeze", has) { atPlayhead { viewModel.freezeFrameAtPlayhead() } },
+                                    tool(Icons.Default.SettingsBackupRestore, "Reverse", has && reversing == null) { atPlayhead { viewModel.reverseSelected() } },
+                                    tool(Icons.Default.Layers, "Layers", has) { showLayers = true },
+                                    tool(Icons.Default.Delete, "Delete", has) { atPlayhead { viewModel.deleteSelected() } },
+                                ),
+                            )
+                            ToolCategory.AUDIO -> EditorBottomBar(
+                                title = "Audio",
+                                onClose = { toolCategory = null },
+                                actions = listOf(
+                                    tool(Icons.Default.MusicNote, if (editor.music != null) "Music" else "Add music") { showMusic = true },
+                                    tool(Icons.Default.GraphicEq, "Sounds") { showSounds = true },
+                                    tool(Icons.Default.Mic, "Voiceover") { openVoice() },
+                                    tool(Icons.Default.RecordVoiceOver, "Voice from text") { showTts = true },
+                                    tool(Icons.Default.TravelExplore, "Find music") { showMusicIdeas = true },
+                                ),
+                            )
+                            ToolCategory.TEXT -> EditorBottomBar(
+                                title = "Text",
+                                onClose = { toolCategory = null },
+                                actions = listOf(
+                                    tool(Icons.Default.TextFields, "Text & stickers") { showAddText = true },
+                                    tool(Icons.Default.AutoAwesome, "Smart graphics") { showGraphics = true },
+                                    tool(Icons.Default.Layers, "Layers") { showLayers = true },
+                                ),
+                            )
+                            ToolCategory.OVERLAY -> EditorBottomBar(
+                                title = "Overlay",
+                                onClose = { toolCategory = null },
+                                actions = listOf(
+                                    tool(Icons.Default.PictureInPicture, "Add photo or video") { pickOverlay() },
+                                    tool(Icons.Default.Layers, "Layers") { showLayers = true },
+                                ),
+                            )
+                            ToolCategory.AI -> EditorBottomBar(
+                                title = "AI",
+                                onClose = { toolCategory = null },
+                                actions = listOf(
+                                    tool(Icons.Default.AutoAwesome, "Assistant") { showAssistant = true },
+                                    tool(Icons.Default.AutoFixHigh, "Smart edit") { onOpenBrief() },
+                                    tool(Icons.Default.ClosedCaption, "Auto captions") { showCaptions = true },
+                                    tool(Icons.Default.Title, "Smart graphics") { showGraphics = true },
+                                    tool(Icons.Default.TravelExplore, "Music ideas") { showMusicIdeas = true },
+                                ),
+                            )
+                            null -> EditorBottomBar(
+                                title = null,
+                                actions = listOf(
+                                    EditorAction(Icons.Default.ContentCut, "Edit") { toolCategory = ToolCategory.EDIT },
+                                    EditorAction(Icons.Default.MusicNote, "Audio", enabled = has) { toolCategory = ToolCategory.AUDIO },
+                                    EditorAction(Icons.Default.TextFields, "Text", enabled = has) { toolCategory = ToolCategory.TEXT },
+                                    EditorAction(Icons.Default.ClosedCaption, "Captions", enabled = has) { showCaptions = true },
+                                    EditorAction(Icons.Default.PictureInPicture, "Overlay", enabled = has) { toolCategory = ToolCategory.OVERLAY },
+                                    EditorAction(Icons.Default.Palette, "Colour", enabled = has) { showColor = true },
+                                    EditorAction(Icons.Default.Speed, "Speed", enabled = has) { atPlayhead { showSpeed = true } },
+                                    EditorAction(Icons.Default.Animation, "Transitions", enabled = has) { showTransitions = true },
+                                    EditorAction(Icons.Default.AutoAwesome, "AI", enabled = has) { toolCategory = ToolCategory.AI },
+                                ),
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -1065,3 +1136,6 @@ private fun Scrubber(
 
 /** The timeline keeps this height; its lanes scroll inside it. */
 private val TIMELINE_HEIGHT = 236.dp
+
+/** Bottom-bar categories that open a row of their own tools (others open their sheet directly). */
+internal enum class ToolCategory { EDIT, AUDIO, TEXT, OVERLAY, AI }
