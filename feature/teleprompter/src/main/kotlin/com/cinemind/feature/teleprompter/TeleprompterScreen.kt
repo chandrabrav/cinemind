@@ -139,6 +139,12 @@ private fun ScriptEditor(ui: TeleprompterUi, vm: TeleprompterViewModel, onRecord
         SettingRow("Mirror the text", subtitle = "For a beam-splitter teleprompter glass") {
             Switch(checked = ui.mirror, onCheckedChange = vm::setMirror)
         }
+        SettingRow(
+            "Follow my voice (beta)",
+            subtitle = if (ui.voiceAvailable) "The text moves as you speak (on-device speech recognition; nothing is uploaded)" else "Needs Android 13+ with on-device speech recognition; scrolls at your reading speed instead",
+        ) {
+            Switch(checked = ui.voiceFollow, onCheckedChange = vm::setVoiceFollow, enabled = ui.voiceAvailable)
+        }
         Spacer(Modifier.height(Spacing.l))
         GradientButton("Record", onClick = onRecord, icon = Icons.Default.Videocam, enabled = script.segments.isNotEmpty(), modifier = Modifier.fillMaxWidth())
         if (ui.takes.isNotEmpty()) {
@@ -256,9 +262,14 @@ private fun CameraStage(ui: TeleprompterUi, vm: TeleprompterViewModel) {
                         .clickable {
                             when (ui.phase) {
                                 TeleprompterUi.Phase.READY -> vm.countdown {
-                                    recorder.start(vm.newTakeFile(), withAudio = hasMic) { file, err -> vm.onTakeRecorded(file, err) }
+                                    // With voice-follow CineMind captures the sound itself (one app can use the mic).
+                                    vm.startVoice()
+                                    recorder.start(vm.newTakeFile(), withAudio = hasMic && !vm.voiceMode) { file, err -> vm.onTakeRecorded(file, err) }
                                 }
-                                TeleprompterUi.Phase.RECORDING -> recorder.stop()
+                                TeleprompterUi.Phase.RECORDING -> {
+                                    vm.stopVoice()
+                                    recorder.stop()
+                                }
                                 TeleprompterUi.Phase.COUNTDOWN -> vm.cancelCountdown()
                                 else -> Unit
                             }

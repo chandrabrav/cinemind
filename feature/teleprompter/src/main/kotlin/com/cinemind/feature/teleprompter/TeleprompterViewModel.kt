@@ -49,6 +49,9 @@ data class TeleprompterUi(
     val elapsedMs: Long = 0,
     val takes: Map<Int, Take> = emptyMap(),
     val saving: Boolean = false,
+    /** Follow the reader's voice (on-device speech recognition) instead of a fixed speed. */
+    val voiceFollow: Boolean = false,
+    val voiceAvailable: Boolean = false,
     val error: String? = null,
 ) {
     enum class Phase { EDIT, READY, COUNTDOWN, RECORDING }
@@ -74,6 +77,8 @@ class TeleprompterViewModel @Inject constructor(
             wpm = prefs.getInt("wpm", 140),
             textSize = prefs.getInt("textSize", 30),
             mirror = prefs.getBoolean("mirror", false),
+            voiceAvailable = VoiceFollow.available(context),
+            voiceFollow = VoiceFollow.available(context) && prefs.getBoolean("voiceFollow", false),
         ),
     )
     val ui: StateFlow<TeleprompterUi> = _ui.asStateFlow()
@@ -110,6 +115,46 @@ class TeleprompterViewModel @Inject constructor(
     fun setMirror(on: Boolean) {
         _ui.value = _ui.value.copy(mirror = on)
         prefs.edit().putBoolean("mirror", on).apply()
+    }
+
+    fun setVoiceFollow(on: Boolean) {
+        val v = on && _ui.value.voiceAvailable
+        _ui.value = _ui.value.copy(voiceFollow = v)
+        prefs.edit().putBoolean("voiceFollow", v).apply()
+    }
+
+    private var voice: VoiceFollow? = null
+    private var follower: com.cinemind.core.domain.teleprompter.ScriptFollower? = null
+    private var pendingWav: File? = null
+
+    /** True when the take records its sound through voice-follow (camera records picture only). */
+    val voiceMode: Boolean get() = _ui.value.voiceFollow
+
+    /** Starts listening for the current part (call when the camera starts recording). */
+    fun startVoice() {
+        if (!voiceMode) return
+        val seg = parsed.segments.getOrNull(_ui.value.segment) ?: return
+        val wav = File(newTakeFile().path.removeSuffix(".mp4") + ".wav")
+        val f = com.cinemind.core.domain.teleprompter.ScriptFollower(parsed, seg.firstWord)
+        follower = f
+        val lang = if (parsed.raw.any { it in 'ऀ'..'ॿ' }) "hi-IN" else "en-IN"
+        runCatching {
+            VoiceFollow(context).also { voice = it }.start(wav, lang) { heard ->
+                val p = f.hear(heard).coerceAtMost(seg.lastWord + 1)
+                if (p != _ui.value.position) _ui.value = _ui.value.copy(position = p)
+            }
+            pendingWav = wav
+        }.onFailure {
+            voice = null
+            pendingWav = null
+            _ui.value = _ui.value.copy(error = "Voice-follow couldn't start (${it.message}); recording without it")
+        }
+    }
+
+    /** Stops listening (the camera is being stopped). */
+    fun stopVoice() {
+        voice?.stop()
+        voice = null
     }
 
     fun flipCamera() {
@@ -166,8 +211,12 @@ class TeleprompterViewModel @Inject constructor(
         ticker = viewModelScope.launch {
             while (isActive) {
                 val now = System.currentTimeMillis()
-                val pos = AutoScroll.positionAt(scrollStartWord, now - scrollStartMs, _ui.value.wpm, parsed.words.size)
-                _ui.value = _ui.value.copy(position = pos, elapsedMs = now - startedAt)
+                if (voice != null) {
+                    _ui.value = _ui.value.copy(elapsedMs = now - startedAt)
+                } else {
+                    val pos = AutoScroll.positionAt(scrollStartWord, now - scrollStartMs, _ui.value.wpm, parsed.words.size)
+                    _ui.value = _ui.value.copy(position = pos, elapsedMs = now - startedAt)
+                }
                 delay(50)
             }
         }
@@ -184,12 +233,34 @@ class TeleprompterViewModel @Inject constructor(
         val pos = (_ui.value.position + words).coerceIn(seg.firstWord, parsed.words.size)
         scrollStartWord = pos
         scrollStartMs = System.currentTimeMillis()
+        follower?.reset(pos)
         _ui.value = _ui.value.copy(position = pos)
     }
 
     /** Recording stopped: [file] is the take for the current segment (replaces an earlier one). */
     fun onTakeRecorded(file: File?, error: String?) {
         stopTicker()
+        stopVoice()
+        val wav = pendingWav
+        pendingWav = null
+        if (file != null && wav != null && wav.length() > 44) {
+            _ui.value = _ui.value.copy(saving = true)
+            viewModelScope.launch {
+                val joined = runCatching { TakeJoiner.join(context, file, wav, File(file.path.removeSuffix(".mp4") + "_av.mp4")) }
+                    .onFailure { CineMindLogger.e(it, "Joining the take's sound failed") }
+                    .getOrNull()
+                wav.delete()
+                if (joined != null) file.delete()
+                _ui.value = _ui.value.copy(saving = false)
+                acceptTake(joined ?: file, error ?: if (joined == null) "The take was saved without sound" else null)
+            }
+            return
+        }
+        wav?.delete()
+        acceptTake(file, error)
+    }
+
+    private fun acceptTake(file: File?, error: String?) {
         val seg = _ui.value.segment
         if (file == null || !file.exists() || file.length() == 0L) {
             _ui.value = _ui.value.copy(phase = TeleprompterUi.Phase.READY, error = error ?: "The take couldn't be saved")
