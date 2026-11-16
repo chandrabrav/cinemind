@@ -124,6 +124,28 @@ class LayerStackTest {
     }
 
     @Test
+    fun moveByMovesSeveralStepsAtOnce() {
+        val texts = listOf(t("a", 0), t("b", 1), t("c", 2))
+        // Stack: c, b, a, PiP, MainVideo. Drag "c" three places down → below the PiP.
+        val (moved, _) = LayerStack.moveBy(texts, LayerOrder(), false, true, "title:c", 3)
+        assertEquals(listOf("b", "a", "PictureInPicture", "c", "MainVideo"), names(LayerStack.entries(moved, LayerOrder(), false, true)))
+        // Further than possible stops above the main video.
+        val (far, _) = LayerStack.moveBy(texts, LayerOrder(), false, true, "title:c", 10)
+        assertEquals("MainVideo", names(LayerStack.entries(far, LayerOrder(), false, true)).last())
+    }
+
+    @Test
+    fun pipMovesByPassingItsNeighbours() {
+        val texts = listOf(t("a", 0), t("b", 1))
+        // b, a, PiP, MainVideo → PiP two up → PiP, b, a.
+        val (moved, _) = LayerStack.moveBy(texts, LayerOrder(), false, true, "pip", -2)
+        assertEquals(listOf("PictureInPicture", "b", "a", "MainVideo"), names(LayerStack.entries(moved, LayerOrder(), false, true)))
+        // The main video never moves.
+        val (same, _) = LayerStack.moveBy(texts, LayerOrder(), false, true, "video", -1)
+        assertEquals(texts, same)
+    }
+
+    @Test
     fun captionsCanGoUnderThePip() {
         val (_, order) = LayerStack.move(emptyList(), LayerOrder(), true, true, LayerEntry.Captions, up = false)
         assertFalse(order.captionsAboveOverlays)

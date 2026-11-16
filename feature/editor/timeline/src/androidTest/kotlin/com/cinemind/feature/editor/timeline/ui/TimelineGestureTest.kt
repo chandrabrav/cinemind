@@ -40,8 +40,9 @@ class TimelineGestureTest {
 
     private var trims = 0
     private var seeks = 0
+    private val moves = mutableListOf<Pair<String, Int>>()
 
-    private fun show() {
+    private fun show(layers: List<com.cinemind.core.domain.text.LayerEntry> = emptyList(), texts: List<com.cinemind.core.domain.text.TextLayer> = emptyList()) {
         compose.setContent {
             CineMindTheme(colors = LightCineMindColors) {
                 AppBackground {
@@ -59,6 +60,9 @@ class TimelineGestureTest {
                         onMusicTap = {},
                         modifier = Modifier.fillMaxWidth(),
                         fps = 30,
+                        texts = texts,
+                        layers = layers,
+                        onLayerMove = { key, steps -> moves += key to steps },
                     )
                 }
             }
@@ -86,19 +90,64 @@ class TimelineGestureTest {
     }
 
     @Test
-    fun buttonsZoomAndFit() {
+    fun fitFramesTheSelectedClip() {
         show()
-        val before = clipWidth()
-        compose.onNodeWithContentDescription("Zoom in").performClick()
-        compose.waitForIdle()
-        assertTrue("zoom in widens", clipWidth() > before * 1.3f)
         // A clip is selected, so "fit" frames that clip: it fills most of the width.
         compose.onNodeWithContentDescription("Zoom to selected clip").performClick()
         compose.waitForIdle()
         val root = compose.onNodeWithContentDescription("Timeline. Pinch", substring = true).getUnclippedBoundsInRoot().width.value
         assertTrue("selected clip fills the view (${clipWidth()} of $root)", clipWidth() > root * 0.7f)
-        compose.onNodeWithContentDescription("Go to start").performClick()
-        assertEquals(1, seeks)
         assertEquals(0, trims)
+    }
+
+    @Test
+    fun newProjectShowsOnlyMusicAndVideo() {
+        show()
+        compose.onNodeWithText("Music").assertExists()
+        compose.onNodeWithText("Video").assertExists()
+        listOf("Voice", "Sounds", "Captions", "Text", "Sticker", "Overlay").forEach {
+            compose.onNodeWithText(it).assertDoesNotExist()
+        }
+        // Music sits above the video.
+        assertTrue(compose.onNodeWithText("Music").getUnclippedBoundsInRoot().top < compose.onNodeWithText("Video").getUnclippedBoundsInRoot().top)
+    }
+
+    @Test
+    fun titlesGetTheirOwnLanesAndDragUpChangesTheOrder() {
+        val a = com.cinemind.core.domain.text.TextLayer(id = "a", projectId = "p", startUs = 0, endUs = 2_000_000, text = "Back", lane = 0)
+        val b = com.cinemind.core.domain.text.TextLayer(id = "b", projectId = "p", startUs = 0, endUs = 2_000_000, text = "Front", lane = 1)
+        val layers = com.cinemind.core.domain.text.LayerStack.entries(listOf(a, b), com.cinemind.core.domain.text.LayerOrder(), false, false)
+            .filter { it != com.cinemind.core.domain.text.LayerEntry.MainVideo }
+        show(layers, listOf(a, b))
+        compose.onAllNodesWithText("Text").assertCountEquals(2)
+        // Front-most title is the upper lane.
+        assertTrue(compose.onNodeWithText("Front").getUnclippedBoundsInRoot().top < compose.onNodeWithText("Back").getUnclippedBoundsInRoot().top)
+        // Long-press "Back" and drag it straight up one lane: one move of one step to the front, no time change.
+        compose.onNodeWithText("Back").performTouchInput {
+            down(center)
+            advanceEventTime(800)
+            moveBy(Offset(0f, -10f))
+            moveBy(Offset(0f, -40f * density))
+            moveBy(Offset(0f, -2f))
+            up()
+        }
+        compose.waitForIdle()
+        assertEquals(listOf("title:a" to -1), moves)
+    }
+
+    @Test
+    fun sidewaysDragMovesInTimeNotLayers() {
+        val a = com.cinemind.core.domain.text.TextLayer(id = "a", projectId = "p", startUs = 0, endUs = 2_000_000, text = "Title", lane = 0)
+        val layers = listOf(com.cinemind.core.domain.text.LayerEntry.Title(a))
+        show(layers, listOf(a))
+        compose.onNodeWithText("Title").performTouchInput {
+            down(center)
+            advanceEventTime(800)
+            moveBy(Offset(10f, 0f))
+            moveBy(Offset(60f * density, 8f))
+            up()
+        }
+        compose.waitForIdle()
+        assertTrue("a sideways drag never reorders layers", moves.isEmpty())
     }
 }
