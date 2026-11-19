@@ -187,7 +187,8 @@ class CaptionsViewModel @Inject constructor(
         viewModelScope.launch { repository.saveStyle(next) }
     }
 
-    fun applyPreset(preset: CaptionPreset) = updateStyle { preset.applyTo(it.projectId) }
+    // A new look keeps the "Mix it up" and behind-the-person choices.
+    fun applyPreset(preset: CaptionPreset) = updateStyle { preset.applyTo(it.projectId).copy(variety = it.variety, behindSubject = it.behindSubject) }
 
     private fun commit(next: List<Caption>) {
         if (next == _ui.value.captions) return

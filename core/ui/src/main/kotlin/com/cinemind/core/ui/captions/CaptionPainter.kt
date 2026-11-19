@@ -52,18 +52,21 @@ class CaptionPainter {
     ): RectF {
         val out = RectF()
         if (width <= 0 || height <= 0 || frame.words.isEmpty()) return out
+        // "Mix it up": this phrase's own design and key word (the project style when variety is off).
+        val look = com.cinemind.core.domain.captions.CaptionVariety.look(style, frame.captionId, frame.words)
+        val st = look.style
         val short = min(width, height).toFloat()
-        val textSize = (style.size * short).coerceAtLeast(6f)
-        applyTypeface(style)
+        val textSize = (st.size * short).coerceAtLeast(6f)
+        applyTypeface(st)
         fill.textSize = textSize
         stroke.textSize = textSize
-        fill.color = style.textColor
+        fill.color = st.textColor
 
-        val text = frame.text
+        val text = if (st.uppercase && !style.uppercase) frame.text.uppercase() else frame.text
         val visible = if (frame.visibleChars in 0..text.length) frame.visibleChars else text.length
         if (visible == 0) return out
         val maxWidth = (width * 0.86f).toInt().coerceAtLeast(1)
-        val alignment = when (style.alignEnum) {
+        val alignment = when (st.alignEnum) {
             CaptionAlign.START -> Layout.Alignment.ALIGN_NORMAL
             CaptionAlign.CENTER -> Layout.Alignment.ALIGN_CENTER
             CaptionAlign.END -> Layout.Alignment.ALIGN_OPPOSITE
@@ -73,7 +76,14 @@ class CaptionPainter {
         val strokeText = SpannableString(text)
         if (frame.activeWord >= 0) {
             val range = wordRange(frame.words, frame.activeWord)
-            fillText.setSpan(ForegroundColorSpan(style.highlightColor), range.first, range.last, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            fillText.setSpan(ForegroundColorSpan(st.highlightColor), range.first, range.last, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
+        if (look.emphasis >= 0) {
+            val er = wordRange(frame.words, look.emphasis)
+            val big = com.cinemind.core.domain.captions.CaptionVariety.EMPHASIS_SCALE
+            fillText.setSpan(android.text.style.RelativeSizeSpan(big), er.first, er.last, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            strokeText.setSpan(android.text.style.RelativeSizeSpan(big), er.first, er.last, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            if (look.emphasis != frame.activeWord) fillText.setSpan(ForegroundColorSpan(look.emphasisColor), er.first, er.last, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
         }
         if (visible < text.length) {
             fillText.setSpan(ForegroundColorSpan(Color.TRANSPARENT), visible, text.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
@@ -83,18 +93,18 @@ class CaptionPainter {
         val fillLayout = layout(fillText, fill, maxWidth, alignment)
         val blockH = fillLayout.height.toFloat()
         val left = (width - maxWidth) / 2f
-        val centreY = style.positionY.coerceIn(CaptionStyle.SAFE_TOP, CaptionStyle.SAFE_BOTTOM) * height
+        val centreY = st.positionY.coerceIn(CaptionStyle.SAFE_TOP, CaptionStyle.SAFE_BOTTOM) * height
         val top = (centreY - blockH / 2f).coerceIn(CaptionStyle.SAFE_TOP * height, max(CaptionStyle.SAFE_TOP * height, CaptionStyle.SAFE_BOTTOM * height - blockH))
 
         // Animation.
         val enter = easeOut(frame.enter)
-        val alpha = when (style.animationEnum) {
+        val alpha = when (st.animationEnum) {
             CaptionAnimation.NONE, CaptionAnimation.TYPEWRITER -> 1f
             else -> enter
         } * (1f - frame.exit)
         if (alpha <= 0.01f) return out
-        val scale = if (style.animationEnum == CaptionAnimation.POP) 0.82f + 0.18f * backOut(frame.enter) else 1f
-        val slide = if (style.animationEnum == CaptionAnimation.SLIDE_UP) (1f - enter) * textSize * 0.7f else 0f
+        val scale = if (st.animationEnum == CaptionAnimation.POP) 0.82f + 0.18f * backOut(frame.enter) else 1f
+        val slide = if (st.animationEnum == CaptionAnimation.SLIDE_UP) (1f - enter) * textSize * 0.7f else 0f
 
         // Bounds of the drawn text, for the background and the return value.
         var minX = Float.MAX_VALUE
@@ -112,8 +122,8 @@ class CaptionPainter {
         canvas.scale(scale, scale, out.centerX(), out.centerY() - slide)
         if (alpha < 0.99f) canvas.saveLayerAlpha(out.left - textSize, out.top - textSize - slide, out.right + textSize, out.bottom + textSize - slide, (alpha * 255).toInt())
 
-        if (style.backgroundOpacity > 0.01f) {
-            box.color = withAlpha(style.backgroundColor, style.backgroundOpacity)
+        if (st.backgroundOpacity > 0.01f) {
+            box.color = withAlpha(st.backgroundColor, st.backgroundOpacity)
             val r = textSize * 0.28f
             for (line in 0 until fillLayout.lineCount) {
                 rect.set(
@@ -128,14 +138,14 @@ class CaptionPainter {
 
         canvas.translate(left, top)
         val shadowRadius = textSize * 0.09f
-        if (style.outline > 0.001f) {
-            stroke.strokeWidth = style.outline * textSize * 2f
-            stroke.color = style.outlineColor
-            if (style.shadow) stroke.setShadowLayer(shadowRadius, 0f, textSize * 0.05f, 0x99000000.toInt()) else stroke.clearShadowLayer()
+        if (st.outline > 0.001f) {
+            stroke.strokeWidth = st.outline * textSize * 2f
+            stroke.color = st.outlineColor
+            if (st.shadow) stroke.setShadowLayer(shadowRadius, 0f, textSize * 0.05f, 0x99000000.toInt()) else stroke.clearShadowLayer()
             fill.clearShadowLayer()
             layout(strokeText, stroke, maxWidth, alignment).draw(canvas)
         } else {
-            if (style.shadow) fill.setShadowLayer(shadowRadius, 0f, textSize * 0.05f, 0xB3000000.toInt()) else fill.clearShadowLayer()
+            if (st.shadow) fill.setShadowLayer(shadowRadius, 0f, textSize * 0.05f, 0xB3000000.toInt()) else fill.clearShadowLayer()
         }
         fillLayout.draw(canvas)
         canvas.restoreToCount(save)

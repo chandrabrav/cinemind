@@ -91,6 +91,8 @@ data class CaptionStyle(
     val animation: String = CaptionAnimation.POP.name,
     /** Drawn behind the person (needs the clip's AI cutout; schema v11). */
     @androidx.room.ColumnInfo(defaultValue = "0") val behindSubject: Boolean = false,
+    /** Mix it up: each phrase gets its own look and its key word stands out (schema v12). */
+    @androidx.room.ColumnInfo(defaultValue = "0") val variety: Boolean = false,
 ) {
     val fontEnum: CaptionFont get() = CaptionFont.entries.firstOrNull { it.name == font } ?: CaptionFont.SANS
     val modeEnum: CaptionMode get() = CaptionMode.entries.firstOrNull { it.name == mode } ?: CaptionMode.PHRASE

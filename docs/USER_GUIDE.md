@@ -107,6 +107,7 @@ Undo and Redo are always in the top bar. Hold a lane and drag it up or down to c
 3. CineMind transcribes on the phone, with Whisper when it's installed, otherwise with Gemma or Android's recogniser.
 4. Pick a style. There are 13 presets (Reels, Hype, Comic, Cinematic, Podcast, Hindi and more), and you can change the font, size, colours, outline, box and position.
 5. Choose sentence, phrase or word-by-word display, karaoke highlight, and an animation.
+   Turn on **Mix it up** so the captions don't look the same all the way through. Phrases take turns between your style and contrasting designs (a punchy yellow box, a big comic pop, an elegant serif, a neon line, a marker scrawl), and each phrase's key word is drawn bigger in an accent colour. Smart edit turns this on for talking videos.
 6. Tap any caption to correct its text or timing. A ● marks words the recogniser wasn't sure about.
 
 The captions are burned into the exported video exactly as they look in the preview:

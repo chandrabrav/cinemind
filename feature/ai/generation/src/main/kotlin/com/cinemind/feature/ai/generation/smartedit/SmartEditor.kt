@@ -537,7 +537,7 @@ class SmartEditor @Inject constructor(
         textRepository.save(newId, kept + graphics)
         // A talking video gets bold, readable captions low in the frame, clear of the callouts.
         if (built.captionPreset == null && (transcript.orEmpty().isNotEmpty() || built.captions.isNotEmpty())) {
-            runCatching { captionRepository.saveStyle(CaptionPresets.HYPE.applyTo(newId)) }
+            runCatching { captionRepository.saveStyle(CaptionPresets.HYPE.applyTo(newId).copy(variety = true)) }
         }
         val callouts = graphics.size - (if (hook != null) 1 else 0)
         synchronized(howMade) {
