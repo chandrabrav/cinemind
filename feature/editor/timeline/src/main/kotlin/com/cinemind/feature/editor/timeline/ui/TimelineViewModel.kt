@@ -62,6 +62,8 @@ data class EditorState(
     val canRedo: Boolean = false,
     val music: MusicUi? = null,
     val originalVolume: Float = 1f,
+    /** On-device noise removal for clip sound and voiceover. */
+    val voiceEnhance: com.cinemind.core.domain.audio.VoiceEnhance = com.cinemind.core.domain.audio.VoiceEnhance(),
     /** Clips on the overlay (picture-in-picture) track. */
     val overlays: List<PreviewClip> = emptyList(),
     val selectedOverlayId: String? = null,
@@ -1037,11 +1039,14 @@ class TimelineViewModel @Inject constructor(
         audio = runCatching { projectRepository.getProjectAudio(projectId) }.getOrDefault(ProjectAudio(null))
         musicAsset = audio.music?.let { assetRepository.getAsset(it.assetId) }
         preview.setOriginalVolume(audio.originalVolume)
+        val enhance = com.cinemind.feature.export.engine.VoiceEnhanceStore.get(appContext, projectId)
+        preview.setVoiceEnhance(enhance)
         val m = audio.music
         val a = musicAsset
         _editor.value = _editor.value.copy(
             music = if (m != null && a != null) MusicUi(a.displayName.ifEmpty { "Music" }, a.durationUs, m) else null,
             originalVolume = audio.originalVolume,
+            voiceEnhance = enhance,
         )
         refreshMusicPlayback()
         analyseMusic()
@@ -1156,6 +1161,14 @@ class TimelineViewModel @Inject constructor(
             runCatching { projectRepository.setOriginalAudioVolume(id, volume) }
             loadAudio(id)
         }
+    }
+
+    /** Voice enhancer for this project (saved at once; heard in the preview, used in export). */
+    fun setVoiceEnhance(value: com.cinemind.core.domain.audio.VoiceEnhance) {
+        val id = projectId.value ?: return
+        com.cinemind.feature.export.engine.VoiceEnhanceStore.set(appContext, id, value)
+        preview.setVoiceEnhance(value)
+        _editor.value = _editor.value.copy(voiceEnhance = value)
     }
 
     private suspend fun saveMusic(projectId: String, settings: MusicSettings?) {

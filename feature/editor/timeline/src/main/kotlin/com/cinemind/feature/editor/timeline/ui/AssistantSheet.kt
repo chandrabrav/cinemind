@@ -54,7 +54,7 @@ private val IDEAS = listOf(
 
 /**
  * The editing assistant: describe a change; it proposes edits that you review and apply (each a
- * normal undo step). Runs on Claude with your own key (Settings → Cloud AI) or on this phone.
+ * normal undo step). Runs on a cloud AI with your own key (AI models → Cloud) or on this phone.
  */
 @Composable
 internal fun AssistantSheet(
@@ -78,7 +78,7 @@ internal fun AssistantSheet(
     CineMindSheet(onDismiss = onDismiss, title = "Assistant") {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Using ${viewModel.assistantEngine}", style = MaterialTheme.typography.labelMedium, color = c.textTertiary, modifier = Modifier.weight(1f))
-            TextButton(onClick = onOpenSettings) { Text("Cloud AI settings") }
+            TextButton(onClick = onOpenSettings) { Text("AI models") }
         }
         if (turns.isEmpty()) {
             Text(

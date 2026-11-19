@@ -96,8 +96,8 @@ fun RemakeSheet(
                 GlassCard(modifier = Modifier.fillMaxWidth()) {
                     Column(verticalArrangement = Arrangement.spacedBy(Spacing.s)) {
                         StatusPill("Offline mode", Tone.Warning)
-                        Text("Nothing leaves this phone in Offline mode. Switch to Hybrid in Cloud AI settings to send a remake.", style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
-                        TextButton(onClick = onOpenSettings) { Text("Open Cloud AI settings") }
+                        Text("Nothing leaves this phone in Offline mode. Switch to Hybrid in AI models → Cloud to send a remake.", style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
+                        TextButton(onClick = onOpenSettings) { Text("Open AI models") }
                     }
                 }
             }

@@ -100,6 +100,8 @@ class TimelineRenderer(private val context: Context) {
         sfx: List<RenderVoiceover> = emptyList(),
         /** What is drawn above/below the picture-in-picture (captions, titles). */
         layerOrder: com.cinemind.core.domain.text.LayerOrder = com.cinemind.core.domain.text.LayerOrder(),
+        /** On-device noise removal for the clips' own sound and the voiceover. */
+        voiceEnhance: com.cinemind.core.domain.audio.VoiceEnhance = com.cinemind.core.domain.audio.VoiceEnhance(),
     ): Composition {
         val textsAbove = texts.filter { !it.styleObj.drawnInPicture }
         val textsBelow = texts.filter { it.styleObj.belowOverlays && !it.styleObj.behindSubject }
@@ -111,10 +113,15 @@ class TimelineRenderer(private val context: Context) {
         val voiceClips = voiceover?.clips?.map { it.clip }.orEmpty()
         val voiceSettings = voiceover?.settings ?: VoiceoverSettings()
         val musicItems = music?.let { buildMusicItems(it, totalUs, voiceClips, voiceSettings) }.orEmpty()
-        val voiceSequence = voiceover?.takeIf { it.clips.isNotEmpty() && !it.settings.muted }?.let { buildVoiceSequence(it, totalUs) }
+        val voiceSequence = voiceover?.takeIf { it.clips.isNotEmpty() && !it.settings.muted }?.let { buildVoiceSequence(it, totalUs, enhance = voiceEnhance.level.takeIf { voiceEnhance.onVoiceover }) }
         val sfxSequences = sfx.filter { it.clips.isNotEmpty() && !it.settings.muted }.map { buildVoiceSequence(it, totalUs, perClipVolume = true) }
         val hasAudio = voiceSequence != null || sfxSequences.isNotEmpty() || clips.any { (_, s) -> s.isVideo && s.hasAudio } || musicItems.isNotEmpty()
-        val clipAudio = if (originalVolume < 0.999f) listOf(GainAudioProcessor { originalVolume.coerceIn(0f, 1f) }) else emptyList()
+        // A fresh list per clip: the enhancer keeps state between samples.
+        val clipAudio = { buildList<androidx.media3.common.audio.AudioProcessor> {
+            // Clean the voice first, then set the level.
+            if (voiceEnhance.active && voiceEnhance.onClips) add(VoiceEnhanceAudioProcessor(voiceEnhance.level))
+            if (originalVolume < 0.999f) add(GainAudioProcessor { originalVolume.coerceIn(0f, 1f) })
+        } }
 
         // How a clip's picture is prepared (also used by the dissolve layer, so both match).
         val pictureEffects = { clip: Clip, source: RenderSource ->
@@ -180,7 +187,7 @@ class TimelineRenderer(private val context: Context) {
                     .build()
                 EditedMediaItem.Builder(mediaItem)
                     .setDurationUs(knownDurationUs(source.durationUs, clip.sourceOutUs))
-                    .setEffects(Effects(clipAudio, effects))
+                    .setEffects(Effects(clipAudio(), effects))
                     .apply {
                         ClipSpeedProvider.forClip(clip)?.let { provider ->
                             // "Keep voice pitch": time-stretch the sound instead of resampling it.
@@ -377,7 +384,7 @@ class TimelineRenderer(private val context: Context) {
      * Narration as an audio-only sequence: recordings at their timeline times with silent gaps in
      * between, each with its volume and fades ([VoiceMix.voiceGain]).
      */
-    private fun buildVoiceSequence(voice: RenderVoiceover, totalUs: Long, perClipVolume: Boolean = false): EditedMediaItemSequence {
+    private fun buildVoiceSequence(voice: RenderVoiceover, totalUs: Long, perClipVolume: Boolean = false, enhance: com.cinemind.core.domain.audio.EnhanceLevel? = null): EditedMediaItemSequence {
         val byId = voice.clips.associateBy { it.clip.id }
         // Declaring the audio track type makes gaps (also a leading one) play as silence.
         val builder = EditedMediaItemSequence.Builder(setOf(C.TRACK_TYPE_AUDIO))
@@ -402,7 +409,7 @@ class TimelineRenderer(private val context: Context) {
                         EditedMediaItem.Builder(mediaItem)
                             .setDurationUs(knownDurationUs(src.durationUs, c.sourceOutUs))
                             .setRemoveVideo(true)
-                            .setEffects(Effects(listOf(gain), emptyList()))
+                            .setEffects(Effects(listOfNotNull(enhance?.takeIf { it != com.cinemind.core.domain.audio.EnhanceLevel.OFF }?.let { VoiceEnhanceAudioProcessor(it) }, gain), emptyList()))
                             .build(),
                     )
                 }
