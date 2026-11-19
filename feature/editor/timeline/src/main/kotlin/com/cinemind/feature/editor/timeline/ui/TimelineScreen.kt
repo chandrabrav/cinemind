@@ -737,6 +737,7 @@ fun TimelineScreen(
         SoundsSheet(
             onAdd = { e -> viewModel.addSoundEffect(e); showSounds = false },
             onImport = { showSounds = false; soundPicker.launch(arrayOf("audio/*")) },
+            onAddAsset = { load -> showSounds = false; viewModel.addLibrarySound(load) },
             onDismiss = { showSounds = false },
         )
     }

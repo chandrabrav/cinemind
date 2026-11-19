@@ -87,7 +87,13 @@ private class SoundAuditioner {
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-internal fun SoundsSheet(onAdd: (SoundEffect) -> Unit, onImport: () -> Unit, onDismiss: () -> Unit) {
+internal fun SoundsSheet(
+    onAdd: (SoundEffect) -> Unit,
+    onImport: () -> Unit,
+    onDismiss: () -> Unit,
+    /** A bundled-pack or Freesound sound: the loader copies it into the app. */
+    onAddAsset: (suspend () -> com.cinemind.core.domain.model.MediaAsset) -> Unit = {},
+) {
     val c = CineMind.colors
     val scope = rememberCoroutineScope()
     val player = remember { SoundAuditioner() }
@@ -121,6 +127,7 @@ internal fun SoundsSheet(onAdd: (SoundEffect) -> Unit, onImport: () -> Unit, onD
                 }
             }
         }
+        LibrarySounds(onAdd = { load -> player.stop(); onAddAsset(load) })
         Spacer(Modifier.height(Spacing.l))
         GradientButton("Use a sound from my phone", onClick = onImport, icon = Icons.Default.FileOpen, modifier = Modifier.fillMaxWidth())
         Text(

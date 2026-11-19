@@ -382,6 +382,22 @@ class TimelineViewModel @Inject constructor(
         }
     }
 
+    /** Adds a bundled-pack or Freesound sound (copied into the app by [load]) at the playhead. */
+    fun addLibrarySound(load: suspend () -> MediaAsset) {
+        viewModelScope.launch {
+            val asset = try {
+                load()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Toast.makeText(appContext, e.message ?: "Couldn't add that sound", Toast.LENGTH_LONG).show()
+                return@launch
+            }
+            assetRepository.createAsset(asset)
+            placeSound(asset)
+        }
+    }
+
     /** Imports an audio file from the phone as a sound effect at the playhead. */
     fun importSound(uri: Uri) {
         viewModelScope.launch {

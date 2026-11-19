@@ -16,6 +16,7 @@ CineMind AI is a video editor that works on your phone. This policy explains wha
 Smart edit, captions from speech, voice clean-up, automatic cutouts and frame analysis run **on your phone**:
 
 * Gemma, Spark and Whisper models are downloaded only when you ask, from Hugging Face (`huggingface.co`). That download is an ordinary file download: no media or project data is sent.
+* Sound effects search (optional): if you add your own Freesound API key, your search words and the key are sent to Freesound (`freesound.org`) and the sounds you pick are downloaded from it. No media or project data is sent. The key is stored encrypted on the phone.
 * Automatic cutouts use Google ML Kit, which runs on the phone. Google Play services may download the ML Kit module, and Google may collect limited technical usage data about it, as described in the [ML Kit terms](https://developers.google.com/ml-kit/terms) and the [Google Privacy Policy](https://policies.google.com/privacy).
 
 ## 3. Optional cloud AI (off unless you turn it on)

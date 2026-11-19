@@ -64,6 +64,9 @@ private val ACKNOWLEDGEMENTS = listOf(
     Acknowledgement("Google ML Kit (subject and selfie segmentation)", "Automatic cutouts", "ML Kit Terms of Service (Google APIs Terms)"),
     Acknowledgement("Google Fonts: Abril Fatface, Anton, Archivo Black, Bangers, Bebas Neue, Bungee, Great Vibes, Kalam, Monoton, Mukta, Pacifico, Poppins, Righteous", "Caption and title fonts", "SIL Open Font License 1.1"),
     Acknowledgement("Google Fonts: Luckiest Guy, Permanent Marker", "Caption and title fonts", "Apache License 2.0"),
+    Acknowledgement("OpenAI Whisper medium, LiteRT build (downloaded on request)", "Most accurate speech to text", "MIT (as published)"),
+    Acknowledgement("Kenney sound packs (kenney.nl)", "Bundled sound effects", "Creative Commons CC0"),
+    Acknowledgement("Freesound.org (searched with your own key)", "Sound effects by their authors", "CC0 or CC BY 4.0 per sound (see Sound credits)"),
 )
 
 @Composable
@@ -130,7 +133,7 @@ fun AboutScreen() {
                 listOf(
                     "Your videos, photos, projects and captions stay on this phone. Originals are only read, never changed or moved.",
                     "AI features run on the phone. Speech-to-text and Smart edit do not upload your media.",
-                    "The app connects to the internet only when you choose to download an AI model (from Hugging Face).",
+                    "The app connects to the internet only when you choose to download an AI model (from Hugging Face), use a cloud AI or search Freesound with your own key (only your search words are sent).",
                     "No account is needed. The app contains no advertising or analytics code.",
                     "Deleting a project never deletes your original videos or photos.",
                 ).forEach { Text("•  $it", style = MaterialTheme.typography.bodySmall, color = c.textSecondary) }
@@ -142,6 +145,19 @@ fun AboutScreen() {
             }
         }
 
+        val credits = remember { com.cinemind.core.common.SoundCredits.all(context) }
+        if (credits.isNotEmpty()) {
+            SectionHeader("Sound credits", hint = "Sounds you added from Freesound. Put CC BY credits in your video description.", modifier = Modifier.padding(top = Spacing.l))
+            GlassCard(modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.gutter)) {
+                Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+                    credits.forEach { Text(it, style = MaterialTheme.typography.bodySmall, color = c.textSecondary) }
+                    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+                    androidx.compose.material3.TextButton(onClick = { clipboard.setText(androidx.compose.ui.text.AnnotatedString("Sounds: " + credits.joinToString("; "))) }) {
+                        Text("Copy credits")
+                    }
+                }
+            }
+        }
         SectionHeader("Open-source licences", hint = "CineMind AI is built with these components.", modifier = Modifier.padding(top = Spacing.l))
         GlassCard(modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.gutter)) {
             ACKNOWLEDGEMENTS.forEachIndexed { i, a ->
