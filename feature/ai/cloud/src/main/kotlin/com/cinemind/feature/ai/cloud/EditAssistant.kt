@@ -37,7 +37,7 @@ class EditAssistant @Inject constructor(
                 client.close()
             }
         } else {
-            if (onDevice.installedModel() == null) {
+            if (onDevice.textModel() == null) {
                 throw CloudAiException("Download an on-device model or add a cloud AI key (both in AI models).")
             }
             onDevice.ask(
@@ -45,6 +45,8 @@ class EditAssistant @Inject constructor(
                     "\nAnswer with JSON only, like {\"reply\": \"...\", \"actions\": [{\"type\": \"...\", \"name\": \"\", \"text\": \"\", \"value\": 0, \"clip\": 0, \"atSeconds\": 0}]}\n\n" +
                     user,
                 maxOutputTokens = 700,
+                // The planning model (Spark) when installed: it reasons about edits better.
+                reasoning = true,
             )
         }
         return Assistant.parse(text, brief.clips.size)

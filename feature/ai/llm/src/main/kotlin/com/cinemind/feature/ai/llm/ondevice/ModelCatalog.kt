@@ -19,6 +19,13 @@ data class ModelSpec(
      * older app; installed models of another format are kept until a replacement is verified.
      */
     val format: String = "litertlm-1",
+    /**
+     * A text-only reasoning model (thinks before answering) used for planning and decisions; it
+     * never replaces the picture / speech model, it is chosen separately.
+     */
+    val reasoning: Boolean = false,
+    /** Typical decode speed on a flagship phone GPU (from the publisher's measurements). */
+    val tokensPerSecond: Float = 25f,
 )
 
 /**
@@ -55,7 +62,47 @@ object ModelCatalog {
         supportsAudio = true,
     )
 
-    val ALL: List<ModelSpec> = listOf(GEMMA_4_E2B, GEMMA_4_E4B)
+    /**
+     * Spark X2.6 1.7B (iFLYTEK SparkLLM, Apache-2.0), LiteRT-LM build by litert-community made for
+     * LiteRT-LM 0.19 (our runtime is 0.19.1). Measured by the publisher: 27 tok/s on a Galaxy S26
+     * GPU. Spark X2.6 **4B** has no LiteRT-LM build (GGUF / MLX only), so it is not offered.
+     */
+    val SPARK_X26_1_7B = ModelSpec(
+        id = "spark-x2.6-1.7b",
+        name = "Spark X2.6 1.7B (planning, recommended)",
+        fileName = "Spark-X2.6-1.7B_int4-mlp.litertlm",
+        url = "https://huggingface.co/litert-community/Spark-X2.6-1.7B/resolve/main/Spark-X2.6-1.7B_int4-mlp.litertlm",
+        sizeBytes = 1_705_918_464L,
+        sha256 = "c0ce1e9e80a7593c2492ff00d15ca49c182b95c7dfab5c805d4204fa07c14225",
+        license = "Apache-2.0 (iFLYTEK SparkLLM)",
+        summary = "Thinks through edit plans and decisions (text only). Fast on phone GPUs; about 1.7 GB.",
+        supportsImages = false,
+        reasoning = true,
+        tokensPerSecond = 27f,
+    )
+
+    /** Spark X2.5 4B, LiteRT-LM build (tested by its publisher on LiteRT-LM 0.17). Stronger but ~5 tok/s on phones. */
+    val SPARK_X25_4B = ModelSpec(
+        id = "spark-x2.5-4b",
+        name = "Spark X2.5 4B (planning, slow)",
+        fileName = "Spark-X2.5-4B_int4.litertlm",
+        url = "https://huggingface.co/litert-community/Spark-X2.5-4B/resolve/main/Spark-X2.5-4B_int4.litertlm",
+        sizeBytes = 2_482_290_688L,
+        sha256 = "0912969b1e7dc6de503d28884ee6611d2b10e1ab6a9c3682457e86b225072a48",
+        license = "Apache-2.0 (iFLYTEK SparkLLM)",
+        summary = "Stronger reasoning, but only about 5 words a second on phones; about 2.5 GB. For comparison in the benchmark.",
+        supportsImages = false,
+        reasoning = true,
+        tokensPerSecond = 5f,
+    )
+
+    val ALL: List<ModelSpec> = listOf(GEMMA_4_E2B, GEMMA_4_E4B, SPARK_X26_1_7B, SPARK_X25_4B)
+
+    /** Models that see and hear (Gemma). */
+    val VISUAL: List<ModelSpec> get() = ALL.filter { !it.reasoning }
+
+    /** Planning / reasoning models (Spark). */
+    val PLANNERS: List<ModelSpec> get() = ALL.filter { it.reasoning }
 
     fun byId(id: String?): ModelSpec? = ALL.firstOrNull { it.id == id }
 }

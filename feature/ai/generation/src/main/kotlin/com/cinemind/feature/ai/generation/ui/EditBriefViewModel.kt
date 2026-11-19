@@ -87,6 +87,7 @@ class EditBriefViewModel @Inject constructor(
                             SmartEditUi.Working("AI is looking at moment ${p.index} of ${p.count}…", (p.index - 1f) / p.count)
                         SmartEditProgress.Planning -> SmartEditUi.Working("Choosing shots and planning the edit…", null)
                         is SmartEditProgress.AskingCloud -> SmartEditUi.Working("${p.engine} is planning the edit…", null)
+                        SmartEditProgress.PlanningOnPhone -> SmartEditUi.Working("Thinking the edit through on your phone… (about a minute)", null)
                         SmartEditProgress.Building -> SmartEditUi.Working("Applying colour, text, captions and sound…", null)
                     }
                 } }
