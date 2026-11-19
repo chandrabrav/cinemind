@@ -80,8 +80,7 @@ sealed interface BenchmarkUi {
     data object Idle : BenchmarkUi
     data object Running : BenchmarkUi
     data class Done(val results: List<BenchmarkResult>) : BenchmarkUi {
-        val report: String get() = results.joinToString("
-") { it.report() }
+        val report: String get() = results.joinToString(separator = "\n") { it.report() }
     }
     data class Failed(val message: String) : BenchmarkUi
 }
