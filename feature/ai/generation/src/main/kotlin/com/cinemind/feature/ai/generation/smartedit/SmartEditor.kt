@@ -65,6 +65,8 @@ sealed interface SmartEditProgress {
     data object PlanningOnPhone : SmartEditProgress
     data object EnhancingAudio : SmartEditProgress
     data object Transcribing : SmartEditProgress
+    /** Cutting the speaker out so text can sit behind them. */
+    data object CuttingOut : SmartEditProgress
     data object Building : SmartEditProgress
 }
 
@@ -118,7 +120,11 @@ class SmartEditor @Inject constructor(
      */
     data class RevisionRun(val revision: com.cinemind.core.domain.aiedit.Revision, val previousId: String)
 
-    suspend fun create(projectId: String, onProgress: (SmartEditProgress) -> Unit = {}, revisionRun: RevisionRun? = null): SmartEditResult {
+    suspend fun create(projectId: String, onProgress: (SmartEditProgress) -> Unit = {}, revisionRun: RevisionRun? = null): SmartEditResult =
+        // Analysis, planning, model loading and transcription are heavy: off the main thread (ANRs on the Vivo).
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { createOnWorker(projectId, onProgress, revisionRun) }
+
+    private suspend fun createOnWorker(projectId: String, onProgress: (SmartEditProgress) -> Unit, revisionRun: RevisionRun?): SmartEditResult {
         val revision = revisionRun?.revision
         val timeline = projectRepository.getProjectTimeline(projectId) ?: throw SmartEditException("Project not found")
         val track = timeline.tracks.firstOrNull { it.type == TrackType.VIDEO }
@@ -395,8 +401,8 @@ class SmartEditor @Inject constructor(
         // ---- Audio sub-workflow (run by the workflow engine): voice clean-up and transcription side
         // by side, then captions. Each agent decides for itself whether it is needed.
         val audioSteps = orchestration.steps.filter { it.agent in AUDIO_AGENTS }
+        var transcript: List<com.cinemind.core.domain.captions.Caption>? = null
         if (audioSteps.isNotEmpty()) {
-            var transcript: List<com.cinemind.core.domain.captions.Caption>? = null
             val noisy = Regex("noise|noisy|wind|traffic|crowd|loud", RegexOption.IGNORE_CASE).containsMatchIn(brief.prompt)
             val runner = com.cinemind.core.domain.agents.WorkflowRunner(
                 run = { task ->
@@ -436,6 +442,8 @@ class SmartEditor @Inject constructor(
             runCatching { trace += runner.execute(orchestration.copy(steps = audioSteps)) }
                 .onFailure { if (it is CancellationException) throw it; CineMindLogger.w("Audio workflow failed: ${it.message}") }
         }
+        runCatching { speechAwareText(newId, built, assets, transcript, ownBrief.prompt, onProgress, howMade) }
+            .onFailure { if (it is CancellationException) throw it; CineMindLogger.w("Speech-aware text failed: ${it.message}") }
         com.cinemind.feature.ai.llm.ondevice.TraceStore.save(
             appContext,
             com.cinemind.core.domain.agents.ExecutionTrace(
@@ -480,6 +488,63 @@ class SmartEditor @Inject constructor(
         return built.timeline.clips.filter { it.trackId == video.id }.sortedBy { it.timelineInUs }.mapNotNull { c ->
             val a = byId[c.assetId]?.takeIf { it.isVideo && it.hasAudio } ?: return@mapNotNull null
             com.cinemind.feature.captions.speech.SpeechSource(a.uri, c.sourceInUs, c.sourceOutUs, c.timelineInUs) { off -> com.cinemind.core.domain.editing.SpeedMath.sourceToTimeline(c, off) }
+        }
+    }
+
+    /**
+     * Text designed from what is said (talking videos): the speech is transcribed when there are no
+     * captions yet (Whisper), the speaker is cut out so the hook title can sit behind them, and
+     * keyword callouts pop up beside the speaker as each key word is said. The automatic opening
+     * title is replaced by the hook. Nothing happens for footage without speech.
+     */
+    private suspend fun speechAwareText(
+        newId: String,
+        built: BuiltEdit,
+        assets: List<MediaAsset>,
+        transcript: List<com.cinemind.core.domain.captions.Caption>?,
+        prompt: String,
+        onProgress: (SmartEditProgress) -> Unit,
+        howMade: MutableList<String>,
+    ) {
+        val sources = speechSources(built, assets)
+        if (sources.isEmpty()) return
+        var spoken = transcript.orEmpty().ifEmpty { built.captions }
+        if (spoken.isEmpty() && llm.speechModel() != null) {
+            onProgress(SmartEditProgress.Transcribing)
+            spoken = runCatching {
+                transcriber.transcribe(newId, sources, com.cinemind.core.domain.captions.SpokenLanguage.AUTO, com.cinemind.core.domain.captions.CaptionScript.ROMAN) {}.captions
+            }.getOrDefault(emptyList())
+        }
+        if (spoken.isEmpty()) return
+
+        // Cut out the speaker (main-track videos; an existing cutout is reused).
+        val video = built.timeline.tracks.firstOrNull { it.type == TrackType.VIDEO }
+        val speakerAssets = built.timeline.clips.filter { it.trackId == video?.id }.mapNotNull { c -> assets.firstOrNull { it.id == c.assetId && it.isVideo } }.distinctBy { it.id }.take(3)
+        onProgress(SmartEditProgress.CuttingOut)
+        val maker = com.cinemind.feature.editor.timeline.matte.MatteMaker(appContext)
+        val cutOut = speakerAssets.isNotEmpty() && speakerAssets.all { a ->
+            com.cinemind.feature.export.engine.MatteStore.existing(appContext, a.id) != null ||
+                runCatching { maker.make(a) {} }.onFailure { if (it is CancellationException) throw it; CineMindLogger.w("Cutout failed: ${it.message}") }.isSuccess
+        }
+
+        val total = built.timeline.project.durationUs
+        val graphics = com.cinemind.core.domain.aiedit.SpeechGraphics.plan(newId, spoken, total, prompt, behindSpeaker = cutOut, idFor = { java.util.UUID.randomUUID().toString() })
+        if (graphics.isEmpty()) return
+        val hook = graphics.firstOrNull { it.startUs == 0L && it.styleObj.behindSubject == cutOut && it.size >= 0.12f }
+        val existing = textRepository.get(newId)
+        // The hook replaces the automatic opening title (it said the project name, not what you said).
+        val kept = if (hook == null) existing else existing.filterNot { it.kindEnum == com.cinemind.core.domain.text.TextKind.TEXT && it.startUs < hook.endUs }
+        textRepository.save(newId, kept + graphics)
+        // A talking video gets bold, readable captions low in the frame, clear of the callouts.
+        if (built.captionPreset == null && (transcript.orEmpty().isNotEmpty() || built.captions.isNotEmpty())) {
+            runCatching { captionRepository.saveStyle(CaptionPresets.HYPE.applyTo(newId)) }
+        }
+        val callouts = graphics.size - (if (hook != null) 1 else 0)
+        synchronized(howMade) {
+            howMade += "Speech-aware text: " + listOfNotNull(
+                hook?.let { "hook “${it.text}”" + if (cutOut) " behind you" else "" },
+                if (callouts > 0) "$callouts key words pop up as you say them" else null,
+            ).joinToString(", ")
         }
     }
 

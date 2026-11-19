@@ -229,6 +229,15 @@ class AiPreferences @Inject constructor(
         get() = prefs.getStringSet("crashed", emptySet()).orEmpty()
         set(value) = prefs.edit().putStringSet("crashed", value).apply()
 
+    /**
+     * Builds before 214 also blamed a planning model for freezes (ANRs) that the app itself caused
+     * by closing the model on the main thread. Clears those once so Spark is used again.
+     */
+    fun forgiveFreezesOnce() {
+        if (prefs.getBoolean("crash_guard_v2", false)) return
+        prefs.edit().remove("crashed").putBoolean("crash_guard_v2", true).apply()
+    }
+
     companion object {
         const val PLANNER_OFF = "off"
     }

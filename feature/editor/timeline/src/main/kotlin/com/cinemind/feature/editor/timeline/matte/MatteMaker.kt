@@ -36,7 +36,7 @@ import kotlin.math.roundToInt
  * isn't available on this phone, the bundled people-only model is used instead. Video is sampled
  * about [SAMPLES_PER_SECOND] times a second; the GPU effect blends between samples.
  */
-internal class MatteMaker(private val context: Context) {
+class MatteMaker(private val context: Context) {
 
     enum class Engine(val label: String) { SUBJECT("Any subject"), PEOPLE("People") }
 

@@ -190,7 +190,8 @@ class EditBriefViewModel @Inject constructor(
                         is SmartEditProgress.AskingCloud -> SmartEditUi.Working("${p.engine} is planning the edit…", null)
                         SmartEditProgress.PlanningOnPhone -> SmartEditUi.Working("Thinking the edit through on your phone… this can take a few minutes", null)
                         SmartEditProgress.EnhancingAudio -> SmartEditUi.Working("Cleaning up the voices…", null)
-                        SmartEditProgress.Transcribing -> SmartEditUi.Working("Transcribing speech for subtitles…", null)
+                        SmartEditProgress.Transcribing -> SmartEditUi.Working("Listening to what is said…", null)
+                        SmartEditProgress.CuttingOut -> SmartEditUi.Working("Cutting you out so the title can sit behind you…", null)
                         SmartEditProgress.Building -> SmartEditUi.Working("Applying colour, text, captions and sound…", null)
                     }
                 }, revisionRun) }

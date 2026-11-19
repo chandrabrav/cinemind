@@ -41,17 +41,25 @@ class OnDeviceLlm @Inject constructor(
     private val lock = Mutex()
 
     init {
+        prefs.forgiveFreezesOnce()
         // The last request never finished: the runtime took the app down with it. Stop using that
         // planning model on this phone (the user can switch it back on in AI models).
         val crashed = prefs.inFlightModel
         if (crashed.isNotEmpty()) {
             prefs.inFlightModel = ""
-            if (ModelCatalog.byId(crashed)?.reasoning == true) {
+            // Only a native crash counts: a freeze (ANR), the user closing the app or Android
+            // reclaiming memory isn't the model's fault.
+            if (ModelCatalog.byId(crashed)?.reasoning == true && lastExitWasNativeCrash()) {
                 prefs.crashedModels = prefs.crashedModels + crashed
                 com.cinemind.core.common.Diagnostics.memoryNote(context, "Planning model $crashed crashed the app; switched off")
             }
         }
     }
+
+    private fun lastExitWasNativeCrash(): Boolean = runCatching {
+        val am = context.getSystemService(android.app.ActivityManager::class.java)
+        am.getHistoricalProcessExitReasons(context.packageName, 0, 1).firstOrNull()?.reason == android.app.ApplicationExitInfo.REASON_CRASH_NATIVE
+    }.getOrDefault(true)
     private var engine: Engine? = null
     private var loadedId: String? = null
     private var loadedWithAudio = false
@@ -245,10 +253,14 @@ class OnDeviceLlm @Inject constructor(
         }
     }
 
-    suspend fun unload() = lock.withLock {
-        idleJob?.cancel()
-        if (engine != null) com.cinemind.core.common.Diagnostics.memoryNote(context, "AI model unloaded")
-        unloadLocked()
+    // Closing a multi-GB engine blocks for seconds: never on the main thread (it caused ANRs
+    // when Smart edit, called from the screen, unloaded Spark between stages).
+    suspend fun unload() = withContext(Dispatchers.Default) {
+        lock.withLock {
+            idleJob?.cancel()
+            if (engine != null) com.cinemind.core.common.Diagnostics.memoryNote(context, "AI model unloaded")
+            unloadLocked()
+        }
     }
 
     private fun unloadLocked() {

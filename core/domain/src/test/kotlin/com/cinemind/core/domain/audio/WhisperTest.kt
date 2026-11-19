@@ -74,4 +74,11 @@ class WhisperTest {
         // Two timestamps in a row: text next.
         assertEquals(5, WhisperSegments.pick(logits, 0, 4, WhisperTokens.FIRST_TIMESTAMP, true, true))
     }
+
+    @Test
+    fun hindiHeardAsUrduIsTreatedAsHindi() {
+        assertEquals("hi", WhisperTokens.spokenLanguage("ur"))
+        assertEquals("hi", WhisperTokens.spokenLanguage("hi"))
+        assertEquals("en", WhisperTokens.spokenLanguage("en"))
+    }
 }

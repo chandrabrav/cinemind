@@ -40,6 +40,13 @@ object WhisperTokens {
 
     fun languageOf(token: Int): String? = LANGUAGES.getOrNull(token - FIRST_LANGUAGE)
 
+    /**
+     * Whisper often labels spoken Hindi as Urdu (the same spoken language, written in a different
+     * script), which put Urdu script into Hinglish captions. CineMind writes Hindi in Devanagari
+     * or Roman letters, so a detected Urdu is treated as Hindi.
+     */
+    fun spokenLanguage(detected: String): String = if (detected == "ur") "hi" else detected
+
     fun isTimestamp(token: Int) = token >= FIRST_TIMESTAMP
 
     /** The decoder prompt: start, language (null = detect first), task; timestamps on. */

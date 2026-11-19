@@ -49,7 +49,8 @@ object GraphicsAdvisor {
     /** A short title from the project's name (drops file-ish names like "VID_2024…" or "Project 3"). */
     fun titleFrom(projectName: String, brief: String): String {
         val name = projectName.trim()
-        val generic = name.isBlank() || Regex("""(?i)^(project|untitled|vid|img|video|new project)[\s_\-\d]*$""").matches(name) || Regex("""^[\w\-]*\d{6,}[\w\-]*$""").matches(name)
+        // "Project 19 Nov, 18:03", "VID_2026…": automatic names, never a title.
+        val generic = com.cinemind.core.domain.aiedit.SpeechGraphics.isGenericName(name)
         if (!generic) return name.take(40)
         val words = brief.split(Regex("""[^\p{L}\p{N}']+""")).filter { it.length > 2 }.take(3)
         return if (words.isEmpty()) "My story" else words.joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }

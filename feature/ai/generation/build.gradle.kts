@@ -33,6 +33,8 @@ dependencies {
     implementation(project(":feature:ai:cloud"))
     implementation(project(":feature:captions"))
     implementation(project(":feature:export"))
+    // The subject cutout maker (Smart edit puts the hook title behind the speaker).
+    implementation(project(":feature:editor:timeline"))
     implementation(libs.compose.material.icons.extended)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)

@@ -137,7 +137,10 @@ class SpeechTranscriber @Inject constructor(
         language: SpokenLanguage,
         script: CaptionScript,
         onProgress: (TranscriptionProgress) -> Unit,
-    ): TranscriptionResult = transcribeWithWhisperImpl(context, extractor, llm.fileOf(spec), projectId, sources, language, script, onProgress)
+    ): TranscriptionResult = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+        // Whisper is heavy CPU work: never on the caller's (possibly main) thread.
+        transcribeWithWhisperImpl(context, extractor, llm.fileOf(spec), projectId, sources, language, script, onProgress)
+    }
 
     /** Translates existing captions to English (a separate operation from transcription). */
     suspend fun translateToEnglish(captions: List<Caption>, onProgress: (TranscriptionProgress) -> Unit): List<Caption> = try {
@@ -205,7 +208,7 @@ private suspend fun SpeechTranscriber.transcribeWithWhisperImpl(
                 coroutineContext.ensureActive()
                 onProgress(TranscriptionProgress(base + span * s / stretches.size, "Clip ${index + 1}: Whisper is transcribing ${s + 1} of ${stretches.size}…"))
                 val slice = audio.copyOfRange(seg.startSample, seg.endSample)
-                val l = lang ?: engine.detectLanguage(slice).also { lang = it }
+                val l = lang ?: com.cinemind.core.domain.audio.WhisperTokens.spokenLanguage(engine.detectLanguage(slice)).also { lang = it }
                 val translate = script == CaptionScript.ENGLISH && l != "en"
                 engine.transcribe(slice, l, translate).forEach { w ->
                     var text = w.text
