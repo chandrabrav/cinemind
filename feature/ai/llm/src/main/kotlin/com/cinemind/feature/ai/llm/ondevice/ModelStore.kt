@@ -219,6 +219,11 @@ class AiPreferences @Inject constructor(
         get() = prefs.getString("in_flight", "") ?: ""
         set(value) { prefs.edit().putString("in_flight", value).commit() }
 
+    /** Speech model id (Whisper); "" = automatic, [PLANNER_OFF] = use Gemma's audio instead. */
+    var speechModelId: String
+        get() = prefs.getString("speech", "") ?: ""
+        set(value) = prefs.edit().putString("speech", value).apply()
+
     /** Planning models switched off after they crashed the app on this phone. */
     var crashedModels: Set<String>
         get() = prefs.getStringSet("crashed", emptySet()).orEmpty()

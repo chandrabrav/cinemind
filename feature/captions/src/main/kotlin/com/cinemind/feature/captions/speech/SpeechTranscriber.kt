@@ -63,6 +63,12 @@ class SpeechTranscriber @Inject constructor(
         onProgress: (TranscriptionProgress) -> Unit,
     ): TranscriptionResult {
         val started = System.currentTimeMillis()
+        // Whisper (when downloaded) gives real segment timings and a dedicated speech model;
+        // otherwise Gemma 4's audio encoder transcribes, as before.
+        llm.speechModel()?.let { spec ->
+            runCatching { return transcribeWithWhisper(spec, projectId, sources, language, script, onProgress) }
+                .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it; CineMindLogger.w("Whisper failed, using Gemma: ${it.message}") }
+        }
         onProgress(TranscriptionProgress(0f, "Loading the speech model…"))
         val loadMs = llm.ensureLoaded(withAudio = true)
         val tmpDir = File(context.cacheDir, "stt").apply { mkdirs() }
@@ -124,6 +130,15 @@ class SpeechTranscriber @Inject constructor(
         return TranscriptionResult(captions.sortedBy { it.startUs }, heard, silentClips, loadMs, System.currentTimeMillis() - started)
     }
 
+    private suspend fun transcribeWithWhisper(
+        spec: com.cinemind.feature.ai.llm.ondevice.ModelSpec,
+        projectId: String,
+        sources: List<SpeechSource>,
+        language: SpokenLanguage,
+        script: CaptionScript,
+        onProgress: (TranscriptionProgress) -> Unit,
+    ): TranscriptionResult = transcribeWithWhisperImpl(context, extractor, llm.fileOf(spec), projectId, sources, language, script, onProgress)
+
     /** Translates existing captions to English (a separate operation from transcription). */
     suspend fun translateToEnglish(captions: List<Caption>, onProgress: (TranscriptionProgress) -> Unit): List<Caption> = try {
         translateAll(captions, onProgress)
@@ -147,4 +162,78 @@ class SpeechTranscriber @Inject constructor(
                 )
             }
         }
+}
+
+/** Whisper path of [SpeechTranscriber] (kept apart so the Gemma path stays exactly as it was). */
+private suspend fun SpeechTranscriber.transcribeWithWhisperImpl(
+    context: Context,
+    extractor: AudioExtractor,
+    model: File,
+    projectId: String,
+    sources: List<SpeechSource>,
+    language: SpokenLanguage,
+    script: CaptionScript,
+    onProgress: (TranscriptionProgress) -> Unit,
+): TranscriptionResult {
+    val started = System.currentTimeMillis()
+    onProgress(TranscriptionProgress(0f, "Loading Whisper…"))
+    val engine = WhisperEngine(context, model)
+    val loadMs = System.currentTimeMillis() - started
+    val captions = mutableListOf<Caption>()
+    var heard = 0
+    var silentClips = 0
+    var lang: String? = when (language) {
+        SpokenLanguage.AUTO -> null
+        SpokenLanguage.HINGLISH -> "hi"
+        else -> language.code
+    }
+    try {
+        sources.forEachIndexed { index, src ->
+            coroutineContext.ensureActive()
+            val base = index.toFloat() / sources.size
+            val span = 1f / sources.size
+            onProgress(TranscriptionProgress(base, "Listening to clip ${index + 1} of ${sources.size}…"))
+            val audio = try {
+                extractor.extract(Uri.parse(src.uri), src.sourceInUs, src.sourceOutUs)
+            } catch (e: NoAudioException) {
+                silentClips++
+                return@forEachIndexed
+            }
+            val stretches = SpeechSegmenter.segments(audio)
+            if (stretches.isEmpty()) silentClips++
+            stretches.forEachIndexed { s, seg ->
+                coroutineContext.ensureActive()
+                onProgress(TranscriptionProgress(base + span * s / stretches.size, "Clip ${index + 1}: Whisper is transcribing ${s + 1} of ${stretches.size}…"))
+                val slice = audio.copyOfRange(seg.startSample, seg.endSample)
+                val l = lang ?: engine.detectLanguage(slice).also { lang = it }
+                val translate = script == CaptionScript.ENGLISH && l != "en"
+                engine.transcribe(slice, l, translate).forEach { w ->
+                    var text = w.text
+                    if ((script == CaptionScript.ROMAN || script == CaptionScript.HINGLISH) && com.cinemind.core.domain.captions.Transliterator.containsDevanagari(text)) {
+                        text = com.cinemind.core.domain.captions.Transliterator.devanagariToRoman(text)
+                    }
+                    if (text.isBlank()) return@forEach
+                    heard++
+                    val start = src.timelineInUs + src.toTimelineOffset(seg.startUs + w.startUs)
+                    val end = src.timelineInUs + src.toTimelineOffset(seg.startUs + w.endUs)
+                    captions += Caption(
+                        projectId = projectId,
+                        startUs = start,
+                        endUs = end,
+                        text = text,
+                        wordTimes = WordTimes.encode(WordTimes.estimate(text, start, end)),
+                        language = l,
+                        script = script.name,
+                        source = (if (translate) CaptionSource.TRANSLATION else CaptionSource.SPEECH).name,
+                        uncertain = false,
+                    )
+                }
+            }
+        }
+    } finally {
+        engine.close()
+    }
+    onProgress(TranscriptionProgress(1f, "Done"))
+    CineMindLogger.i("Whisper transcribed ${captions.size} captions in ${System.currentTimeMillis() - started} ms")
+    return TranscriptionResult(captions.sortedBy { it.startUs }, heard, silentClips, loadMs, System.currentTimeMillis() - started)
 }

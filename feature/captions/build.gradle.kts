@@ -30,6 +30,7 @@ dependencies {
     implementation(project(":core:domain"))
     implementation(project(":core:ui"))
     implementation(project(":feature:ai:llm"))
+    implementation(libs.litert.android)
     implementation(libs.androidx.core.ktx)
     implementation(libs.compose.material.icons.extended)
     implementation(libs.androidx.lifecycle.runtime.compose)

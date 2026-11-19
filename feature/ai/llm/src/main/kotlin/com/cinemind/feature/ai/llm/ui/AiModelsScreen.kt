@@ -74,6 +74,9 @@ data class AiSettingsUi(
     val plannerId: String = "",
     /** The planning model actually in use (after "automatic" is resolved). */
     val plannerInUse: String? = null,
+    /** The speech model in use (Whisper), or null = Gemma's audio. */
+    val speechInUse: String? = null,
+    val speechId: String = "",
 )
 
 sealed interface BenchmarkUi {
@@ -104,7 +107,7 @@ class AiModelsViewModel @Inject constructor(
 
     fun record(spec: ModelSpec) = store.record(spec)
 
-    private fun read() = AiSettingsUi(prefs.useAiInSmartEdit, prefs.wifiOnly, prefs.preferGpu, prefs.selectedModelId, store.freeBytes(), prefs.plannerModelId, llm.reasoningModel()?.id)
+    private fun read() = AiSettingsUi(prefs.useAiInSmartEdit, prefs.wifiOnly, prefs.preferGpu, prefs.selectedModelId, store.freeBytes(), prefs.plannerModelId, llm.reasoningModel()?.id, llm.speechModel()?.id, prefs.speechModelId)
 
     fun setUseAi(v: Boolean) { prefs.useAiInSmartEdit = v; _settings.value = read() }
     fun setWifiOnly(v: Boolean) { prefs.wifiOnly = v; _settings.value = read() }
@@ -114,7 +117,9 @@ class AiModelsViewModel @Inject constructor(
         viewModelScope.launch { llm.unload() } // reload on the new backend next time
     }
     fun select(spec: ModelSpec) {
-        if (spec.reasoning) {
+        if (spec.speech) {
+            prefs.speechModelId = spec.id
+        } else if (spec.reasoning) {
             prefs.plannerModelId = spec.id
             prefs.crashedModels = prefs.crashedModels - spec.id // the user wants to try it again
         } else prefs.selectedModelId = spec.id
@@ -123,6 +128,12 @@ class AiModelsViewModel @Inject constructor(
     }
 
     /** Don't use any planning model (text planning falls back to the picture model or the rules). */
+    /** Transcribe with Gemma's audio instead of Whisper. */
+    fun speechOff() {
+        prefs.speechModelId = AiPreferences.PLANNER_OFF
+        _settings.value = read()
+    }
+
     fun plannerOff() {
         prefs.plannerModelId = AiPreferences.PLANNER_OFF
         _settings.value = read()
@@ -207,6 +218,25 @@ fun AiModelsScreen(viewModel: AiModelsViewModel = hiltViewModel()) {
         }
         if (settings.plannerId != AiPreferences.PLANNER_OFF) {
             TextButton(onClick = viewModel::plannerOff, modifier = Modifier.padding(horizontal = Spacing.gutter)) { Text("Don't use a planning model", color = c.textSecondary) }
+        }
+
+        SectionHeader("Speech (optional)", hint = "Turns speech into captions with exact timings, 99 languages, and can translate to English (OpenAI Whisper). Without one, Gemma listens.")
+        ModelCatalog.SPEECH.forEach { spec ->
+            val state by viewModel.state(spec).collectAsStateWithLifecycle()
+            ModelCard(
+                spec = spec,
+                state = state,
+                selected = settings.speechInUse == spec.id,
+                onSelect = { viewModel.select(spec) },
+                onDownload = { viewModel.download(spec) },
+                onPause = viewModel::pause,
+                onDelete = { viewModel.delete(spec) },
+                record = if (state == ModelState.Installed) viewModel.record(spec) else null,
+                inUseText = "In use for captions",
+            )
+        }
+        if (settings.speechId != AiPreferences.PLANNER_OFF) {
+            TextButton(onClick = viewModel::speechOff, modifier = Modifier.padding(horizontal = Spacing.gutter)) { Text("Use Gemma for speech instead", color = c.textSecondary) }
         }
 
         SectionHeader("Options")
