@@ -41,14 +41,13 @@ class GuideScreenshotTest {
         /** A phone-sized, phone-density display (the CI emulator is small and low-density). */
         @BeforeClass @JvmStatic
         fun phoneDisplay() {
-            shell("wm size 1080x2340")
-            shell("wm density 420")
+            // The CI emulator screen is 640 px wide: about 400 dp, like a typical phone.
+            shell("wm density 256")
             Thread.sleep(2_000)
         }
 
         @AfterClass @JvmStatic
         fun restoreDisplay() {
-            shell("wm size reset")
             shell("wm density reset")
         }
     }
@@ -67,6 +66,7 @@ class GuideScreenshotTest {
         val node = compose.onAllNodes(matcher, useUnmergedTree = true).onFirst()
         runCatching { node.performScrollTo() }
         node.performClick()
+        compose.mainClock.advanceTimeBy(1_000)
         compose.waitForIdle()
         Thread.sleep(900)
         true
@@ -104,7 +104,11 @@ class GuideScreenshotTest {
         }
 
         // Home on a fresh install (after the brand moment).
-        step("01_home") { waitFor(hasText("Your first story starts here"), 30_000).also { Thread.sleep(2_500) } }
+        // The brand moment covers Home for a moment on a cold start: let it finish first.
+        waitFor(hasText("Your first story starts here"), 30_000)
+        compose.mainClock.advanceTimeBy(3_000)
+        compose.waitForIdle()
+        step("01_home") { waitFor(hasText("New project")) }
 
         // Import screen (New project).
         step("02_import") { click(hasText("New project")) && waitFor(hasText("Import media")) }

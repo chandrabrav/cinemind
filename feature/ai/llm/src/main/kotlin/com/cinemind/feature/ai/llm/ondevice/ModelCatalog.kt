@@ -132,8 +132,27 @@ object ModelCatalog {
         speech = true,
     )
 
+    /**
+     * Whisper Medium (MIT weights, int4 LiteRT export by litert-community, same graph interface,
+     * 80 mel bins and token ids as Tiny/Base): far better on Hindi and Hinglish, where Tiny and Base
+     * mishear words and loop. Slower (about 1–2 minutes per minute of speech on a flagship phone).
+     */
+    val WHISPER_MEDIUM = ModelSpec(
+        id = "whisper-medium",
+        name = "Whisper Medium (speech, best for Hindi)",
+        fileName = "whisper_medium_30s_i4.tflite",
+        url = "https://huggingface.co/litert-community/whisper-medium/resolve/main/whisper_medium_30s_i4.tflite",
+        sizeBytes = 664_348_672L,
+        sha256 = "4d5a521109aa64383bcb99d1f1951316bce024a916f89683c95579db4f5ffa63",
+        license = "MIT (OpenAI Whisper)",
+        summary = "Most accurate captions, best for Hindi and Hinglish. Slower than Tiny and Base. About 664 MB.",
+        supportsImages = false,
+        format = "tflite-1",
+        speech = true,
+    )
+
     // Order matters: "automatic" picks the first installed planner, so Spark X2.5 4B comes first.
-    val ALL: List<ModelSpec> = listOf(GEMMA_4_E2B, GEMMA_4_E4B, SPARK_X25_4B, SPARK_X26_1_7B, WHISPER_TINY, WHISPER_BASE)
+    val ALL: List<ModelSpec> = listOf(GEMMA_4_E2B, GEMMA_4_E4B, SPARK_X25_4B, SPARK_X26_1_7B, WHISPER_TINY, WHISPER_BASE, WHISPER_MEDIUM)
 
     /** Models that see and hear (Gemma). */
     val VISUAL: List<ModelSpec> get() = ALL.filter { !it.reasoning && !it.speech }
@@ -141,8 +160,8 @@ object ModelCatalog {
     /** Planning / reasoning models (Spark). */
     val PLANNERS: List<ModelSpec> get() = ALL.filter { it.reasoning }
 
-    /** Speech-to-text models (Whisper). */
-    val SPEECH: List<ModelSpec> get() = ALL.filter { it.speech }
+    /** Speech-to-text models (Whisper), most accurate first (the automatic choice is the first installed). */
+    val SPEECH: List<ModelSpec> get() = ALL.filter { it.speech }.reversed()
 
     fun byId(id: String?): ModelSpec? = ALL.firstOrNull { it.id == id }
 }

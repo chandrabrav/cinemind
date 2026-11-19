@@ -19,6 +19,7 @@ import com.cinemind.feature.ai.generation.smartedit.SmartEditor
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.receiveAsFlow
@@ -47,7 +48,7 @@ data class EditBriefUiState(
 /** Smart-edit run state shown on the brief screen. */
 sealed interface SmartEditUi {
     data object Idle : SmartEditUi
-    data class Working(val message: String, val progress: Float?) : SmartEditUi
+    data class Working(val message: String, val progress: Float?, val elapsedSeconds: Int = 0) : SmartEditUi
     data class Failed(val message: String) : SmartEditUi
 }
 
@@ -58,7 +59,113 @@ class EditBriefViewModel @Inject constructor(
     private val briefRepository: EditBriefRepository,
     private val projectRepository: ProjectRepository,
     private val smartEditor: SmartEditor,
+    private val referenceAnalyzer: com.cinemind.feature.ai.generation.smartedit.ReferenceAnalyzer,
+    val voice: com.cinemind.feature.ai.generation.smartedit.VoicePrompt,
+    private val importer: com.cinemind.feature.media.importer.MediaImporter,
+    private val assetRepository: com.cinemind.core.domain.repository.MediaAssetRepository,
 ) : ViewModel() {
+
+    // ---- Music for the edit (a song the user owns, picked from the phone; the smart edit sets its level, fades and start) ----
+
+    private val _music = MutableStateFlow<String?>(null)
+    /** Name of the song this edit will use, or null. */
+    val music: StateFlow<String?> = _music.asStateFlow()
+
+    fun setMusic(uri: android.net.Uri) {
+        val id = projectId.value ?: return
+        viewModelScope.launch {
+            val asset = runCatching { importer.import(uri) }.onFailure { if (it is CancellationException) throw it }.getOrNull()
+            if (asset == null || !asset.isAudioFile) {
+                android.widget.Toast.makeText(appContext, "That file can't be used as music", android.widget.Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+            projectRepository.saveMusic(id, com.cinemind.core.domain.audio.MusicSettings(assetId = asset.id, volume = 0.7f))
+            _music.value = asset.displayName
+        }
+    }
+
+    fun removeMusic() {
+        val id = projectId.value ?: return
+        viewModelScope.launch {
+            projectRepository.saveMusic(id, null)
+            _music.value = null
+        }
+    }
+
+    // ---- Sample videos and reference images (their measured style steers pace and look) ----
+
+    private val _references = MutableStateFlow<List<com.cinemind.core.domain.aiedit.StyleReference>>(emptyList())
+    val references: StateFlow<List<com.cinemind.core.domain.aiedit.StyleReference>> = _references.asStateFlow()
+
+    /** What the reference analysis is doing right now, or null. */
+    private val _referenceWork = MutableStateFlow<String?>(null)
+    val referenceWork: StateFlow<String?> = _referenceWork.asStateFlow()
+
+    fun addReference(uri: android.net.Uri, kind: com.cinemind.core.domain.aiedit.ReferenceKind) {
+        val id = projectId.value ?: return
+        if (_references.value.size >= com.cinemind.core.domain.aiedit.StyleReferences.MAX || _referenceWork.value != null) return
+        viewModelScope.launch {
+            runCatching { referenceAnalyzer.analyze(uri, kind) { step -> _referenceWork.value = step } }
+                .onSuccess { ref ->
+                    val all = _references.value + ref
+                    _references.value = all
+                    com.cinemind.feature.ai.generation.smartedit.ReferenceStore.save(appContext, id, all)
+                    // A sample video sets the pacing to match its cutting (still changeable below).
+                    com.cinemind.core.domain.aiedit.StyleReferences.pacing(all)?.let { setPacing(it) }
+                }
+                .onFailure { if (it is CancellationException) throw it; CineMindLogger.w("Reference failed: ${it.message}") }
+            _referenceWork.value = null
+        }
+    }
+
+    fun removeReference(index: Int) {
+        val id = projectId.value ?: return
+        val all = _references.value.filterIndexed { i, _ -> i != index }
+        _references.value = all
+        com.cinemind.feature.ai.generation.smartedit.ReferenceStore.save(appContext, id, all)
+    }
+
+    // ---- Speak instead of typing ----
+
+    sealed interface VoiceUi {
+        data object Idle : VoiceUi
+        data object Listening : VoiceUi
+        data object Transcribing : VoiceUi
+        data class Failed(val message: String) : VoiceUi
+    }
+
+    private val _voiceUi = MutableStateFlow<VoiceUi>(VoiceUi.Idle)
+    val voiceUi: StateFlow<VoiceUi> = _voiceUi.asStateFlow()
+
+    private var voiceTarget: (String) -> Unit = {}
+
+    fun startListening(onText: (String) -> Unit) {
+        voiceTarget = onText
+        _voiceUi.value = if (voice.start()) VoiceUi.Listening else VoiceUi.Failed("The microphone isn't available right now.")
+    }
+
+    fun cancelListening() {
+        voice.cancel()
+        _voiceUi.value = VoiceUi.Idle
+    }
+
+    /** Stops listening; the words go to the box that started it (the prompt, or "change this edit"). */
+    fun finishListening() {
+        val onText = voiceTarget
+        _voiceUi.value = VoiceUi.Transcribing
+        viewModelScope.launch {
+            val text = voice.finish()
+            if (text.isBlank()) _voiceUi.value = VoiceUi.Failed("Didn't catch that. Try again a little closer to the phone.")
+            else { _voiceUi.value = VoiceUi.Idle; onText(text) }
+        }
+    }
+
+    fun dismissVoiceError() { _voiceUi.value = VoiceUi.Idle }
+
+    fun voiceUnavailable() { _voiceUi.value = VoiceUi.Failed("Voice input isn't available on this phone. Download Whisper under AI models → On this phone to speak your prompt.") }
+
+    /** Adds spoken or recognised words to the prompt. */
+    fun appendToPrompt(text: String) = edit { b -> b.copy(prompt = EditBriefRules.clampPrompt(if (b.prompt.isBlank()) text.trim() else b.prompt.trimEnd() + " " + text.trim())) }
 
     private val _smartEdit = MutableStateFlow<SmartEditUi>(SmartEditUi.Idle)
     val smartEdit: StateFlow<SmartEditUi> = _smartEdit.asStateFlow()
@@ -93,30 +200,76 @@ class EditBriefViewModel @Inject constructor(
     /** Which original project each AI edit (and each revision of it) was made from. */
     private val lineage by lazy { appContext.getSharedPreferences("smart_edit_lineage", android.content.Context.MODE_PRIVATE) }
 
+    // ---- Overall progress: each step owns a share of 0..100 %, steps that can tell report inside
+    // their share, and steps that can't (model thinking) creep forward so the number never stalls.
+    @Volatile private var pct = 0f
+    @Volatile private var bandEnd = 0.02f
+    @Volatile private var message = ""
+    @Volatile private var startedAt = 0L
+    @Volatile private var bandStart = 0f
+    private var lastRun: Pair<String, SmartEditor.RevisionRun?>? = null
+
+    private fun show() {
+        _smartEdit.value = SmartEditUi.Working(message, pct.coerceIn(0f, 0.99f), ((System.currentTimeMillis() - startedAt) / 1000).toInt())
+    }
+
+    private fun stage(text: String, from: Float, to: Float, within: Float = 0f) {
+        message = text
+        bandStart = from
+        bandEnd = to
+        pct = maxOf(pct, from + (to - from) * within.coerceIn(0f, 1f))
+        show()
+    }
+
+    private fun onProgress(p: SmartEditProgress): Unit = when (p) {
+        is SmartEditProgress.Analyzing -> stage("Analysing clip ${p.index} of ${p.count}…", 0f, 0.10f, (p.index - 1f) / p.count)
+        SmartEditProgress.LoadingModel -> stage("Loading the on-device AI model…", 0.10f, 0.14f)
+        SmartEditProgress.ReadingBrief -> stage("AI is reading your brief…", 0.14f, 0.18f)
+        is SmartEditProgress.Looking -> stage("AI is looking at moment ${p.index} of ${p.count}…", 0.18f, 0.38f, (p.index - 1f) / p.count)
+        SmartEditProgress.Planning -> stage("Choosing shots and planning the edit…", 0.38f, 0.40f)
+        is SmartEditProgress.AskingCloud -> stage("${p.engine} is planning the edit…", 0.40f, 0.62f)
+        SmartEditProgress.PlanningOnPhone -> stage("Thinking the edit through on your phone…", 0.40f, 0.62f)
+        SmartEditProgress.Building -> stage("Applying colour, text and sound…", 0.62f, 0.66f)
+        SmartEditProgress.EnhancingAudio -> stage("Cleaning up the voices…", 0.66f, 0.68f)
+        SmartEditProgress.Transcribing -> stage("Listening to what is said…", 0.68f, 0.84f)
+        SmartEditProgress.CuttingOut -> stage("Cutting you out so the title can sit behind you…", 0.84f, 0.98f)
+        is SmartEditProgress.Partial -> { pct = maxOf(pct, bandStart + (bandEnd - bandStart) * p.fraction.coerceIn(0f, 1f)); show() }
+    }
+
+    /** Stops the smart edit and starts it again from the beginning (same brief). */
+    fun restartSmartEdit() {
+        val again = lastRun ?: return
+        val job = smartJob
+        viewModelScope.launch {
+            job?.cancelAndJoin()
+            _smartEdit.value = SmartEditUi.Idle
+            run(again.first, again.second)
+        }
+    }
+
     private fun run(id: String, revisionRun: SmartEditor.RevisionRun?) {
         if (_smartEdit.value is SmartEditUi.Working) return
+        lastRun = id to revisionRun
         smartJob = viewModelScope.launch {
             // Make sure the latest brief text is stored before it's read.
             _state.value.brief?.let { if (!_state.value.saved) briefRepository.saveBrief(it) }
-            _smartEdit.value = SmartEditUi.Working("Reading your brief…", null)
+            pct = 0f
+            startedAt = System.currentTimeMillis()
+            stage("Reading your brief…", 0f, 0.02f)
+            val ticker = launch {
+                while (true) {
+                    kotlinx.coroutines.delay(700)
+                    pct = maxOf(pct, pct + (bandEnd - pct) * 0.025f)
+                    show()
+                }
+            }
             try {
                 // Kept alive by a foreground service, so it finishes even if the user switches apps.
-                val result = com.cinemind.core.common.BackgroundWork.run(appContext, "Making your Smart edit") { smartEditor.create(id, { p ->
-                    _smartEdit.value = when (p) {
-                        is SmartEditProgress.Analyzing ->
-                            SmartEditUi.Working("Analysing clip ${p.index} of ${p.count}…", (p.index - 1f) / p.count)
-                        SmartEditProgress.LoadingModel -> SmartEditUi.Working("Loading the on-device AI model…", null)
-                        SmartEditProgress.ReadingBrief -> SmartEditUi.Working("AI is reading your brief…", null)
-                        is SmartEditProgress.Looking ->
-                            SmartEditUi.Working("AI is looking at moment ${p.index} of ${p.count}…", (p.index - 1f) / p.count)
-                        SmartEditProgress.Planning -> SmartEditUi.Working("Choosing shots and planning the edit…", null)
-                        is SmartEditProgress.AskingCloud -> SmartEditUi.Working("${p.engine} is planning the edit…", null)
-                        SmartEditProgress.PlanningOnPhone -> SmartEditUi.Working("Thinking the edit through on your phone… this can take a few minutes", null)
-                        SmartEditProgress.EnhancingAudio -> SmartEditUi.Working("Cleaning up the voices…", null)
-                        SmartEditProgress.Transcribing -> SmartEditUi.Working("Transcribing speech for subtitles…", null)
-                        SmartEditProgress.Building -> SmartEditUi.Working("Applying colour, text, captions and sound…", null)
-                    }
-                }, revisionRun) }
+                val result = try {
+                    com.cinemind.core.common.BackgroundWork.run(appContext, "Making your Smart edit") { smartEditor.create(id, ::onProgress, revisionRun) }
+                } finally {
+                    ticker.cancel()
+                }
                 // Remember the original so this edit (and later versions) can be revised.
                 lineage.edit().putString(result.projectId, lineage.getString(id, null) ?: id).apply()
                 _smartEdit.value = SmartEditUi.Idle
@@ -198,7 +351,9 @@ class EditBriefViewModel @Inject constructor(
         if (projectId.value == id) return
         projectId.value = id
         readLibrary()
+        _references.value = com.cinemind.feature.ai.generation.smartedit.ReferenceStore.load(appContext, id)
         viewModelScope.launch {
+            _music.value = runCatching { projectRepository.getProjectAudio(id).music?.let { assetRepository.getAsset(it.assetId)?.displayName } }.getOrNull()
             // Edits are made on a local copy; the stored brief is read once so typing isn't
             // overwritten by database echoes.
             val stored = briefRepository.observeBrief(id).first()
@@ -261,6 +416,7 @@ class EditBriefViewModel @Inject constructor(
     }
 
     override fun onCleared() {
+        voice.cancel()
         flush()
         super.onCleared()
     }

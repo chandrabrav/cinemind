@@ -82,7 +82,7 @@ class SmartEditPlannerTest {
         assertEquals("9:16", t.project.aspectRatio)
         assertEquals(t.clips.last().timelineOutUs, t.project.durationUs)
         t.clips.zipWithNext().forEach { (prev, cur) ->
-            val expected = if (prev.assetId == cur.assetId) ClipTransition.CUT else ClipTransition.SLIDE_LEFT
+            val expected = if (prev.assetId == cur.assetId) ClipTransition.CUT else ClipTransition.ZOOM_IN
             assertEquals(expected.name, cur.transitionInType)
         }
         assertEquals(ClipTransition.FADE.name, t.clips.first().transitionInType)

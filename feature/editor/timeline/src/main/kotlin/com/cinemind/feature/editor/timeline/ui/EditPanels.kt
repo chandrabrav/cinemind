@@ -134,12 +134,17 @@ internal fun ClipInspector(
         val current = ClipTransition.fromName(item.clip.transitionInType)
         val currentMs = item.clip.transitionInMs
         val durationMs = if (current == ClipTransition.CUT || currentMs <= 0) 500L else currentMs
-        Text(
-            if (index == 0) "Opening" else "Transition from clip $index",
-            style = MaterialTheme.typography.labelMedium,
-            color = c.textSecondary,
-            modifier = Modifier.padding(top = Spacing.xs),
-        )
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = Spacing.xs)) {
+            Text(
+                if (index == 0) "Opening" else "Transition from clip $index",
+                style = MaterialTheme.typography.labelMedium,
+                color = c.textSecondary,
+                modifier = Modifier.weight(1f),
+            )
+            if (current != ClipTransition.CUT) {
+                TextButton(onClick = { onTransition(ClipTransition.CUT, 0L) }) { Text("Remove transition", color = c.danger) }
+            }
+        }
         ChoicePills(
             items = ClipTransition.entries,
             selected = current,
@@ -251,7 +256,7 @@ internal fun TransitionsSheet(
         SettingRow("Fade in from black at the start") { Switch(checked = fadeIn, onCheckedChange = { fadeIn = it }) }
         SettingRow("Fade out to black at the end") { Switch(checked = fadeOut, onCheckedChange = { fadeOut = it }) }
         Text(
-            "Fades dip through black; true cross-dissolves need multi-track editing, which is coming later. " +
+            "Fade dips through black; Cross-dissolve blends the two shots. " +
                 "Tap a clip to give it its own transition.",
             style = MaterialTheme.typography.bodySmall,
             color = c.textTertiary,
@@ -267,6 +272,14 @@ internal fun TransitionsSheet(
             icon = Icons.Default.Animation,
             modifier = Modifier.fillMaxWidth(),
         )
+        TextButton(
+            onClick = {
+                onApplyAll(ClipTransition.CUT, 0L)
+                onOpeningEnding(0L, 0L)
+                onDismiss()
+            },
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text("Remove all transitions", color = c.danger) }
     }
 }
 
@@ -499,4 +512,60 @@ private fun OverlaySlider(
 ) {
     Text(label, style = MaterialTheme.typography.labelMedium, color = com.cinemind.core.ui.theme.CineMind.colors.textSecondary)
     Slider(value = value, valueRange = range, onValueChange = onChange, onValueChangeFinished = onDone, colors = colors, modifier = Modifier.height(36.dp))
+}
+
+/**
+ * Sound of the picked clip or of the music: mute and level, and (for clips) the same for every
+ * clip at once. Opened from the speaker button at the left of the timeline.
+ */
+@Composable
+internal fun SoundSheet(
+    title: String,
+    volume: Float,
+    muted: Boolean,
+    maxVolume: Float,
+    onChange: (volume: Float, muted: Boolean) -> Unit,
+    onApplyAll: ((volume: Float, muted: Boolean) -> Unit)?,
+    onDismiss: () -> Unit,
+) {
+    val c = CineMind.colors
+    var level by remember(volume) { mutableStateOf(volume) }
+    var silent by remember(muted) { mutableStateOf(muted) }
+    CineMindSheet(onDismiss = onDismiss, title = title) {
+        SettingRow("Mute") {
+            Switch(checked = silent, onCheckedChange = { silent = it; onChange(level, it) })
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Volume", style = MaterialTheme.typography.labelLarge, color = c.textSecondary, modifier = Modifier.width(72.dp))
+            Slider(
+                value = level,
+                onValueChange = { level = it; silent = false },
+                onValueChangeFinished = { onChange(level, false) },
+                valueRange = 0f..maxVolume,
+                colors = SliderDefaults.colors(thumbColor = c.accent, activeTrackColor = c.accent, inactiveTrackColor = c.surfaceSunken),
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                if (silent) "Off" else "${(level * 100).toInt()}%",
+                style = MaterialTheme.typography.labelMedium,
+                color = c.textPrimary,
+                modifier = Modifier.width(48.dp).padding(start = Spacing.s),
+            )
+        }
+        if (onApplyAll != null) {
+            Spacer(Modifier.height(Spacing.m))
+            androidx.compose.material3.OutlinedButton(
+                onClick = { onApplyAll(level, silent); onDismiss() },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Apply to all clips", color = c.textPrimary) }
+        }
+        if (onApplyAll != null) {
+            Text(
+                "Changes this clip's own sound. Music and voiceover keep their levels.",
+                style = MaterialTheme.typography.bodySmall,
+                color = c.textTertiary,
+                modifier = Modifier.padding(top = Spacing.s),
+            )
+        }
+    }
 }

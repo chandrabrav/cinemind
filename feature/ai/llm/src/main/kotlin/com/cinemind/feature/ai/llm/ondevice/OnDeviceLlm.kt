@@ -23,6 +23,7 @@ class ModelNotInstalledException : Exception("No AI model is installed")
 
 /** The installed model can't take audio (no audio encoder, or it failed to load on this phone). */
 class AudioNotSupportedException(message: String) : Exception(message)
+class LowMemoryException(message: String) : Exception(message)
 
 /**
  * The on-device language/vision/audio model, run with Google's LiteRT-LM. Loads lazily, prefers the
@@ -41,17 +42,35 @@ class OnDeviceLlm @Inject constructor(
     private val lock = Mutex()
 
     init {
+        prefs.forgiveFreezesOnce()
         // The last request never finished: the runtime took the app down with it. Stop using that
         // planning model on this phone (the user can switch it back on in AI models).
         val crashed = prefs.inFlightModel
         if (crashed.isNotEmpty()) {
             prefs.inFlightModel = ""
-            if (ModelCatalog.byId(crashed)?.reasoning == true) {
+            // Only a native crash counts: a freeze (ANR), the user closing the app or Android
+            // reclaiming memory isn't the model's fault.
+            if (ModelCatalog.byId(crashed)?.reasoning == true && lastExitWasNativeCrash()) {
                 prefs.crashedModels = prefs.crashedModels + crashed
                 com.cinemind.core.common.Diagnostics.memoryNote(context, "Planning model $crashed crashed the app; switched off")
             }
         }
     }
+
+    /** Memory Android can give the app right now, in MB (-1 if unknown). */
+    private fun freeMb(): Long = runCatching {
+        val info = android.app.ActivityManager.MemoryInfo()
+        context.getSystemService(android.app.ActivityManager::class.java)?.getMemoryInfo(info)
+        info.availMem / (1024 * 1024)
+    }.getOrDefault(-1L)
+
+    /** Free memory a planner needs before loading (measured: the 4B grows to 6–9 GB). */
+    private fun needMb(spec: ModelSpec): Long = if (spec.sizeBytes > 2_000_000_000L) 6_500L else 3_000L
+
+    private fun lastExitWasNativeCrash(): Boolean = runCatching {
+        val am = context.getSystemService(android.app.ActivityManager::class.java)
+        am.getHistoricalProcessExitReasons(context.packageName, 0, 1).firstOrNull()?.reason == android.app.ApplicationExitInfo.REASON_CRASH_NATIVE
+    }.getOrDefault(true)
     private var engine: Engine? = null
     private var loadedId: String? = null
     private var loadedWithAudio = false
@@ -111,7 +130,13 @@ class OnDeviceLlm @Inject constructor(
         if (choice == AiPreferences.PLANNER_OFF) return null
         val crashed = prefs.crashedModels
         val preferred = ModelCatalog.byId(choice)?.takeIf { it.reasoning && it.id !in crashed }
-        return preferred?.takeIf { store.isInstalled(it) } ?: ModelCatalog.PLANNERS.firstOrNull { store.isInstalled(it) && it.id !in crashed }
+        val pick = preferred?.takeIf { store.isInstalled(it) } ?: ModelCatalog.PLANNERS.firstOrNull { store.isInstalled(it) && it.id !in crashed }
+        // The 4B planner grows to 6–9 GB in use (owner's phone was killed for low memory). With less free
+        // memory than it needs right now, the lighter planner takes over when it is installed.
+        if (pick != null && freeMb() in 0 until needMb(pick)) {
+            ModelCatalog.PLANNERS.firstOrNull { it != pick && store.isInstalled(it) && it.id !in crashed && freeMb() >= needMb(it) }?.let { return it }
+        }
+        return pick
     }
 
     /** Every model whose file is installed and verified. */
@@ -150,6 +175,11 @@ class OnDeviceLlm @Inject constructor(
         if (withAudio && !spec.supportsAudio) throw AudioNotSupportedException("${spec.name} can't listen to audio")
         if (engine != null && loadedId == spec.id && (loadedWithAudio || !withAudio)) return@withContext 0L
         unloadLocked()
+        // Refuse a planner that would push the phone into a low-memory kill; the edit falls back to the built-in director.
+        if (spec.reasoning) {
+            val free = freeMb()
+            if (free in 0 until needMb(spec)) throw LowMemoryException("Not enough free memory for ${spec.name} right now (${free} MB free)")
+        }
         val start = System.nanoTime()
         val path = store.file(spec).absolutePath
         val cache = File(context.cacheDir, "litertlm").apply { mkdirs() }.absolutePath
@@ -245,10 +275,14 @@ class OnDeviceLlm @Inject constructor(
         }
     }
 
-    suspend fun unload() = lock.withLock {
-        idleJob?.cancel()
-        if (engine != null) com.cinemind.core.common.Diagnostics.memoryNote(context, "AI model unloaded")
-        unloadLocked()
+    // Closing a multi-GB engine blocks for seconds: never on the main thread (it caused ANRs
+    // when Smart edit, called from the screen, unloaded Spark between stages).
+    suspend fun unload() = withContext(Dispatchers.Default) {
+        lock.withLock {
+            idleJob?.cancel()
+            if (engine != null) com.cinemind.core.common.Diagnostics.memoryNote(context, "AI model unloaded")
+            unloadLocked()
+        }
     }
 
     private fun unloadLocked() {

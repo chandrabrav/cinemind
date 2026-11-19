@@ -162,7 +162,7 @@ class ExportManager @Inject constructor(
                 CineMindLogger.w("Music file is no longer available; exporting without it")
                 null
             } else {
-                RenderMusic(song.uri, song.durationUs, m.startOffsetUs, m.volume, m.fadeInMs * 1_000, m.fadeOutMs * 1_000)
+                RenderMusic(song.uri, song.durationUs, m.startOffsetUs, m.playedVolume, m.fadeInMs * 1_000, m.fadeOutMs * 1_000)
             }
         }
         val hasAudio = pairs.any { (_, s) -> s.isVideo && s.hasAudio } || music != null

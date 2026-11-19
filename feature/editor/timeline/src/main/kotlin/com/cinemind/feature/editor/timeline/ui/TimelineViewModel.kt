@@ -215,6 +215,13 @@ class TimelineViewModel @Inject constructor(
         refreshPreview()
     }
 
+    /** Back to the very start and play (dragging the playhead all the way back was fiddly). */
+    fun replayFromStart() {
+        preview.seekToUs(0, fast = false)
+        if (!_previewState.value.isPlaying) preview.togglePlayPause()
+        refreshPreview()
+    }
+
     // ---- Colour -----------------------------------------------------------------------------
 
     /** The grade shown in the colour tool: the selected clip's, else the first clip's. */
@@ -951,6 +958,25 @@ class TimelineViewModel @Inject constructor(
         setFraming(clip.id, f.copy(keys = emptyList(), crop = com.cinemind.core.domain.editing.CropRect(), quarterTurns = 0, flipH = false, flipV = false, fill = false))
     }
 
+    /** Sound of the selected clip (its own level and mute), or of every clip when [all] is true (one undo step). */
+    fun setClipSound(volume: Float, muted: Boolean, all: Boolean = false) {
+        val clips = history?.present ?: return
+        val selected = _editor.value.selectedClipId
+        if (!all && selected == null) return
+        val updated = clips.map { c ->
+            if (all || c.id == selected) {
+                c.copy(framing = com.cinemind.core.domain.editing.ClipFraming.decode(c.framing).copy(volume = volume.coerceIn(0f, 2f), muted = muted).encode())
+            } else c
+        }
+        if (updated != clips) commit(updated, selectAfter = selected)
+    }
+
+    /** Music level and mute (the speaker button when the music is picked). */
+    fun setMusicSound(volume: Float, muted: Boolean) {
+        val m = _editor.value.music?.settings ?: return
+        updateMusic(m.copy(volume = volume.coerceIn(0f, 1f), muted = muted))
+    }
+
     /** Framing for one clip (one undo step). */
     fun setFraming(clipId: String, framing: com.cinemind.core.domain.editing.ClipFraming) {
         val clips = history?.present ?: return
@@ -1157,7 +1183,7 @@ class TimelineViewModel @Inject constructor(
             if (m == null || a == null || total <= 0) {
                 null
             } else {
-                MusicPlayback(a.uri, a.durationUs, m.startOffsetUs, m.volume, m.fadeInMs * 1_000, m.fadeOutMs * 1_000, total)
+                MusicPlayback(a.uri, a.durationUs, m.startOffsetUs, m.playedVolume, m.fadeInMs * 1_000, m.fadeOutMs * 1_000, total)
             },
         )
     }

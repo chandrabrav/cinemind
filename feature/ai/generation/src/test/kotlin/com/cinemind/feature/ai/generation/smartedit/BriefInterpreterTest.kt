@@ -34,11 +34,11 @@ class BriefInterpreterTest {
     }
 
     @Test
-    fun travelStorySlidesInOrder() {
+    fun travelStoryPunchesInOrder() {
         val i = BriefInterpreter.interpret(brief("Our Goa trip as a story from morning to night"))
         assertEquals(EditStyle.TRAVEL, i.style)
         assertEquals(ShotOrder.CHRONOLOGICAL, i.order)
-        assertEquals(ClipTransition.SLIDE_LEFT, i.transition)
+        assertEquals(ClipTransition.ZOOM_IN, i.transition)
         assertNull(i.targetUs)
     }
 
@@ -46,7 +46,8 @@ class BriefInterpreterTest {
     fun transitionWordsOverrideStyleDefault() {
         assertEquals(ClipTransition.CUT, BriefInterpreter.interpret(brief("cinematic, only cuts")).transition)
         assertEquals(0L, BriefInterpreter.interpret(brief("vlog")).transitionMs)
-        assertEquals(ClipTransition.FADE, BriefInterpreter.interpret(brief("travel with fades")).transition)
+        assertEquals(ClipTransition.DISSOLVE, BriefInterpreter.interpret(brief("travel with fades")).transition)
+        assertEquals(ClipTransition.FADE, BriefInterpreter.interpret(brief("travel, fade to black between places")).transition)
     }
 
     @Test

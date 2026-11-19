@@ -105,12 +105,22 @@ object Diagnostics {
      * and the phone's free RAM, at moments that matter (AI model load/unload, export stages, the
      * system asking the app to free memory). Keeps the last [MAX_MEMORY_LINES] lines.
      */
+    // Reading the app's memory (Debug.getPss) takes long for a process holding a multi-GB model,
+    // and notes are written from the main thread (trim-memory, lifecycle): do it in the background.
+    private val noteExecutor = java.util.concurrent.Executors.newSingleThreadExecutor { r -> Thread(r, "diagnostics").apply { isDaemon = true } }
+
     fun memoryNote(context: Context, label: String) {
+        val app = context.applicationContext
+        val at = stamp.format(Date())
+        runCatching { noteExecutor.execute { writeMemoryNote(app, label, at) } }
+    }
+
+    private fun writeMemoryNote(context: Context, label: String, at: String) {
         runCatching {
             val rt = Runtime.getRuntime()
             val am = context.getSystemService(ActivityManager::class.java)
             val mem = ActivityManager.MemoryInfo().also { am?.getMemoryInfo(it) }
-            val line = "${stamp.format(Date())} · $label · app PSS ${android.os.Debug.getPss() / 1024} MB · " +
+            val line = "$at · $label · app PSS ${android.os.Debug.getPss() / 1024} MB · " +
                 "Java ${(rt.totalMemory() - rt.freeMemory()) / (1 shl 20)} MB · native ${android.os.Debug.getNativeHeapAllocatedSize() / (1 shl 20)} MB · " +
                 "phone free ${mem.availMem / (1 shl 20)} MB${if (mem.lowMemory) " (LOW)" else ""}"
             val f = memoryLog(context)

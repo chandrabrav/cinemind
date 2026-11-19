@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>CineMind AI showcase</title>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg1: #0A0D1C; --bg2: #161032;
+    --violet: #7C5CFF; --pink: #FF5C93; --orange: #FF8A3D; --green: #2BD58A; --blue: #4D8DFF;
+    --text: #FFFFFF; --soft: #B9BFE0; --dim: #8088B3; --card: rgba(255,255,255,0.06); --line: rgba(255,255,255,0.12);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1440px; height: 2300px; }
+  body {
+    font-family: Poppins, "Segoe UI", sans-serif; color: var(--text); overflow: hidden;
+    background:
+      radial-gradient(900px 700px at 85% 8%, rgba(124,92,255,0.35), transparent 60%),
+      radial-gradient(800px 700px at 5% 45%, rgba(255,92,147,0.22), transparent 60%),
+      radial-gradient(900px 600px at 90% 80%, rgba(77,141,255,0.20), transparent 60%),
+      linear-gradient(180deg, var(--bg1), var(--bg2));
+  }
+  .wrap { padding: 84px 96px 0; position: relative; height: 100%; }
+
+  /* ---------- header ---------- */
+  .brand { display: flex; align-items: center; gap: 22px; }
+  .logo { width: 96px; height: 96px; border-radius: 26px; box-shadow: 0 18px 50px rgba(124,92,255,0.45); }
+  .brand h1 { font-size: 44px; font-weight: 800; letter-spacing: -0.5px; }
+  .brand p { color: var(--soft); font-size: 20px; font-weight: 500; }
+  .tag { margin-left: auto; padding: 12px 22px; border: 1px solid var(--line); border-radius: 999px; color: var(--soft); font-size: 18px; font-weight: 500; }
+
+  .hero { margin-top: 56px; }
+  .hero h2 { font-size: 84px; line-height: 1.02; font-weight: 900; letter-spacing: -2.5px; }
+  .grad { background: linear-gradient(90deg, var(--violet), var(--pink) 55%, var(--orange)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .hero p { margin-top: 22px; font-size: 25px; color: var(--soft); max-width: 1080px; line-height: 1.45; }
+
+  /* ---------- prompt to edit + phones ---------- */
+  .stage { margin-top: 48px; display: flex; gap: 40px; align-items: flex-start; height: 810px; }
+  .flow { width: 560px; display: flex; flex-direction: column; gap: 16px; padding-top: 10px; }
+  .bubble { background: rgba(255,255,255,0.08); border: 1px solid var(--line); border-radius: 28px 28px 28px 8px; padding: 26px 30px; font-size: 24px; line-height: 1.45; }
+  .bubble .who { font-size: 16px; color: var(--dim); font-weight: 600; letter-spacing: 1.5px; margin-bottom: 8px; }
+  .arrow { align-self: center; width: 4px; height: 32px; background: linear-gradient(var(--violet), var(--pink)); border-radius: 2px; position: relative; }
+  .arrow::after { content: ""; position: absolute; left: -9px; bottom: -10px; border: 11px solid transparent; border-top-color: var(--pink); }
+  .agents { background: rgba(124,92,255,0.14); border: 1.5px solid rgba(124,92,255,0.6); border-radius: 26px; padding: 24px 26px; }
+  .agents .who { font-size: 16px; color: #CFC4FF; font-weight: 700; letter-spacing: 1.5px; margin-bottom: 14px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 10px; }
+  .chip { font-size: 17px; font-weight: 600; padding: 9px 16px; border-radius: 999px; background: rgba(255,255,255,0.10); }
+  .chip.on { background: linear-gradient(90deg, var(--violet), var(--pink)); }
+  .result { background: rgba(43,213,138,0.12); border: 1.5px solid rgba(43,213,138,0.55); border-radius: 26px; padding: 22px 26px; font-size: 22px; line-height: 1.45; }
+  .result b { color: #7CF0BC; }
+
+  .phones { position: relative; flex: 1; height: 810px; }
+  .phone { position: absolute; width: 330px; height: 714px; border-radius: 50px; padding: 12px; background: #05060C;
+           box-shadow: 0 40px 90px rgba(0,0,0,0.55), inset 0 0 0 2px #2A2F45; }
+  .phone img { width: 100%; height: 100%; object-fit: cover; object-position: top; border-radius: 40px; display: block; background: #fff; }
+  .phone::before { content: ""; position: absolute; top: 26px; left: 50%; transform: translateX(-50%); width: 18px; height: 18px; border-radius: 50%; background: #05060C; z-index: 2; }
+  .p1 { left: 20px; top: 40px; transform: rotate(-6deg); }
+  .p2 { left: 300px; top: 0; z-index: 3; }
+  .phone .cap { position: absolute; bottom: -54px; left: 0; right: 0; text-align: center; font-size: 19px; color: var(--soft); font-weight: 600; }
+
+  /* ---------- features ---------- */
+  .section-title { margin-top: 34px; font-size: 18px; font-weight: 700; letter-spacing: 3px; color: var(--dim); }
+  .grid { margin-top: 22px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; }
+  .f { background: var(--card); border: 1px solid var(--line); border-radius: 24px; padding: 20px 22px; min-height: 140px; }
+  .f .ic { width: 52px; height: 52px; border-radius: 16px; display: grid; place-items: center; font-size: 27px; margin-bottom: 14px; }
+  .f h3 { font-size: 21px; font-weight: 700; line-height: 1.25; }
+  .f p { margin-top: 6px; font-size: 16px; color: var(--soft); line-height: 1.4; }
+
+  /* ---------- models ---------- */
+  .models { margin-top: 22px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; }
+  .m { border-radius: 22px; padding: 20px 22px; background: rgba(255,255,255,0.05); border: 1px solid var(--line); position: relative; overflow: hidden; }
+  .m::before { content: ""; position: absolute; left: 0; top: 0; right: 0; height: 5px; }
+  .m.g::before { background: var(--blue); } .m.s::before { background: var(--violet); } .m.w::before { background: var(--pink); } .m.k::before { background: var(--green); }
+  .m h4 { font-size: 22px; font-weight: 700; }
+  .m .by { font-size: 15px; color: var(--dim); font-weight: 600; }
+  .m p { margin-top: 8px; font-size: 16px; color: var(--soft); line-height: 1.35; }
+
+  /* ---------- footer ---------- */
+  .trust { margin-top: 28px; display: flex; gap: 14px; flex-wrap: wrap; }
+  .badge { display: flex; align-items: center; gap: 10px; padding: 13px 20px; border-radius: 999px; background: rgba(43,213,138,0.10); border: 1px solid rgba(43,213,138,0.4); font-size: 18px; font-weight: 600; color: #BFF5DA; }
+  .stack { position: absolute; left: 96px; right: 96px; bottom: 54px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; color: var(--dim); font-size: 17px; font-weight: 500; }
+  .stack span.k { color: var(--soft); font-weight: 700; letter-spacing: 2px; font-size: 15px; margin-right: 6px; }
+  .stack .dot { width: 5px; height: 5px; background: var(--dim); border-radius: 50%; }
+  .sig { margin-left: auto; color: var(--soft); font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="brand">
+    <img class="logo" src="logo.webp" alt="CineMind AI logo">
+    <div>
+      <h1>CineMind AI</h1>
+      <p>AI video editor for Android</p>
+    </div>
+    <div class="tag">Runs on your phone · Free</div>
+  </div>
+
+  <div class="hero">
+    <h2>Describe your video.<br><span class="grad">CineMind edits it.</span></h2>
+    <p>Pro editing tools and on-device AI in one app: auto captions, motion-graphic titles, AI cutouts and voice clean-up. Every AI edit stays fully editable, and your videos never leave your phone.</p>
+  </div>
+
+  <div class="stage">
+    <div class="flow">
+      <div class="bubble"><div class="who">YOU</div>“Make a 30-second cinematic travel reel. Slow-motion on the best shots, clear voices, subtitles.”</div>
+      <div class="arrow"></div>
+      <div class="agents">
+        <div class="who">ON-DEVICE AI AGENTS</div>
+        <div class="chips">
+          <span class="chip on">Video analysis</span><span class="chip on">Visual intelligence</span>
+          <span class="chip on">Creative director</span><span class="chip on">Edit planner</span>
+          <span class="chip on">Voice clean-up</span><span class="chip on">Speech → subtitles</span>
+          <span class="chip on">Quality check</span><span class="chip on">Rendering</span>
+          <span class="chip">Music director</span>
+        </div>
+      </div>
+      <div class="arrow"></div>
+      <div class="result"><b>An editable project in minutes:</b> cuts, slow-motion, cleaned voices and styled subtitles. Change anything, or just say <i>“make it 15 seconds, keep the music”</i>.</div>
+    </div>
+
+    <div class="phones">
+      <div class="phone p1"><img src="screens/left.png" alt=""></div>
+      <div class="phone p2"><img src="screens/center.png" alt=""></div>
+    </div>
+  </div>
+
+  <div class="section-title">WHAT YOU CAN DO</div>
+  <div class="grid">
+    <div class="f"><div class="ic" style="background:rgba(124,92,255,.25)">✦</div><h3>Smart edit from a prompt</h3><p>Plain words in, a full edit out</p></div>
+    <div class="f"><div class="ic" style="background:rgba(255,92,147,.22)">💬</div><h3>Auto captions</h3><p>Hinglish, Hindi, English · 13 styles · karaoke</p></div>
+    <div class="f"><div class="ic" style="background:rgba(255,138,61,.22)">✍️</div><h3>Motion-graphic titles</h3><p>15 fonts, 3D, glow, 14 animations</p></div>
+    <div class="f"><div class="ic" style="background:rgba(43,213,138,.20)">✂️</div><h3>AI cutout</h3><p>Text behind you, background blur and pop</p></div>
+    <div class="f"><div class="ic" style="background:rgba(43,213,138,.20)">🎙</div><h3>Voice clean-up</h3><p>Removes wind, traffic and crowd noise</p></div>
+    <div class="f"><div class="ic" style="background:rgba(77,141,255,.22)">🎬</div><h3>Multitrack timeline</h3><p>Trim, split, speed ramps, keyframes, PiP</p></div>
+    <div class="f"><div class="ic" style="background:rgba(124,92,255,.25)">🎨</div><h3>Colour &amp; LUTs</h3><p>Cinematic looks and AI suggestions</p></div>
+    <div class="f"><div class="ic" style="background:rgba(255,92,147,.22)">⚡</div><h3>Auto edit</h3><p>Jump cuts, punch-ins, auto-reframe, 4K export</p></div>
+  </div>
+
+  <div class="section-title">POWERED BY ON-DEVICE AI</div>
+  <div class="models">
+    <div class="m g"><h4>Gemma 4</h4><div class="by">GOOGLE</div><p>Sees your shots and reads your brief</p></div>
+    <div class="m s"><h4>Spark X2.5 4B</h4><div class="by">IFLYTEK</div><p>Plans the edit, step by step</p></div>
+    <div class="m w"><h4>Whisper</h4><div class="by">OPENAI</div><p>Speech to text in 99 languages</p></div>
+    <div class="m k"><h4>ML Kit</h4><div class="by">GOOGLE</div><p>Finds the person for cutouts</p></div>
+  </div>
+
+  <div class="trust">
+    <div class="badge">🔒 Videos never uploaded</div>
+    <div class="badge">📴 Works offline</div>
+    <div class="badge">🚫 No account, no ads</div>
+    <div class="badge">☁️ Optional cloud AI with your own key</div>
+  </div>
+
+  <div class="stack">
+    <span class="k">BUILT WITH</span> Kotlin <span class="dot"></span> Jetpack Compose <span class="dot"></span> Media3 <span class="dot"></span> LiteRT <span class="dot"></span> Hilt · Room <span class="dot"></span> GitHub Actions
+    <span class="sig">Developed by Gautam</span>
+  </div>
+</div>
+</body>
+</html>

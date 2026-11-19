@@ -30,6 +30,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Lightbulb
 import androidx.compose.material3.CircularProgressIndicator
@@ -140,6 +141,8 @@ fun EditBriefScreen(
             .verticalScroll(rememberScrollState())
             .padding(bottom = Spacing.xxl),
     ) {
+        VoiceDialog(viewModel)
+
         ScreenHeader(
             title = "Describe your edit",
             subtitle = project?.let { "${it.name} · ${formatDuration(it.durationUs)} of footage" },
@@ -148,6 +151,7 @@ fun EditBriefScreen(
         // An AI edit can be changed in plain words: a new version is made, this one stays.
         if (viewModel.canRevise) {
             var change by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf("") }
+            val speakChange = rememberVoiceInput(viewModel) { t -> change = (change.trimEnd() + " " + t).trim().take(400) }
             GlassCard(modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.gutter).padding(bottom = Spacing.m)) {
                 Text("Change this edit", style = MaterialTheme.typography.titleSmall, color = c.textPrimary)
                 Text(
@@ -160,6 +164,11 @@ fun EditBriefScreen(
                     value = change,
                     onValueChange = { change = it.take(400) },
                     placeholder = { Text("What should change?", color = c.textTertiary) },
+                    trailingIcon = {
+                        androidx.compose.material3.IconButton(onClick = speakChange) {
+                            Icon(Icons.Default.Mic, contentDescription = "Speak the change", tint = c.accent)
+                        }
+                    },
                     minLines = 2,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -198,6 +207,9 @@ fun EditBriefScreen(
                     .fillMaxWidth()
                     .heightIn(min = 120.dp),
             )
+            Spacer(Modifier.height(Spacing.xs))
+            val speak = rememberVoiceInput(viewModel, viewModel::appendToPrompt)
+            PromptInputRow(viewModel, speak)
             var showLibrary by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
             val library by viewModel.library.collectAsStateWithLifecycle()
             androidx.compose.material3.TextButton(onClick = { showLibrary = true }) { Text("Browse the prompt library (gym, travel, cinematic, podcast…)", color = c.accent) }
@@ -253,6 +265,7 @@ fun EditBriefScreen(
             hasFootage = (project?.durationUs ?: 0) > 0,
             onCreate = viewModel::createSmartEdit,
             onCancel = viewModel::cancelSmartEdit,
+            onRestart = viewModel::restartSmartEdit,
         )
     }
 }
@@ -303,6 +316,7 @@ private fun GenerateCard(
     hasFootage: Boolean,
     onCreate: () -> Unit,
     onCancel: () -> Unit,
+    onRestart: () -> Unit,
 ) {
     val c = CineMind.colors
     GlassCard(
@@ -324,8 +338,25 @@ private fun GenerateCard(
                 } else {
                     LinearProgressIndicator(color = c.accent, trackColor = c.surfaceSunken, modifier = Modifier.fillMaxWidth())
                 }
+                Spacer(Modifier.height(Spacing.xs))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        if (p != null) "${(p * 100).toInt()}%" else "",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = c.textPrimary,
+                    )
+                    Spacer(Modifier.weight(1f))
+                    Text(
+                        "%d:%02d".format(state.elapsedSeconds / 60, state.elapsedSeconds % 60),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = c.textTertiary,
+                    )
+                }
                 Spacer(Modifier.height(Spacing.m))
-                OutlinedButton(onClick = onCancel) { Text("Cancel", color = c.textSecondary) }
+                Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(Spacing.s)) {
+                    OutlinedButton(onClick = onCancel) { Text("Stop", color = c.textSecondary) }
+                    OutlinedButton(onClick = onRestart) { Text("Restart", color = c.textSecondary) }
+                }
             }
             else -> {
                 GradientButton(

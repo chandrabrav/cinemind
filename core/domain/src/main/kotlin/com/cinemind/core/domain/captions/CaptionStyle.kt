@@ -91,6 +91,8 @@ data class CaptionStyle(
     val animation: String = CaptionAnimation.POP.name,
     /** Drawn behind the person (needs the clip's AI cutout; schema v11). */
     @androidx.room.ColumnInfo(defaultValue = "0") val behindSubject: Boolean = false,
+    /** Mix it up: each phrase gets its own look and its key word stands out (schema v12). */
+    @androidx.room.ColumnInfo(defaultValue = "0") val variety: Boolean = false,
 ) {
     val fontEnum: CaptionFont get() = CaptionFont.entries.firstOrNull { it.name == font } ?: CaptionFont.SANS
     val modeEnum: CaptionMode get() = CaptionMode.entries.firstOrNull { it.name == mode } ?: CaptionMode.PHRASE
@@ -149,6 +151,12 @@ object CaptionPresets {
     )
 
     // Dramatic social looks with the bundled display fonts.
+    /** Short serif phrases in a soft box just under the face, like premium creator edits. */
+    val EDITORIAL = CaptionPreset(
+        "editorial", "Editorial", "Small serif phrases in a soft box, magazine style",
+        base.copy(font = CaptionFont.SERIF.name, size = 0.042f, weight = 500, uppercase = false, textColor = 0xFFF3EBDD.toInt(), outline = 0f, shadow = false,
+            backgroundColor = 0xFF1E3A2F.toInt(), backgroundOpacity = 0.9f, karaoke = false, mode = CaptionMode.PHRASE.name, animation = CaptionAnimation.FADE.name, positionY = 0.6f),
+    )
     val HYPE = CaptionPreset(
         "hype", "Hype", "Huge condensed caps, yellow word pop",
         base.copy(font = CaptionFont.ANTON.name, size = 0.085f, uppercase = true, outline = 0.14f, highlightColor = 0xFFFFE600.toInt(), mode = CaptionMode.PHRASE.name, karaoke = true, animation = CaptionAnimation.POP.name, positionY = 0.66f),
@@ -174,7 +182,7 @@ object CaptionPresets {
         base.copy(font = CaptionFont.MUKTA.name, size = 0.065f, outline = 0.12f, highlightColor = 0xFFFFE600.toInt(), mode = CaptionMode.PHRASE.name, karaoke = true, animation = CaptionAnimation.POP.name, positionY = 0.7f),
     )
 
-    val ALL: List<CaptionPreset> = listOf(REELS, HYPE, BOLD_BOX, COMIC, STATEMENT, TRAVEL, CINEMATIC, ELEGANT, EDUCATION, PODCAST, VLOG, MUSIC, HINDI)
+    val ALL: List<CaptionPreset> = listOf(REELS, EDITORIAL, HYPE, BOLD_BOX, COMIC, STATEMENT, TRAVEL, CINEMATIC, ELEGANT, EDUCATION, PODCAST, VLOG, MUSIC, HINDI)
 
     fun byId(id: String?): CaptionPreset? = ALL.firstOrNull { it.id == id }
 }

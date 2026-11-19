@@ -40,6 +40,20 @@ object WhisperTokens {
 
     fun languageOf(token: Int): String? = LANGUAGES.getOrNull(token - FIRST_LANGUAGE)
 
+    /**
+     * Whisper often labels spoken Hindi as Urdu (the same spoken language, written in a different
+     * script), which put Urdu script into Hinglish captions. CineMind writes Hindi in Devanagari
+     * or Roman letters, so a detected Urdu is treated as Hindi.
+     */
+    fun spokenLanguage(detected: String): String = if (detected == "ur") "hi" else detected
+
+    /**
+     * Languages worth considering when detecting: English, Hindi (and Urdu, read as Hindi) plus the
+     * phone's own languages.
+     */
+    fun likelyLanguages(locales: List<String> = java.util.Locale.getDefault().let { listOf(it.language) }): Set<String> =
+        (listOf("en", "hi") + locales.map { it.lowercase().substringBefore('-').substringBefore('_') }).filter { languageToken(it) != null }.toSet()
+
     fun isTimestamp(token: Int) = token >= FIRST_TIMESTAMP
 
     /** The decoder prompt: start, language (null = detect first), task; timestamps on. */
@@ -228,4 +242,79 @@ object WhisperSegments {
 
     /** Rounds down to whole 20 ms steps (helper for tests and offsets). */
     fun steps(us: Long): Int = floor(us.toDouble() / WhisperTokens.TIMESTAMP_US).toInt()
+}
+
+/**
+ * Whisper's known failure modes, removed before anything reaches captions or titles:
+ * - sound labels instead of speech: "[MUSIC]", "(crowd cheering)", "*laughs*", "♪", "[BLANK_AUDIO]",
+ *   or a bare "Mooing" / "Ahhh";
+ * - decoding loops: "lo lo lo lo", "haashaashaashaas…", the same phrase over and over;
+ * - the wrong writing system: Urdu or Japanese letters in Hindi or English speech.
+ * Pure, so it is unit-tested; used for every Whisper result (captions and spoken prompts).
+ */
+object SpeechCleanup {
+
+    private val TAGS = Regex("""\[[^\]]{0,40}]|\([^)]{0,40}\)|\*[^*]{0,40}\*|[♪♫]+""")
+
+    private val SOUNDS = (
+        "music|blank_audio|blank audio|silence|applause|laughter|laughing|laughs|cheering|crowd cheering|cheers|" +
+            "mooing|barking|bark|birds chirping|chirping|wind|wind blowing|noise|background noise|static|inaudible|" +
+            "engine|engine revving|footsteps|water|water flowing|rain|thunder|coughing|cough|sigh|sighs|breathing|" +
+            "upbeat music|soft music|dramatic music|instrumental|beep|whoosh|clapping|screaming|shouting|" +
+            "ah|ahh|ahhh|ahhhh|aah|oh|ooh|oo|uh|um|umm|hmm|mm|mmm|huh|wow|whoa|yay|ha|haha|hahaha"
+        ).split('|').toSet()
+
+    /** Phrases Whisper invents over silence and music (it learned them from video endings). */
+    private val INVENTED = listOf(
+        "thanks for watching", "thank you for watching", "please subscribe", "subscribe to my channel",
+        "like and subscribe", "see you in the next video", "subtitles by", "transcribed by",
+    )
+
+    /** Returns the speech in [text] heard in [language] (a Whisper code), or null if none is left. */
+    fun clean(text: String, language: String): String? {
+        var t = text.replace(TAGS, " ").replace(Regex("""\s+"""), " ").trim()
+        val plain = t.lowercase().trim { !it.isLetterOrDigit() }.replace('_', ' ')
+        if (plain.isEmpty() || t.none { it.isLetterOrDigit() }) return null
+        if (plain in SOUNDS || plain.replace(" ", "_") in SOUNDS) return null
+        if (INVENTED.any { plain.startsWith(it) } && plain.length < 60) return null
+        if (looped(t)) return null
+        if (!scriptFits(t, language)) return null
+        t = t.trim()
+        return t.ifEmpty { null }
+    }
+
+    /** A decoding loop: a short pattern repeated many times, or a few words over and over. */
+    fun looped(text: String): Boolean {
+        val squashed = text.lowercase().filter { it.isLetterOrDigit() }
+        if (Regex("""(.{2,6}?)\1{3,}""").containsMatchIn(squashed)) return true
+        val words = text.lowercase().split(Regex("""\s+""")).map { w -> w.filter { it.isLetterOrDigit() } }.filter { it.isNotEmpty() }
+        if (words.size >= 4 && words.toSet().size * 10 < words.size * 4) return true
+        // A phrase of 2–4 words said 3+ times in a row.
+        for (n in 2..4) for (i in 0..words.size - 3 * n) {
+            val p = words.subList(i, i + n)
+            if (words.subList(i + n, i + 2 * n) == p && words.subList(i + 2 * n, i + 3 * n) == p) return true
+        }
+        return compressionRatio(text) > 2.4f
+    }
+
+    /** Whisper's own hallucination test: text that compresses too well is repetitive. */
+    fun compressionRatio(text: String): Float {
+        val bytes = text.toByteArray(Charsets.UTF_8)
+        if (bytes.size < 40) return 1f
+        val out = java.io.ByteArrayOutputStream()
+        java.util.zip.DeflaterOutputStream(out).use { it.write(bytes) }
+        return bytes.size.toFloat() / out.size().coerceAtLeast(1)
+    }
+
+    /** Letters in a writing system that can't be [language] (Hindi: Devanagari or Roman; English: Roman). */
+    fun scriptFits(text: String, language: String): Boolean {
+        val letters = text.filter { it.isLetter() }
+        if (letters.isEmpty()) return false
+        val allowed: (Char) -> Boolean = when (language.lowercase().substringBefore('-')) {
+            "hi", "mr", "ne" -> { c -> c.code < 0x250 || c in 'ऀ'..'ॿ' }
+            "en", "es", "fr", "de", "it", "pt", "nl", "id", "ms", "tr", "pl", "sv", "da", "no", "fi", "ro", "cs", "hu", "vi", "tl", "sw" -> { c -> c.code < 0x250 || c in 'Ḁ'..'ỿ' }
+            else -> return true
+        }
+        return letters.count(allowed) * 10 >= letters.length * 9
+    }
 }

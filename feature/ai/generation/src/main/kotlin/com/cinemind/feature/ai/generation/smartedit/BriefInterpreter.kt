@@ -77,7 +77,8 @@ object BriefInterpreter {
         var (transition, transitionMs, openingMs, endingMs) = styleTransitions(style)
         when {
             listOf("no transition", "hard cut", "only cuts", "just cuts").any { it in text } -> transition = ClipTransition.CUT
-            "fade" in text || "dissolve" in text -> { transition = ClipTransition.FADE; transitionMs = maxOf(transitionMs, 500L) }
+            "fade to black" in text || "dip to black" in text -> { transition = ClipTransition.FADE; transitionMs = maxOf(transitionMs, 500L) }
+            "fade" in text || "dissolve" in text -> { transition = ClipTransition.DISSOLVE; transitionMs = maxOf(transitionMs, 500L) }
             "zoom" in text -> { transition = ClipTransition.ZOOM_IN; transitionMs = 400 }
             "slide" in text || "swipe" in text -> { transition = ClipTransition.SLIDE_LEFT; transitionMs = 500 }
         }
@@ -128,11 +129,12 @@ object BriefInterpreter {
     private data class StyleTransitions(val type: ClipTransition, val ms: Long, val openingMs: Long, val endingMs: Long)
 
     private fun styleTransitions(style: EditStyle): StyleTransitions = when (style) {
-        EditStyle.CINEMATIC -> StyleTransitions(ClipTransition.FADE, 800, 800, 1_200)
-        EditStyle.TRAVEL -> StyleTransitions(ClipTransition.SLIDE_LEFT, 500, 500, 800)
+        EditStyle.CINEMATIC -> StyleTransitions(ClipTransition.DISSOLVE, 600, 400, 1_000)
+        // Modern travel reels: hard cuts with a quick zoom punch where the place changes (slides showed black).
+        EditStyle.TRAVEL -> StyleTransitions(ClipTransition.ZOOM_IN, 300, 300, 800)
         EditStyle.GYM -> StyleTransitions(ClipTransition.ZOOM_IN, 300, 0, 400)
-        EditStyle.LIFESTYLE -> StyleTransitions(ClipTransition.FADE, 500, 600, 800)
+        EditStyle.LIFESTYLE -> StyleTransitions(ClipTransition.DISSOLVE, 400, 300, 800)
         EditStyle.VLOG -> StyleTransitions(ClipTransition.CUT, 0, 0, 500)
-        EditStyle.AUTO -> StyleTransitions(ClipTransition.FADE, 500, 500, 800)
+        EditStyle.AUTO -> StyleTransitions(ClipTransition.DISSOLVE, 400, 300, 800)
     }
 }
