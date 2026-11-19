@@ -89,6 +89,8 @@ class VoiceEnhancer(sampleRate: Int, private val level: EnhanceLevel) {
     // Leveller.
     private var env = 0f
     private var agc = 1f
+    /** This frame has speech well above the noise floor (300 Hz – 3.4 kHz). */
+    private var speaking = false
 
     /** Enhances [input] (−1..1); returns the enhanced samples that are ready, in order. */
     fun process(input: FloatArray): FloatArray {
@@ -160,6 +162,15 @@ class VoiceEnhancer(sampleRate: Int, private val level: EnhanceLevel) {
             gain[k] = g
             prevGain[k] = g
         }
+        // Speech present? Compare the voice band with its learnt noise floor.
+        var bandPower = 0f
+        var bandNoise = 0f
+        for (k in 0 until bins) {
+            val hz = k * binHz
+            if (hz in 300f..3_400f) { bandPower += smooth[k]; bandNoise += noise[k] }
+        }
+        speaking = !seeding && bandPower > 6f * bandNoise
+
         // Smooth across neighbouring frequencies to avoid warbling artefacts.
         var prev = gain[0]
         for (k in 1 until bins - 1) {
@@ -193,10 +204,10 @@ class VoiceEnhancer(sampleRate: Int, private val level: EnhanceLevel) {
     private fun level(x: Float): Float {
         val a = abs(x)
         env = if (a > env) env + 0.01f * (a - env) else env + 0.0002f * (a - env)
-        // Only steer while someone is audible (above ~-40 dBFS); hold the gain in pauses so the
-        // cleaned-up background isn't pulled back up. ~1 s time constant: no pumping.
-        // Lifts quiet speech only; loud parts are left to the limiter.
-        if (env > 0.01f) agc += 0.00002f * (min(maxBoost, max(1f, TARGET / env)) - agc)
+        // Steer only while speech clearly stands out from the learnt noise (not on leftover
+        // background, which would undo the clean-up); hold the gain otherwise. Lifts quiet
+        // speech only (loud parts are left to the limiter); ~1 s time constant, so no pumping.
+        if (speaking && env > 0.02f) agc += 0.00002f * (min(maxBoost, max(1f, TARGET / env)) - agc)
         val y = x * max(agc, 0.5f)
         return if (abs(y) <= 0.8f) y else (0.8f + 0.2f * kotlin.math.tanh((abs(y) - 0.8f) / 0.2f)) * kotlin.math.sign(y)
     }
