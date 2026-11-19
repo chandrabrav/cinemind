@@ -291,7 +291,7 @@ fun TimelineScreen(
                     val drawCaptions = layerOrder.captionsAboveOverlays && captionsUi.style?.behindSubject != true
                     if (drawCaptions && !layerOrder.captionsAboveTitles) CaptionOverlay(captionsUi.captions, captionsUi.style, preview.positionUs, Modifier.fillMaxSize())
                     TextLayersOverlay(
-                        layers = shownTexts.filter { !it.styleObj.drawnInPicture },
+                        layers = shownTexts.filter { t -> !t.styleObj.drawnInPicture && editor.overlays.none { o -> t.styleObj.isBelow(o.clip.id) && preview.positionUs >= o.clip.timelineInUs && preview.positionUs < o.clip.timelineOutUs } },
                         positionUs = preview.positionUs,
                         selectedId = if (fullscreen) null else editor.selectedTextId,
                         modifier = Modifier.fillMaxSize(),
@@ -740,6 +740,9 @@ fun TimelineScreen(
             onMove = { d -> viewModel.moveText(layer.id, d) },
             onTrim = { a, b -> viewModel.trimText(layer.id, a, b) },
             onDismiss = { editTextOpen = false },
+            overlays = editor.overlays.filter { o -> o.clip.timelineOutUs > layer.startUs && o.clip.timelineInUs < layer.endUs }.sortedBy { it.clip.timelineInUs }.map { o ->
+                o.clip.id to String.format(java.util.Locale.ROOT, "Overlay %.1f–%.1f s", o.clip.timelineInUs / 1e6, o.clip.timelineOutUs / 1e6)
+            },
         )
     }
 

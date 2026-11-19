@@ -23,6 +23,8 @@ import com.cinemind.feature.export.plan.OutputSize
 internal class TextBitmapOverlay(
     private val layers: List<TextLayer>,
     private val size: OutputSize,
+    /** Per-frame filter (per-overlay stacking): whether a layer belongs in this pass at a time. */
+    private val show: ((TextLayer, Long) -> Boolean)? = null,
 ) : BitmapOverlay() {
 
     private var _bitmap: Bitmap? = null
@@ -35,7 +37,7 @@ internal class TextBitmapOverlay(
             _bitmap = it
             canvas = Canvas(it)
         }
-        val frames = TextLayerEditing.framesAt(layers, presentationTimeUs)
+        val frames = TextLayerEditing.framesAt(show?.let { s -> layers.filter { s(it, presentationTimeUs) } } ?: layers, presentationTimeUs)
         if (frames != last) {
             bitmap.eraseColor(Color.TRANSPARENT)
             painter.drawAll(canvas!!, size.width, size.height, frames)
@@ -52,8 +54,8 @@ internal class TextBitmapOverlay(
     }
 
     companion object {
-        fun overlay(layers: List<TextLayer>, size: OutputSize): TextBitmapOverlay? =
-            layers.filter { it.text.isNotBlank() }.takeIf { it.isNotEmpty() }?.let { TextBitmapOverlay(it, size) }
+        fun overlay(layers: List<TextLayer>, size: OutputSize, show: ((TextLayer, Long) -> Boolean)? = null): TextBitmapOverlay? =
+            layers.filter { it.text.isNotBlank() }.takeIf { it.isNotEmpty() }?.let { TextBitmapOverlay(it, size, show) }
 
         fun effectFor(layers: List<TextLayer>, size: OutputSize): OverlayEffect? =
             layers.filter { it.text.isNotBlank() }.takeIf { it.isNotEmpty() }?.let { OverlayEffect(listOf(TextBitmapOverlay(it, size))) }

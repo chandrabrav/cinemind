@@ -62,3 +62,41 @@ internal fun BetaCard(modifier: Modifier = Modifier) {
         }
     }
 }
+
+/**
+ * Shown after the app crashed, closed natively or stopped responding: one tap shares the
+ * diagnostics report through the phone's share sheet. Nothing is sent automatically, and the
+ * report holds no videos or project content.
+ */
+@Composable
+internal fun CrashCard(modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    var visible by remember { mutableStateOf(com.cinemind.core.common.Diagnostics.unseenCrash(context) != null) }
+    if (!visible) return
+    val c = CineMind.colors
+    GlassCard(modifier = modifier.fillMaxWidth().padding(horizontal = Spacing.gutter)) {
+        Column {
+            Text("CineMind closed unexpectedly", style = MaterialTheme.typography.titleSmall, color = c.textPrimary)
+            Spacer(Modifier.height(Spacing.xs))
+            Text(
+                "Sorry about that. Send the crash report so it can be fixed. It has technical details only: no videos, photos or project content.",
+                style = MaterialTheme.typography.bodySmall,
+                color = c.textSecondary,
+            )
+            Spacer(Modifier.height(Spacing.s))
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
+                GradientButton(
+                    "Send report",
+                    onClick = {
+                        com.cinemind.core.common.Diagnostics.markCrashSeen(context)
+                        visible = false
+                        Feedback.share(context, "The app closed unexpectedly.", null, includeDiagnostics = true)
+                    },
+                    icon = Icons.AutoMirrored.Filled.Send,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = { com.cinemind.core.common.Diagnostics.markCrashSeen(context); visible = false }) { Text("Not now") }
+            }
+        }
+    }
+}

@@ -102,9 +102,21 @@ class TimelineRenderer(private val context: Context) {
         layerOrder: com.cinemind.core.domain.text.LayerOrder = com.cinemind.core.domain.text.LayerOrder(),
         /** On-device noise removal for the clips' own sound and the voiceover. */
         voiceEnhance: com.cinemind.core.domain.audio.VoiceEnhance = com.cinemind.core.domain.audio.VoiceEnhance(),
+        /** False in the editor preview, which draws the titles on top itself (so they stay touchable). */
+        textsOnTop: Boolean = true,
     ): Composition {
-        val textsAbove = texts.filter { !it.styleObj.drawnInPicture }
-        val textsBelow = texts.filter { it.styleObj.belowOverlays && !it.styleObj.behindSubject }
+        val textsAbove = if (textsOnTop) texts.filter { !it.styleObj.drawnInPicture } else emptyList()
+        val textsBelow = texts.filter { (it.styleObj.belowOverlays || it.styleObj.partlyBelow) && !it.styleObj.behindSubject }
+        // Per-overlay stacking: a title behind only some overlay clips is drawn under the picture-in-picture
+        // while one of those clips shows, and on top the rest of the time.
+        val styles = texts.associate { it.id to it.styleObj }
+        fun belowAt(l: com.cinemind.core.domain.text.TextLayer, tUs: Long): Boolean {
+            val st = styles[l.id] ?: return false
+            return st.belowOverlays || (st.belowClips.isNotEmpty() && overlays.any { tr -> OverlayPlacement.clipAt(tr, tUs)?.let { it.clip.id in st.belowClips } == true })
+        }
+        val perOverlay = styles.values.any { it.partlyBelow }
+        val showUnder: ((com.cinemind.core.domain.text.TextLayer, Long) -> Boolean)? = if (perOverlay) { l, t -> styles[l.id]?.behindSubject == true || belowAt(l, t) } else null
+        val showOver: ((com.cinemind.core.domain.text.TextLayer, Long) -> Boolean)? = if (perOverlay) { l, t -> !belowAt(l, t) } else null
         val textsBehind = texts.filter { it.styleObj.behindSubject }
         val fit = Presentation.createForWidthAndHeight(size.width, size.height, Presentation.LAYOUT_SCALE_TO_FIT)
         val fill = Presentation.createForWidthAndHeight(size.width, size.height, Presentation.LAYOUT_SCALE_TO_FIT_WITH_CROP)
@@ -173,7 +185,7 @@ class TimelineRenderer(private val context: Context) {
                     val cap = if (captionsHere) CaptionBitmapOverlay.overlayFor(captions, size, clip.timelineInUs, clip.timelineOutUs) else null
                     // Behind-subject text without a cutout falls back to plain "under the overlays" text.
                     val plain = textsBelow.filter { it.endUs > clip.timelineInUs && it.startUs < clip.timelineOutUs } + (if (matte == null) textsBehind.filter { it.endUs > clip.timelineInUs && it.startUs < clip.timelineOutUs } else emptyList())
-                    val txt = TextBitmapOverlay.overlay(plain.sortedBy { it.lane }, size)
+                    val txt = TextBitmapOverlay.overlay(plain.sortedBy { it.lane }, size, showUnder)
                     if (layerOrder.captionsAboveTitles) { txt?.let { add(it) }; cap?.let { add(it) } } else { cap?.let { add(it) }; txt?.let { add(it) } }
                 }
                 if (under.isNotEmpty()) add(androidx.media3.effect.OverlayEffect(under))
@@ -248,7 +260,7 @@ class TimelineRenderer(private val context: Context) {
         // Titles and stickers after compositing: on top of overlay tracks too.
         val over = buildList<androidx.media3.effect.TextureOverlay> {
             val cap = if (captions != null && layerOrder.captionsAboveOverlays && !captions.style.behindSubject) CaptionBitmapOverlay.overlayFor(captions, size, 0, Long.MAX_VALUE) else null
-            val txt = TextBitmapOverlay.overlay(textsAbove, size)
+            val txt = TextBitmapOverlay.overlay(textsAbove, size, showOver)
             // Later overlays are drawn on top.
             if (layerOrder.captionsAboveTitles) { txt?.let { add(it) }; cap?.let { add(it) } } else { cap?.let { add(it) }; txt?.let { add(it) } }
         }

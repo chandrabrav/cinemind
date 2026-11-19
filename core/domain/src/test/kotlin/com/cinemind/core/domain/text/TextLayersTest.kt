@@ -160,4 +160,22 @@ class LayerStackTest {
         assertEquals(texts, moved)
         assertEquals(LayerOrder(), order)
     }
+
+    @Test
+    fun titleCanSitBehindSomeOverlaysOnly() {
+        val s = TextStyle(belowClips = setOf("pip-b", "pip-a"))
+        assertEquals(s, TextStyle.decode(s.encode()))
+        assertTrue(s.partlyBelow)
+        assertTrue(s.isBelow("pip-a"))
+        assertFalse(s.isBelow("pip-c"))
+        assertFalse(s.isBelow(null))
+        // Behind all overlays wins over the per-overlay list.
+        assertTrue(s.copy(belowOverlays = true).isBelow("pip-c"))
+        assertFalse(s.copy(belowOverlays = true).partlyBelow)
+        // Moving the title past the picture-in-picture in the layer stack resets the per-overlay choice.
+        val t = TextLayer(id = "t", projectId = "p", startUs = 0, endUs = 5_000_000, text = "t", style = s.encode())
+        val (moved, _) = LayerStack.move(listOf(t), LayerOrder(), false, true, LayerEntry.Title(t), up = false)
+        assertTrue(moved[0].styleObj.belowOverlays)
+        assertTrue(moved[0].styleObj.belowClips.isEmpty())
+    }
 }

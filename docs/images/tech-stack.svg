@@ -1,0 +1,141 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 1560" width="1200" height="1560" font-family="Segoe UI, Roboto, Helvetica, Arial, sans-serif">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0B0E1A"/>
+      <stop offset="1" stop-color="#141A2E"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#7C5CFF"/>
+      <stop offset="1" stop-color="#FF5C93"/>
+    </linearGradient>
+    <style>
+      .h1 { font-size: 44px; font-weight: 800; fill: #FFFFFF; }
+      .sub { font-size: 19px; fill: #A9B1D6; }
+      .band { font-size: 15px; font-weight: 700; letter-spacing: 2px; fill: #A9B1D6; }
+      .card { fill: #1B2238; stroke: #2E3756; stroke-width: 1.5; }
+      .ttl { font-size: 19px; font-weight: 700; fill: #FFFFFF; }
+      .txt { font-size: 15px; fill: #C8CEEA; }
+      .small { font-size: 13px; fill: #8E97BE; }
+      .pill { font-size: 14px; font-weight: 600; fill: #FFFFFF; }
+    </style>
+  </defs>
+
+  <rect width="1200" height="1560" fill="url(#bg)"/>
+  <rect x="0" y="0" width="1200" height="8" fill="url(#accent)"/>
+
+  <!-- Title -->
+  <text x="60" y="84" class="h1">CineMind AI</text>
+  <text x="60" y="118" class="sub">Android video editor with on-device AI · how it is built</text>
+
+  <!-- ===== What you can do ===== -->
+  <text x="60" y="172" class="band">WHAT YOU CAN DO</text>
+  <g>
+    <rect x="60" y="186" width="1080" height="152" rx="18" class="card"/>
+    <g class="pill">
+      <rect x="84"  y="206" width="196" height="36" rx="18" fill="#7C5CFF"/><text x="182" y="230" text-anchor="middle">Smart edit from a prompt</text>
+      <rect x="292" y="206" width="160" height="36" rx="18" fill="#5C7CFF"/><text x="372" y="230" text-anchor="middle">Multitrack timeline</text>
+      <rect x="464" y="206" width="186" height="36" rx="18" fill="#FF5C93"/><text x="557" y="230" text-anchor="middle">Captions from speech</text>
+      <rect x="662" y="206" width="166" height="36" rx="18" fill="#FF8A3D"/><text x="745" y="230" text-anchor="middle">Motion-graphic text</text>
+      <rect x="840" y="206" width="276" height="36" rx="18" fill="#2BB673"/><text x="978" y="230" text-anchor="middle">AI cutout · text behind the person</text>
+
+      <rect x="84"  y="254" width="150" height="36" rx="18" fill="#2BB673"/><text x="159" y="278" text-anchor="middle">Voice clean-up</text>
+      <rect x="246" y="254" width="176" height="36" rx="18" fill="#5C7CFF"/><text x="334" y="278" text-anchor="middle">Colour grades · LUTs</text>
+      <rect x="434" y="254" width="186" height="36" rx="18" fill="#7C5CFF"/><text x="527" y="278" text-anchor="middle">Speed ramps · reverse</text>
+      <rect x="632" y="254" width="200" height="36" rx="18" fill="#FF5C93"/><text x="732" y="278" text-anchor="middle">Music · beats · sound fx</text>
+      <rect x="844" y="254" width="272" height="36" rx="18" fill="#FF8A3D"/><text x="980" y="278" text-anchor="middle">Picture-in-picture · masks · keys</text>
+    </g>
+    <text x="84" y="320" class="small">Plus transitions, crop &amp; move with keyframes, teleprompter, templates, auto edit (jump cuts, punch-ins, reframe), revisions in plain words, export up to 4K.</text>
+  </g>
+
+  <!-- ===== App ===== -->
+  <text x="60" y="390" class="band">APP &amp; INTERFACE</text>
+  <g>
+    <rect x="60" y="404" width="1080" height="118" rx="18" class="card"/>
+    <text x="84" y="440" class="ttl">Kotlin 2.4 · Jetpack Compose (Material 3)</text>
+    <text x="84" y="468" class="txt">Single-activity app, light / dark design system, gesture-first editor, foreground service so jobs survive minimising</text>
+    <text x="84" y="500" class="small">Hilt 2.58 (DI) · Room 2.8 (projects, schema v11) · DataStore · Coroutines &amp; Flow · Navigation · CameraX · Coil · Photo Picker (no storage permission)</text>
+  </g>
+
+  <!-- ===== Media engine ===== -->
+  <text x="60" y="574" class="band">MEDIA ENGINE</text>
+  <g>
+    <rect x="60" y="588" width="528" height="186" rx="18" class="card"/>
+    <text x="84" y="624" class="ttl">AndroidX Media3 1.11</text>
+    <text x="84" y="652" class="txt">CompositionPlayer preview = the same</text>
+    <text x="84" y="674" class="txt">composition as the export (what you see</text>
+    <text x="84" y="696" class="txt">is what you get)</text>
+    <text x="84" y="728" class="small">Transformer export · ExoPlayer · OpenGL ES effects</text>
+    <text x="84" y="750" class="small">(grades, LUTs, transitions, masks, keyframes, text)</text>
+
+    <rect x="612" y="588" width="528" height="186" rx="18" class="card"/>
+    <text x="636" y="624" class="ttl">CineMind's own processing</text>
+    <text x="636" y="652" class="txt">Voice enhancer (spectral noise reduction,</text>
+    <text x="636" y="674" class="txt">speech-gated leveller), beat detection,</text>
+    <text x="636" y="696" class="txt">frame analysis (sharpness, motion, faces)</text>
+    <text x="636" y="728" class="small">Pure Kotlin, unit-tested, runs on the phone</text>
+    <text x="636" y="750" class="small">15 bundled fonts (OFL / Apache) for titles and captions</text>
+  </g>
+
+  <!-- ===== On-device AI ===== -->
+  <text x="60" y="826" class="band">ON-DEVICE AI (DOWNLOADED IN THE APP, NOTHING UPLOADED)</text>
+  <g>
+    <rect x="60" y="840" width="1080" height="118" rx="18" fill="#221A45" stroke="#7C5CFF" stroke-width="2"/>
+    <text x="84" y="876" class="ttl">CineMind Decision Engine + workflow runner</text>
+    <text x="84" y="904" class="txt">Picks only the agents a request needs, the best installed model for each, and falls back safely when memory, heat or battery are tight</text>
+    <text x="84" y="936" class="small">10 agents: creative director · video analysis · visual intelligence · speech · voice clean-up · music · planner · captions · QA · rendering</text>
+  </g>
+
+  <g>
+    <rect x="60"  y="978" width="258" height="190" rx="18" class="card"/>
+    <rect x="60"  y="978" width="258" height="6" rx="3" fill="#5C7CFF"/>
+    <text x="80" y="1016" class="ttl">Gemma 4 E4B / E2B</text>
+    <text x="80" y="1042" class="txt">Google · vision + audio</text>
+    <text x="80" y="1072" class="small">Describes shots, reads</text>
+    <text x="80" y="1092" class="small">the brief, speech fallback</text>
+    <text x="80" y="1146" class="small">LiteRT-LM 0.19.1 · Apache-2.0</text>
+
+    <rect x="334" y="978" width="258" height="190" rx="18" class="card"/>
+    <rect x="334" y="978" width="258" height="6" rx="3" fill="#7C5CFF"/>
+    <text x="354" y="1016" class="ttl">Spark X2.5 4B</text>
+    <text x="354" y="1042" class="txt">iFLYTEK · reasoning</text>
+    <text x="354" y="1072" class="small">Plans the edit as a validated</text>
+    <text x="354" y="1092" class="small">JSON edit plan (X2.6 1.7B: fast)</text>
+    <text x="354" y="1146" class="small">LiteRT-LM 0.19.1 · Apache-2.0</text>
+
+    <rect x="608" y="978" width="258" height="190" rx="18" class="card"/>
+    <rect x="608" y="978" width="258" height="6" rx="3" fill="#FF5C93"/>
+    <text x="628" y="1016" class="ttl">Whisper tiny / base</text>
+    <text x="628" y="1042" class="txt">OpenAI · speech to text</text>
+    <text x="628" y="1072" class="small">Timestamps, 99 languages,</text>
+    <text x="628" y="1092" class="small">translate to English</text>
+    <text x="628" y="1146" class="small">LiteRT 2.3.2 · int8 · 41 / 77 MB</text>
+
+    <rect x="882" y="978" width="258" height="190" rx="18" class="card"/>
+    <rect x="882" y="978" width="258" height="6" rx="3" fill="#2BB673"/>
+    <text x="902" y="1016" class="ttl">Google ML Kit</text>
+    <text x="902" y="1042" class="txt">subject + selfie masks</text>
+    <text x="902" y="1072" class="small">AI cutout, background effects,</text>
+    <text x="902" y="1092" class="small">text and captions behind you</text>
+    <text x="902" y="1146" class="small">Runs on the phone</text>
+  </g>
+
+  <!-- ===== Cloud ===== -->
+  <text x="60" y="1220" class="band">OPTIONAL CLOUD (OFF BY DEFAULT · YOUR OWN KEY · TEXT ONLY)</text>
+  <g>
+    <rect x="60" y="1234" width="1080" height="104" rx="18" class="card" stroke-dasharray="8 6"/>
+    <text x="84" y="1270" class="ttl">Claude · ChatGPT · Gemini · OpenRouter</text>
+    <text x="84" y="1298" class="txt">Planning help in Hybrid or Cloud-assisted mode. Keys encrypted with the Android Keystore; frames, video and audio never leave the phone.</text>
+    <text x="84" y="1322" class="small">KATANA / Higgsfield remake: free handoff through the share sheet, result imported back with its provenance</text>
+  </g>
+
+  <!-- ===== Build ===== -->
+  <text x="60" y="1390" class="band">BUILD, TEST &amp; RELEASE</text>
+  <g>
+    <rect x="60" y="1404" width="1080" height="104" rx="18" class="card"/>
+    <text x="84" y="1440" class="ttl">GitHub Actions · Gradle (AGP 8.13) · R8</text>
+    <text x="84" y="1468" class="txt">Unit tests, optimised APK, emulator export end-to-end and screenshot tests on every PR; signed release APK + Play bundle</text>
+    <text x="84" y="1492" class="small">No local Android Studio needed · minSdk 30 (Android 11+) · tested on Vivo X200 Pro (Android 17)</text>
+  </g>
+
+  <text x="1140" y="1540" text-anchor="end" class="small">Developed by Gautam · CineMind AI</text>
+</svg>

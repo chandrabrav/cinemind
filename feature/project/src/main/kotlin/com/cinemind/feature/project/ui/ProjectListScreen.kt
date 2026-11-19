@@ -126,6 +126,7 @@ fun ProjectListScreen(
                         )
                     }
                     item { StartRow(onNewProject, onAiEdit) }
+                    item { CrashCard() }
                     item { BetaCard() }
                     item { TemplatesCard(onTemplates) }
                     item { TeleprompterCard(onTeleprompter) }

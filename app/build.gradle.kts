@@ -140,6 +140,13 @@ dependencies {
     ksp(libs.kotlin.metadata.jvm)
 
     testImplementation(libs.junit)
+
+    // User-guide screenshots (GuideScreenshotTest), run on the CI emulator.
+    androidTestImplementation(platform(libs.compose.bom))
+    androidTestImplementation(libs.compose.ui.test.junit4)
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.test.ext.junit)
+    debugImplementation(libs.compose.ui.test.manifest)
 }
 
 kotlin {
