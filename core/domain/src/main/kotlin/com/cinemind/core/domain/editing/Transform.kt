@@ -78,8 +78,10 @@ data class ClipFraming(
     val mask: MaskShape = MaskShape.NONE,
     /** Soft edge of the mask, as a fraction of the picture (0..0.3). */
     val maskFeather: Float = 0.04f,
+    /** Effect around the AI-cut-out subject. */
+    val subject: SubjectLook = SubjectLook.NONE,
 ) {
-    val isNone: Boolean get() = crop.isNone && quarterTurns % 4 == 0 && !flipH && !flipV && !fill && keys.all { it.isIdentity } && chroma == null && mask == MaskShape.NONE
+    val isNone: Boolean get() = crop.isNone && quarterTurns % 4 == 0 && !flipH && !flipV && !fill && keys.all { it.isIdentity } && chroma == null && mask == MaskShape.NONE && subject == SubjectLook.NONE
     val hasKeyOrMask: Boolean get() = chroma != null || mask != MaskShape.NONE
     val hasMotion: Boolean get() = keys.size >= 2 && keys.zipWithNext().any { (a, b) -> !a.sameLook(b) }
 
@@ -92,6 +94,7 @@ data class ClipFraming(
         if (fill) parts += "fill=1"
         chroma?.let { parts += String.format(Locale.ROOT, "chroma=%08x,%.3f,%.3f", it.color, it.strength, it.softness) }
         if (mask != MaskShape.NONE) parts += String.format(Locale.ROOT, "mask=%s,%.3f", mask.name, maskFeather)
+        if (subject != SubjectLook.NONE) parts += "subj=${subject.name}"
         if (keys.isNotEmpty()) {
             parts += "keys=" + keys.sortedBy { it.sourceUs }.joinToString("|") {
                 String.format(Locale.ROOT, "%d:%.4f:%.4f:%.4f:%.2f:%.3f:%s", it.sourceUs, it.x, it.y, it.scale, it.rotation, it.opacity, it.ease.name)
@@ -114,6 +117,7 @@ data class ClipFraming(
                     "crop" -> v.split(',').mapNotNull { it.toFloatOrNull() }.takeIf { it.size == 4 }?.let {
                         f = f.copy(crop = CropRect(it[0], it[1], it[2], it[3]).clamped())
                     }
+                    "subj" -> f = f.copy(subject = SubjectLook.from(v))
                     "turn" -> f = f.copy(quarterTurns = (v.toIntOrNull() ?: 0).mod(4))
                     "flip" -> f = f.copy(flipH = 'h' in v, flipV = 'v' in v)
                     "fill" -> f = f.copy(fill = v == "1")
@@ -183,6 +187,24 @@ data class ChromaKey(val color: Int = GREEN, val strength: Float = 0.6f, val sof
 
 /** Shapes a picture can be cut to. */
 enum class MaskShape(val label: String) { NONE("None"), CIRCLE("Circle"), ROUNDED("Rounded"), HEART("Heart"), DIAMOND("Diamond") }
+
+/**
+ * What happens around the person / subject of a clip, using its AI cutout (see feature/export
+ * Matte). Without a cutout these do nothing, so a clip never looks broken.
+ */
+enum class SubjectLook(val label: String, val hint: String) {
+    NONE("None", "Picture as filmed"),
+    CUTOUT("Remove background", "Only the subject stays; see-through elsewhere (great on overlays)"),
+    BLUR("Blur background", "Portrait-mode look"),
+    MONO("Colour pop", "Subject in colour, background black & white"),
+    SPOTLIGHT("Spotlight", "Background darkened, subject lit"),
+    OUTLINE("Outline", "White sticker-style outline around the subject"),
+    ;
+
+    companion object {
+        fun from(name: String?): SubjectLook = entries.firstOrNull { it.name == name } ?: NONE
+    }
+}
 
 object TransformMath {
 

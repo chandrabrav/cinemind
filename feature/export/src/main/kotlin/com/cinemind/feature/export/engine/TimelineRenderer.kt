@@ -51,6 +51,11 @@ data class RenderSource(
     val hasAudio: Boolean,
     val frameRate: Float,
     val durationUs: Long,
+    /** Display-oriented size of the picture (needed to line up a subject cutout). */
+    val width: Int = 0,
+    val height: Int = 0,
+    /** AI subject cutout of this file ([MatteStore]), if one was made. */
+    val matte: String? = null,
 )
 
 /** Background music for a render. */
@@ -96,8 +101,9 @@ class TimelineRenderer(private val context: Context) {
         /** What is drawn above/below the picture-in-picture (captions, titles). */
         layerOrder: com.cinemind.core.domain.text.LayerOrder = com.cinemind.core.domain.text.LayerOrder(),
     ): Composition {
-        val textsAbove = texts.filter { !it.styleObj.belowOverlays }
-        val textsBelow = texts.filter { it.styleObj.belowOverlays }
+        val textsAbove = texts.filter { !it.styleObj.drawnInPicture }
+        val textsBelow = texts.filter { it.styleObj.belowOverlays && !it.styleObj.behindSubject }
+        val textsBehind = texts.filter { it.styleObj.behindSubject }
         val fit = Presentation.createForWidthAndHeight(size.width, size.height, Presentation.LAYOUT_SCALE_TO_FIT)
         val fill = Presentation.createForWidthAndHeight(size.width, size.height, Presentation.LAYOUT_SCALE_TO_FIT_WITH_CROP)
         val animations = TransitionMath.animations(clips.map { it.first })
@@ -132,6 +138,13 @@ class TimelineRenderer(private val context: Context) {
                 // Colour grade (look + adjustments baked into one LUT), before transitions so fades dim the graded picture.
                 grades[clip.id]?.let { add(ColorLutEffect.create(it)) }
                 if (framing.hasKeyOrMask) add(KeyMaskEffect(framing))
+                // AI cutout: background look and text behind the subject (on the fitted picture, so it moves with it).
+                val overlapping = { l: com.cinemind.core.domain.text.TextLayer -> l.endUs > clip.timelineInUs && l.startUs < clip.timelineOutUs }
+                val behind = textsBehind.filter(overlapping)
+                val matte = source.matte?.let { java.io.File(it) }?.takeIf { it.isFile }
+                if (matte != null && (framing.subject != com.cinemind.core.domain.editing.SubjectLook.NONE || behind.isNotEmpty())) {
+                    add(SubjectEffect(clip, matte, com.cinemind.core.domain.editing.SubjectMapping.forClip(source.width, source.height, framing, size.width, size.height), framing.subject, behind))
+                }
                 // Keyframed position / zoom / rotation / opacity, before transitions so those act on the moved picture.
                 if (framing.keys.any { !it.isIdentity }) {
                     add(ClipMotion(clip, framing, clip.timelineInUs, size.width.toFloat() / size.height))
@@ -147,7 +160,9 @@ class TimelineRenderer(private val context: Context) {
                 // ordered, and titles marked "below", in the chosen order.
                 val under = buildList<androidx.media3.effect.TextureOverlay> {
                     val cap = if (captions != null && !layerOrder.captionsAboveOverlays) CaptionBitmapOverlay.overlayFor(captions, size, clip.timelineInUs, clip.timelineOutUs) else null
-                    val txt = TextBitmapOverlay.overlay(textsBelow.filter { it.endUs > clip.timelineInUs && it.startUs < clip.timelineOutUs }, size)
+                    // Behind-subject text without a cutout falls back to plain "under the overlays" text.
+                    val plain = textsBelow.filter { it.endUs > clip.timelineInUs && it.startUs < clip.timelineOutUs } + (if (matte == null) textsBehind.filter { it.endUs > clip.timelineInUs && it.startUs < clip.timelineOutUs } else emptyList())
+                    val txt = TextBitmapOverlay.overlay(plain.sortedBy { it.lane }, size)
                     if (layerOrder.captionsAboveTitles) { txt?.let { add(it) }; cap?.let { add(it) } } else { cap?.let { add(it) }; txt?.let { add(it) } }
                 }
                 if (under.isNotEmpty()) add(androidx.media3.effect.OverlayEffect(under))
@@ -284,6 +299,14 @@ class TimelineRenderer(private val context: Context) {
         return builder.build()
     }
 
+    /** Subject look on a picture-in-picture clip (its own picture, so no reframing to undo). */
+    private fun overlaySubject(c: Clip, source: RenderSource): SubjectEffect? {
+        val look = ClipFraming.decode(c.framing).subject
+        if (look == com.cinemind.core.domain.editing.SubjectLook.NONE) return null
+        val matte = source.matte?.let { java.io.File(it) }?.takeIf { it.isFile } ?: return null
+        return SubjectEffect(c, matte, com.cinemind.core.domain.editing.SubjectMapping.IDENTITY, look, emptyList())
+    }
+
     private fun buildOverlaySequence(track: List<RenderOverlay>, totalUs: Long, fps: Int): EditedMediaItemSequence {
         val byId = track.associateBy { it.clip.id }
         val items = OverlayEditing.pieces(track.map { it.clip }, totalUs).toMutableList()
@@ -311,6 +334,7 @@ class TimelineRenderer(private val context: Context) {
                         val effects = buildList<Effect> {
                             if (o.source.frameRate > fps + 1) add(FrameDropEffect.createDefaultFrameDropEffect(fps.toFloat()))
                             ClipFraming.decode(c.framing).takeIf { it.hasKeyOrMask }?.let { add(KeyMaskEffect(it)) }
+                            overlaySubject(c, o.source)?.let { add(it) }
                         }
                         EditedMediaItem.Builder(mediaItem)
                             .setDurationUs(knownDurationUs(o.source.durationUs, c.sourceOutUs))
@@ -320,7 +344,7 @@ class TimelineRenderer(private val context: Context) {
                         EditedMediaItem.Builder(MediaItem.Builder().setUri(o.source.uri).setImageDurationMs(piece.durationUs / 1_000).build())
                             .setDurationUs(piece.durationUs / 1_000 * 1_000)
                             .setFrameRate(fps)
-                            .setEffects(Effects(emptyList(), listOfNotNull(ClipFraming.decode(c.framing).takeIf { it.hasKeyOrMask }?.let { KeyMaskEffect(it) })))
+                            .setEffects(Effects(emptyList(), listOfNotNull(ClipFraming.decode(c.framing).takeIf { it.hasKeyOrMask }?.let { KeyMaskEffect(it) }, overlaySubject(c, o.source))))
                             .build()
                     }
                 })

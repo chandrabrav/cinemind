@@ -36,6 +36,8 @@ dependencies {
     implementation(project(":feature:export"))
     implementation(project(":feature:ai:llm"))
     implementation(project(":feature:ai:cloud"))
+    implementation(libs.mlkit.subject.segmentation)
+    implementation(libs.mlkit.selfie.segmentation)
     implementation(libs.media3.transformer)
     implementation(libs.media3.effect)
     implementation(libs.androidx.activity.compose)

@@ -20,6 +20,8 @@ class CineMindApplication : Application(), ImageLoaderFactory {
         // First: record any crash (incl. out-of-memory) so it can be diagnosed on the phone.
         com.cinemind.core.common.Diagnostics.install(this)
         initializeTimber()
+        // Bundled caption and title fonts (preview, captions and export share them).
+        com.cinemind.core.ui.text.FontBook.install(assets)
         CineMindLogger.i("CineMind Application created")
     }
 

@@ -238,8 +238,15 @@ class PreviewPlayer(context: Context) {
         }
     }
 
+    /** Rebuilds the preview, e.g. after a subject cutout was made for one of the clips. */
+    fun refresh() {
+        matteVersion++
+        rebuild()
+    }
+    private var matteVersion = 0
+
     private fun rebuild() {
-        val key = listOf(clips.map { it.clip to it.asset?.uri }, overlays.map { it.clip to it.asset?.uri }, voiceClips.map { it.clip to it.asset?.uri }, voiceSettings, sfxTracks.map { t -> t.map { it.clip to it.asset?.uri } }, underTexts, underCaptions, layerOrder, grades.keys.associateWith { grades[it]?.hashCode() }, gradesEnabled, musicPlayback, originalVolume, size, fps)
+        val key = listOf(clips.map { it.clip to it.asset?.uri }, overlays.map { it.clip to it.asset?.uri }, voiceClips.map { it.clip to it.asset?.uri }, voiceSettings, sfxTracks.map { t -> t.map { it.clip to it.asset?.uri } }, underTexts, underCaptions, layerOrder, grades.keys.associateWith { grades[it]?.hashCode() }, gradesEnabled, musicPlayback, originalVolume, size, fps, matteVersion)
         if (key == builtKey) return
         builtKey = key
         lastError = null
@@ -252,7 +259,7 @@ class PreviewPlayer(context: Context) {
         val music = musicPlayback?.let { RenderMusic(it.uri, it.durationUs, it.startOffsetUs, it.volume, it.fadeInUs, it.fadeOutUs) }
         val overlayTrack = overlays.mapNotNull { o ->
             val a = o.asset ?: return@mapNotNull null
-            RenderOverlay(o.clip, RenderSource(a.uri, a.isVideo, false, a.frameRate, a.durationUs), a.width, a.height)
+            RenderOverlay(o.clip, RenderSource(a.uri, a.isVideo, false, a.frameRate, a.durationUs, a.width, a.height, com.cinemind.feature.export.engine.MatteStore.existing(appContext, a.id)?.path), a.width, a.height)
         }
         val composition = runCatching {
             val voice = voiceClips.mapNotNull { v -> v.asset?.let { a -> RenderVoiceClip(v.clip, a.uri, a.durationUs) } }
@@ -282,7 +289,7 @@ class PreviewPlayer(context: Context) {
     private fun sourceFor(item: PreviewClip): RenderSource {
         val a = item.asset
         return if (a != null) {
-            RenderSource(a.uri, a.isVideo, a.hasAudio, a.frameRate, a.durationUs)
+            RenderSource(a.uri, a.isVideo, a.hasAudio, a.frameRate, a.durationUs, a.width, a.height, com.cinemind.feature.export.engine.MatteStore.existing(appContext, a.id)?.path)
         } else {
             // Missing media plays as black for its length, so the rest of the timeline stays in place.
             RenderSource(Uri.fromFile(blackFrame()).toString(), isVideo = false, hasAudio = false, frameRate = 0f, durationUs = 0)

@@ -3,6 +3,7 @@ package com.cinemind.core.domain.assistant
 import com.cinemind.core.domain.audio.SoundEffect
 import com.cinemind.core.domain.color.BuiltInLooks
 import com.cinemind.core.domain.editing.ClipTransition
+import com.cinemind.core.domain.editing.SubjectLook
 import com.cinemind.core.domain.text.TextPreset
 
 /** What the assistant may do. Everything runs on the phone as a normal, undoable edit. */
@@ -15,6 +16,9 @@ enum class AssistantActionType(val label: String) {
     CUT_TO_BEATS("Cut to the beat"),
     ADD_SOUND("Add a sound effect"),
     FIND_MUSIC("Suggest music"),
+    SUBJECT_LOOK("Change the background around the person"),
+    CUT_OUT_SUBJECT("Cut out the person / subject"),
+    TEXT_BEHIND("Put text behind the person"),
 }
 
 /**
@@ -70,6 +74,9 @@ Allowed action types and their fields:
 - CUT_TO_BEATS: value = 1, 2 or 4 (cut on every beat, every 2nd, every bar). Only when the project has music.
 - ADD_SOUND: name = one of ${SoundEffect.entries.joinToString { it.name }}; atSeconds = when.
 - FIND_MUSIC: text = the mood to look for.
+- SUBJECT_LOOK: name = one of ${SubjectLook.entries.joinToString { it.name }} (CUTOUT removes the background, BLUR blurs it, MONO keeps only the subject in colour, SPOTLIGHT darkens the background, OUTLINE draws a white outline, NONE removes the effect); clip = clip number or 0 for every clip. The app cuts out the subject on the phone first.
+- CUT_OUT_SUBJECT: make the subject cutout only (for masking); clip = clip number or 0 for every clip.
+- TEXT_BEHIND: text = the words (max 4, big headline placed behind the person), atSeconds = start time.
 Use only these names. Unused fields: empty string or 0. Propose at most 6 actions; propose none if the request is a question. Never claim an edit is done: the user reviews and applies it.
 """.trim()
 
@@ -139,6 +146,9 @@ Use only these names. Unused fields: empty string or 0. Propose at most 6 action
         AssistantActionType.CUT_TO_BEATS -> a.value.toInt() in listOf(1, 2, 4)
         AssistantActionType.ADD_SOUND -> SoundEffect.entries.any { it.name == a.name }
         AssistantActionType.FIND_MUSIC -> true
+        AssistantActionType.SUBJECT_LOOK -> SubjectLook.entries.any { it.name == a.name }
+        AssistantActionType.CUT_OUT_SUBJECT -> true
+        AssistantActionType.TEXT_BEHIND -> a.text.isNotBlank()
     }
 
     /** One line for the review list. */
@@ -151,6 +161,9 @@ Use only these names. Unused fields: empty string or 0. Propose at most 6 action
         AssistantActionType.CUT_TO_BEATS -> "Cut on " + when (a.value.toInt()) { 1 -> "every beat"; 2 -> "every 2nd beat"; else -> "every bar" }
         AssistantActionType.ADD_SOUND -> "Sound “${SoundEffect.entries.first { it.name == a.name }.label}” at ${"%.1f".format(java.util.Locale.ROOT, a.atSeconds)} s"
         AssistantActionType.FIND_MUSIC -> "Find music: ${a.text}"
+        AssistantActionType.SUBJECT_LOOK -> "${SubjectLook.from(a.name).label} on " + if (a.clip == 0) "every clip" else "clip ${a.clip}"
+        AssistantActionType.CUT_OUT_SUBJECT -> "Cut out the subject of " + if (a.clip == 0) "every clip" else "clip ${a.clip}"
+        AssistantActionType.TEXT_BEHIND -> "“${a.text}” behind the person at ${"%.1f".format(java.util.Locale.ROOT, a.atSeconds)} s"
     }
 }
 

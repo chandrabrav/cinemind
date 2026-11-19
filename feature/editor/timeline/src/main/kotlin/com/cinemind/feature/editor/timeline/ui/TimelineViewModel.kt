@@ -528,7 +528,7 @@ class TimelineViewModel @Inject constructor(
     private fun pushUnderLayers() {
         val order = _layerOrder.value
         preview.setUnderLayers(
-            textHistory.present.filter { it.styleObj.belowOverlays },
+            textHistory.present.filter { it.styleObj.drawnInPicture },
             previewCaptions.takeIf { !order.captionsAboveOverlays },
             order,
         )
@@ -739,7 +739,11 @@ class TimelineViewModel @Inject constructor(
         _assistant.value = _assistant.value + AssistantTurn(text)
         _assistantBusy.value = true
         viewModelScope.launch {
-            val result = runCatching { assistant.plan(projectBrief(), text) }
+            val result = runCatching { 
+                // Cutout / background / text-behind commands are understood instantly, without a model.
+                com.cinemind.core.domain.assistant.QuickCommands.parse(text, history?.present?.size ?: 0, preview.currentPositionUs() / 1e6)
+                    ?: assistant.plan(projectBrief(), text)
+             }
             result.onFailure { CineMindLogger.e(it, "Assistant failed") }
             val turn = result.fold(
                 onSuccess = { AssistantTurn(text, it.reply, it.actions) },
@@ -785,6 +789,11 @@ class TimelineViewModel @Inject constructor(
                         addSoundEffectNow(effect, at(a.atSeconds))
                     }
                     com.cinemind.core.domain.assistant.AssistantActionType.FIND_MUSIC -> onMusic(a.text)
+                    com.cinemind.core.domain.assistant.AssistantActionType.SUBJECT_LOOK ->
+                        subjectAction(if (clipId != null) listOf(clipId) else clips.map { it.id }, com.cinemind.core.domain.editing.SubjectLook.from(a.name))
+                    com.cinemind.core.domain.assistant.AssistantActionType.CUT_OUT_SUBJECT ->
+                        subjectAction(if (clipId != null) listOf(clipId) else clips.map { it.id }, null)
+                    com.cinemind.core.domain.assistant.AssistantActionType.TEXT_BEHIND -> addTextBehindSubject(a.text, at(a.atSeconds))
                 }
             }
         }
@@ -1662,6 +1671,160 @@ class TimelineViewModel @Inject constructor(
 
     private fun refreshPreview() {
         _previewState.value = preview.snapshot()
+    }
+
+    // ---- AI subject cutout --------------------------------------------------------------------
+
+    /** The clip the cutout tools act on: the selected overlay, else the selected (or playhead) clip. */
+    data class CutoutTarget(val clipId: String, val overlay: Boolean, val asset: MediaAsset, val look: com.cinemind.core.domain.editing.SubjectLook, val ready: Boolean)
+
+    data class CutoutProgress(val label: String, val fraction: Float)
+
+    private val matteMaker by lazy { com.cinemind.feature.editor.timeline.matte.MatteMaker(appContext) }
+    private var cutoutJob: kotlinx.coroutines.Job? = null
+    private val _cutout = MutableStateFlow<CutoutProgress?>(null)
+    /** Progress of a running cutout, or null. */
+    val cutout: StateFlow<CutoutProgress?> = _cutout.asStateFlow()
+
+    fun cutoutTarget(): CutoutTarget? {
+        val overlayId = _editor.value.selectedOverlayId
+        val clip: Clip
+        val overlay: Boolean
+        if (overlayId != null) {
+            clip = overlayHistory.present.firstOrNull { it.id == overlayId } ?: return null
+            overlay = true
+        } else {
+            val clips = history?.present.orEmpty()
+            val pos = preview.currentPositionUs()
+            clip = clips.firstOrNull { it.id == _editor.value.selectedClipId }
+                ?: clips.firstOrNull { pos >= it.timelineInUs && pos < it.timelineOutUs }
+                ?: clips.firstOrNull()
+                ?: return null
+            overlay = false
+        }
+        val asset = assets[clip.assetId] ?: return null
+        if (!asset.isVideo && !asset.isImage) return null
+        return CutoutTarget(
+            clipId = clip.id,
+            overlay = overlay,
+            asset = asset,
+            look = com.cinemind.core.domain.editing.ClipFraming.decode(clip.framing).subject,
+            ready = com.cinemind.feature.export.engine.MatteStore.existing(appContext, asset.id) != null,
+        )
+    }
+
+    /**
+     * Cuts out the subject of [target]'s media on the phone (survives minimising), then applies
+     * [then] if given. Other clips of the same file reuse the cutout.
+     */
+    fun makeCutout(target: CutoutTarget, then: com.cinemind.core.domain.editing.SubjectLook? = null, afterwards: (() -> Unit)? = null) {
+        if (cutoutJob?.isActive == true) return
+        cutoutJob = viewModelScope.launch {
+            _cutout.value = CutoutProgress("Finding the subject…", 0f)
+            try {
+                val result = com.cinemind.core.common.BackgroundWork.run(appContext, "Cutting out the subject") {
+                    matteMaker.make(target.asset) { p -> _cutout.value = CutoutProgress("Cutting out the subject… ${(p * 100).toInt()}%", p) }
+                }
+                preview.refresh()
+                if (then != null) setSubjectLook(target, then)
+                afterwards?.invoke()
+                val note = if (result.engine == com.cinemind.feature.editor.timeline.matte.MatteMaker.Engine.PEOPLE) " (people only on this phone)" else ""
+                Toast.makeText(appContext, "Cutout ready$note", Toast.LENGTH_SHORT).show()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                Toast.makeText(appContext, "Cutout stopped", Toast.LENGTH_SHORT).show()
+                throw e
+            } catch (e: Exception) {
+                CineMindLogger.w("Cutout failed: ${e.message}")
+                Toast.makeText(appContext, "Couldn't cut out the subject: ${e.message ?: "unknown error"}", Toast.LENGTH_LONG).show()
+            } finally {
+                _cutout.value = null
+            }
+        }
+    }
+
+    fun cancelCutout() {
+        cutoutJob?.cancel()
+    }
+
+    /** Sets the look around the subject (one undo step). Makes the cutout first when missing. */
+    fun setSubjectLook(target: CutoutTarget, look: com.cinemind.core.domain.editing.SubjectLook) {
+        if (look != com.cinemind.core.domain.editing.SubjectLook.NONE && com.cinemind.feature.export.engine.MatteStore.existing(appContext, target.asset.id) == null) {
+            makeCutout(target, then = look)
+            return
+        }
+        if (target.overlay) {
+            val clips = overlayHistory.present
+            if (clips.none { it.id == target.clipId }) return
+            commitOverlay(
+                clips.map { if (it.id != target.clipId) it else it.copy(framing = com.cinemind.core.domain.editing.ClipFraming.decode(it.framing).copy(subject = look).encode()) },
+                select = target.clipId,
+            )
+        } else {
+            val clip = history?.present?.firstOrNull { it.id == target.clipId } ?: return
+            setFraming(clip.id, com.cinemind.core.domain.editing.ClipFraming.decode(clip.framing).copy(subject = look))
+        }
+    }
+
+    /** Adds a big title behind the person at [atUs] (default: playhead), making the cutout first if needed. */
+    fun addTextBehindSubject(text: String, atUs: Long? = null) {
+        val clips = history?.present.orEmpty()
+        val at = atUs ?: preview.currentPositionUs()
+        val add = { addLayer(text, com.cinemind.core.domain.text.TextKind.TEXT, com.cinemind.core.domain.text.TextPreset.BEHIND_ME, atUs) }
+        val clip = clips.firstOrNull { at >= it.timelineInUs && at < it.timelineOutUs } ?: clips.firstOrNull()
+        val asset = clip?.let { assets[it.assetId] }
+        if (clip != null && asset != null && (asset.isVideo || asset.isImage) &&
+            com.cinemind.feature.export.engine.MatteStore.existing(appContext, asset.id) == null
+        ) {
+            makeCutout(CutoutTarget(clip.id, false, asset, com.cinemind.core.domain.editing.ClipFraming.decode(clip.framing).subject, false), afterwards = { add() })
+        } else {
+            add()
+        }
+    }
+
+    /**
+     * Cuts out the subject of each clip in [clipIds] that has none yet (one after another, in the
+     * background), then sets [look] on all of them in one undo step; [look] null = cutout only.
+     */
+    private fun subjectAction(clipIds: List<String>, look: com.cinemind.core.domain.editing.SubjectLook?) {
+        if (clipIds.isEmpty() || cutoutJob?.isActive == true) return
+        cutoutJob = viewModelScope.launch {
+            try {
+                val todo = history?.present.orEmpty().filter { it.id in clipIds }
+                    .mapNotNull { assets[it.assetId] }
+                    .filter { (it.isVideo || it.isImage) && com.cinemind.feature.export.engine.MatteStore.existing(appContext, it.id) == null }
+                    .distinctBy { it.id }
+                if (todo.isNotEmpty()) Toast.makeText(appContext, "Cutting out the subject on your phone…", Toast.LENGTH_SHORT).show()
+                todo.forEachIndexed { i, a ->
+                    val label = if (todo.size > 1) "Cutting out clip ${i + 1} of ${todo.size}…" else "Cutting out the subject…"
+                    _cutout.value = CutoutProgress(label, i.toFloat() / todo.size)
+                    com.cinemind.core.common.BackgroundWork.run(appContext, "Cutting out the subject") {
+                        matteMaker.make(a) { p -> _cutout.value = CutoutProgress("$label ${(p * 100).toInt()}%", (i + p) / todo.size) }
+                    }
+                }
+                preview.refresh()
+                if (look != null) {
+                    val current = history?.present ?: return@launch
+                    commit(
+                        current.map { if (it.id in clipIds) it.copy(framing = com.cinemind.core.domain.editing.ClipFraming.decode(it.framing).copy(subject = look).encode()) else it },
+                        selectAfter = _editor.value.selectedClipId,
+                    )
+                }
+                Toast.makeText(appContext, if (look == null) "Cutout ready" else "${look.label} applied", Toast.LENGTH_SHORT).show()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                CineMindLogger.w("Cutout failed: ${e.message}")
+                Toast.makeText(appContext, "Couldn't cut out the subject: ${e.message ?: "unknown error"}", Toast.LENGTH_LONG).show()
+            } finally {
+                _cutout.value = null
+            }
+        }
+    }
+
+    /** Deletes the cutout of [target]'s media (looks that need it then do nothing). */
+    fun deleteCutout(target: CutoutTarget) {
+        com.cinemind.feature.export.engine.MatteStore.delete(appContext, target.asset.id)
+        preview.refresh()
     }
 
     override fun onCleared() {

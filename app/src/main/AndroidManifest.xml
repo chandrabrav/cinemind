@@ -62,6 +62,11 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
+        <!-- Ask Google Play services to fetch the on-device subject cutout model at install time. -->
+        <meta-data
+            android:name="com.google.mlkit.vision.DEPENDENCIES"
+            android:value="subject_segment" />
+
         <!-- Shares copies of chosen media with the app that runs a provider (e.g. Claude for KATANA). -->
         <provider
             android:name="androidx.core.content.FileProvider"

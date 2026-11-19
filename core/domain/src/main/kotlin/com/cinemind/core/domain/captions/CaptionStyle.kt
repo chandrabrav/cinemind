@@ -20,13 +20,35 @@ enum class CaptionAnimation(val label: String) {
     TYPEWRITER("Typewriter"),
 }
 
-/** System font families (no bundled fonts: they cover Latin, Devanagari and other Indic scripts). */
-enum class CaptionFont(val label: String, val family: String) {
+/**
+ * Fonts for captions and titles. The first five are the phone's own families; the rest are bundled
+ * display fonts (SIL Open Font License / Apache 2.0; files and licences in core/ui assets/fonts).
+ * [family] is the system fallback if a bundled file can't be loaded. Letters a bundled font lacks
+ * (e.g. Devanagari in a Latin display font) fall back to the system font automatically.
+ * Stored by name, so new entries never break saved projects. [display] fonts are already heavy, so
+ * no weight is synthesised for them.
+ */
+enum class CaptionFont(val label: String, val family: String, val asset: String? = null, val display: Boolean = false) {
     SANS("Sans", "sans-serif"),
     CONDENSED("Condensed", "sans-serif-condensed"),
     SERIF("Serif", "serif"),
     MONO("Mono", "monospace"),
     CASUAL("Casual", "casual"),
+    ANTON("Anton", "sans-serif-condensed", "Anton-Regular.ttf", true),
+    BEBAS("Bebas Neue", "sans-serif-condensed", "BebasNeue-Regular.ttf", true),
+    POPPINS("Poppins Black", "sans-serif", "Poppins-Black.ttf", true),
+    ARCHIVO("Archivo Black", "sans-serif", "ArchivoBlack-Regular.ttf", true),
+    BANGERS("Bangers", "casual", "Bangers-Regular.ttf", true),
+    LUCKIEST("Luckiest Guy", "casual", "LuckiestGuy-Regular.ttf", true),
+    BUNGEE("Bungee", "sans-serif", "Bungee-Regular.ttf", true),
+    RIGHTEOUS("Righteous", "sans-serif", "Righteous-Regular.ttf", true),
+    MARKER("Marker", "casual", "PermanentMarker-Regular.ttf", true),
+    PACIFICO("Pacifico", "cursive", "Pacifico-Regular.ttf", true),
+    SCRIPT("Great Vibes", "cursive", "GreatVibes-Regular.ttf", true),
+    ABRIL("Abril Fatface", "serif", "AbrilFatface-Regular.ttf", true),
+    NEON("Monoton", "sans-serif", "Monoton-Regular.ttf", true),
+    MUKTA("Mukta हिंदी", "sans-serif", "Mukta-ExtraBold.ttf", true),
+    KALAM("Kalam हिंदी", "casual", "Kalam-Bold.ttf", true),
 }
 
 enum class CaptionAlign { START, CENTER, END }
@@ -124,7 +146,33 @@ object CaptionPresets {
         base.copy(font = CaptionFont.CONDENSED.name, size = 0.085f, weight = 900, uppercase = true, karaoke = false, mode = CaptionMode.WORD.name, animation = CaptionAnimation.POP.name, positionY = 0.5f),
     )
 
-    val ALL: List<CaptionPreset> = listOf(REELS, TRAVEL, CINEMATIC, EDUCATION, PODCAST, VLOG, MUSIC)
+    // Dramatic social looks with the bundled display fonts.
+    val HYPE = CaptionPreset(
+        "hype", "Hype", "Huge condensed caps, yellow word pop",
+        base.copy(font = CaptionFont.ANTON.name, size = 0.085f, uppercase = true, outline = 0.14f, highlightColor = 0xFFFFE600.toInt(), mode = CaptionMode.PHRASE.name, karaoke = true, animation = CaptionAnimation.POP.name, positionY = 0.66f),
+    )
+    val BOLD_BOX = CaptionPreset(
+        "boldbox", "Bold box", "Heavy rounded text, green word box",
+        base.copy(font = CaptionFont.POPPINS.name, size = 0.06f, outline = 0.1f, highlightColor = 0xFF39E75F.toInt(), backgroundOpacity = 0f, mode = CaptionMode.PHRASE.name, karaoke = true, animation = CaptionAnimation.SLIDE_UP.name, positionY = 0.7f),
+    )
+    val COMIC = CaptionPreset(
+        "comic", "Comic", "Playful comic letters",
+        base.copy(font = CaptionFont.BANGERS.name, size = 0.08f, uppercase = true, outline = 0.12f, highlightColor = 0xFFFF5FA2.toInt(), mode = CaptionMode.PHRASE.name, karaoke = true, animation = CaptionAnimation.POP.name, positionY = 0.68f),
+    )
+    val STATEMENT = CaptionPreset(
+        "statement", "Statement", "One big word at a time, centre screen",
+        base.copy(font = CaptionFont.BEBAS.name, size = 0.14f, uppercase = true, outline = 0.06f, karaoke = false, mode = CaptionMode.WORD.name, animation = CaptionAnimation.POP.name, positionY = 0.5f),
+    )
+    val ELEGANT = CaptionPreset(
+        "elegant", "Elegant", "Fashion-magazine serif",
+        base.copy(font = CaptionFont.ABRIL.name, size = 0.055f, outline = 0f, shadow = true, karaoke = false, textColor = 0xFFF5EFE6.toInt(), mode = CaptionMode.SENTENCE.name, animation = CaptionAnimation.FADE.name, positionY = 0.8f),
+    )
+    val HINDI = CaptionPreset(
+        "hindi", "Hindi bold", "Clear Devanagari with word highlight",
+        base.copy(font = CaptionFont.MUKTA.name, size = 0.065f, outline = 0.12f, highlightColor = 0xFFFFE600.toInt(), mode = CaptionMode.PHRASE.name, karaoke = true, animation = CaptionAnimation.POP.name, positionY = 0.7f),
+    )
+
+    val ALL: List<CaptionPreset> = listOf(REELS, HYPE, BOLD_BOX, COMIC, STATEMENT, TRAVEL, CINEMATIC, ELEGANT, EDUCATION, PODCAST, VLOG, MUSIC, HINDI)
 
     fun byId(id: String?): CaptionPreset? = ALL.firstOrNull { it.id == id }
 }
