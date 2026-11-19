@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
@@ -72,6 +73,7 @@ import com.cinemind.core.ui.theme.Spacing
 @Composable
 fun ProjectListScreen(
     onNewProject: () -> Unit,
+    onAiEdit: () -> Unit = onNewProject,
     onOpenProject: (String) -> Unit,
     onTeleprompter: () -> Unit = {},
     onTemplates: () -> Unit = {},
@@ -109,6 +111,7 @@ fun ProjectListScreen(
                     body = "Import videos and photos, describe the reel you want, and CineMind builds an editable project.",
                 ) {
                     GradientButton("New project", onClick = onNewProject, icon = Icons.Default.Add)
+                    androidx.compose.material3.TextButton(onClick = onAiEdit) { Text("✦ AI edit: import and describe the reel") }
                     androidx.compose.material3.TextButton(onClick = onTemplates) { Text("Start from a template") }
                     androidx.compose.material3.TextButton(onClick = onTeleprompter) { Text("Record with the teleprompter") }
                 }
@@ -122,10 +125,11 @@ fun ProjectListScreen(
                             subtitle = "${projects.size} project${if (projects.size == 1) "" else "s"}",
                         )
                     }
+                    item { StartRow(onNewProject, onAiEdit) }
                     item { BetaCard() }
-                    item { NewProjectCard(onNewProject) }
                     item { TemplatesCard(onTemplates) }
                     item { TeleprompterCard(onTeleprompter) }
+                    item { com.cinemind.core.ui.components.SectionHeader("Recent projects") }
                     items(projects, key = { it.project.id }) { summary ->
                         ProjectCard(
                             summary = summary,
@@ -171,6 +175,39 @@ fun ProjectListScreen(
             },
             dismissButton = { TextButton(onClick = { deleting = null }) { Text("Cancel") } },
         )
+    }
+}
+
+/** The two ways to start: by hand, or by describing the reel to the AI. */
+@Composable
+private fun StartRow(onNewProject: () -> Unit, onAiEdit: () -> Unit) {
+    val c = CineMind.colors
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(Spacing.s),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.gutter),
+    ) {
+        StartCard("New project", "Import and edit", Icons.Default.Add, onNewProject, Modifier.weight(1f))
+        StartCard("AI edit", "Describe it, AI builds it", Icons.Default.AutoAwesome, onAiEdit, Modifier.weight(1f))
+    }
+}
+
+@Composable
+private fun StartCard(title: String, subtitle: String, icon: androidx.compose.ui.graphics.vector.ImageVector, onClick: () -> Unit, modifier: Modifier) {
+    val c = CineMind.colors
+    GlassCard(onClick = onClick, modifier = modifier) {
+        Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(RoundedCornerShape(Radius.m))
+                    .background(Brush.linearGradient(listOf(c.accentGradientStart, c.accentGradientEnd))),
+            ) {
+                Icon(icon, contentDescription = null, tint = c.onAccentGradient)
+            }
+            Text(title, style = MaterialTheme.typography.titleMedium, color = c.textPrimary)
+            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = c.textTertiary, maxLines = 2)
+        }
     }
 }
 
@@ -263,6 +300,8 @@ private fun ProjectCard(
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     StatusPill(project.aspectRatio)
+                    Spacer(Modifier.width(Spacing.xs))
+                    Text("${project.resolutionWidth}×${project.resolutionHeight}", style = MaterialTheme.typography.labelSmall, color = c.textTertiary)
                     Spacer(Modifier.width(Spacing.s))
                     Text(
                         "Edited " + DateUtils.getRelativeTimeSpanString(project.updatedAt, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS),

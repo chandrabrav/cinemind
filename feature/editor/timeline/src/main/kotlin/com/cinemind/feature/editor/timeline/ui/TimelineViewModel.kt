@@ -938,6 +938,19 @@ class TimelineViewModel @Inject constructor(
         setFraming(clipId, com.cinemind.core.domain.editing.TransformMath.setLook(framing, sourceUs, look, animate = framing.keys.size >= 2))
     }
 
+    /** Fit (bars) or fill (crop to the frame) for the selected clip. */
+    fun setSelectedFill(fill: Boolean) {
+        val clip = history?.present?.firstOrNull { it.id == _editor.value.selectedClipId } ?: return
+        setFraming(clip.id, com.cinemind.core.domain.editing.ClipFraming.decode(clip.framing).copy(fill = fill))
+    }
+
+    /** Undoes moves, zooms, crop, turns, flips and fill on the selected clip (green screen, masks and cutout looks stay). */
+    fun resetSelectedFraming() {
+        val clip = history?.present?.firstOrNull { it.id == _editor.value.selectedClipId } ?: return
+        val f = com.cinemind.core.domain.editing.ClipFraming.decode(clip.framing)
+        setFraming(clip.id, f.copy(keys = emptyList(), crop = com.cinemind.core.domain.editing.CropRect(), quarterTurns = 0, flipH = false, flipV = false, fill = false))
+    }
+
     /** Framing for one clip (one undo step). */
     fun setFraming(clipId: String, framing: com.cinemind.core.domain.editing.ClipFraming) {
         val clips = history?.present ?: return
