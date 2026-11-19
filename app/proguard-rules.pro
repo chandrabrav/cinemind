@@ -104,3 +104,9 @@
 -dontwarn kotlinx.serialization.**
 -dontwarn okhttp3.**
 -dontwarn okio.**
+# Google LiteRT-LM (on-device Gemma / Spark): its native code looks up Java classes, fields and
+# methods by name (JNI). Without this, R8 renamed what thinking models (Spark) use when a
+# conversation starts → "JNI DETECTED ERROR: mid == null" in nativeCreateConversation (beta #198).
+-keep class com.google.ai.edge.litertlm.** { *; }
+-keep interface com.google.ai.edge.litertlm.** { *; }
+-keep enum com.google.ai.edge.litertlm.** { *; }
