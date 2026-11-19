@@ -58,6 +58,12 @@ private val ACKNOWLEDGEMENTS = listOf(
     Acknowledgement("Coil", "Thumbnails", "Apache License 2.0"),
     Acknowledgement("Google LiteRT-LM", "On-device AI runtime", "Apache License 2.0"),
     Acknowledgement("Google Gemma 4 E2B / E4B (downloaded on request)", "On-device AI model", "Apache License 2.0 (as published by Google)"),
+    Acknowledgement("Google LiteRT", "On-device speech runtime (Whisper)", "Apache License 2.0"),
+    Acknowledgement("OpenAI Whisper tiny / base, LiteRT build (downloaded on request)", "On-device speech to text", "Apache License 2.0 (as published)"),
+    Acknowledgement("iFLYTEK Spark X2.5 4B / X2.6 1.7B, LiteRT build (downloaded on request)", "On-device edit planning", "Apache License 2.0 (as published)"),
+    Acknowledgement("Google ML Kit (subject and selfie segmentation)", "Automatic cutouts", "ML Kit Terms of Service (Google APIs Terms)"),
+    Acknowledgement("Google Fonts: Abril Fatface, Anton, Archivo Black, Bangers, Bebas Neue, Bungee, Great Vibes, Kalam, Monoton, Mukta, Pacifico, Poppins, Righteous", "Caption and title fonts", "SIL Open Font License 1.1"),
+    Acknowledgement("Google Fonts: Luckiest Guy, Permanent Marker", "Caption and title fonts", "Apache License 2.0"),
 )
 
 @Composable
@@ -150,7 +156,9 @@ fun AboutScreen() {
             }
         }
         Text(
-            "Apache License 2.0: https://www.apache.org/licenses/LICENSE-2.0",
+            "Apache License 2.0: https://www.apache.org/licenses/LICENSE-2.0\n" +
+                "SIL Open Font License 1.1: https://openfontlicense.org (full texts ship with the app)\n" +
+                "ML Kit terms: https://developers.google.com/ml-kit/terms",
             style = MaterialTheme.typography.labelSmall,
             color = c.textTertiary,
             modifier = Modifier.padding(horizontal = Spacing.gutter, vertical = Spacing.m),

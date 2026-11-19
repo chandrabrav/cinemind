@@ -124,6 +124,27 @@ object Diagnostics {
         dir(context).listFiles()?.forEach { it.delete() }
     }
 
+    private fun prefs(c: Context) = c.getSharedPreferences("diagnostics", Context.MODE_PRIVATE)
+
+    /**
+     * When the app last crashed (Java or native crash, or "not responding") and the user has not
+     * yet been asked about it, else null. Drives the "closed unexpectedly" card on the home screen.
+     */
+    fun unseenCrash(context: Context): Long? = runCatching {
+        val seen = prefs(context).getLong("crash_seen", 0)
+        val am = context.getSystemService(ActivityManager::class.java)
+        val fromAndroid = am?.getHistoricalProcessExitReasons(context.packageName, 0, 5).orEmpty()
+            .filter { it.reason == ApplicationExitInfo.REASON_CRASH || it.reason == ApplicationExitInfo.REASON_CRASH_NATIVE || it.reason == ApplicationExitInfo.REASON_ANR }
+            .maxOfOrNull { it.timestamp } ?: 0L
+        val fromFiles = dir(context).listFiles { f -> f.name.startsWith("crash-") }?.maxOfOrNull { it.lastModified() } ?: 0L
+        maxOf(fromAndroid, fromFiles).takeIf { it > seen }
+    }.getOrNull()
+
+    /** The user was asked about the last crash (sent or dismissed). */
+    fun markCrashSeen(context: Context) {
+        prefs(context).edit().putLong("crash_seen", System.currentTimeMillis()).apply()
+    }
+
     /** Why the app's process ended recently, from Android itself (API 30+). */
     fun exitReasons(context: Context, max: Int = 5): List<String> = runCatching {
         val am = context.getSystemService(ActivityManager::class.java) ?: return emptyList()

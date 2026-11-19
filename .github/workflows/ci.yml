@@ -292,7 +292,7 @@ jobs:
           if-no-files-found: warn
 
   release:
-    name: Signed release APK
+    name: Signed release (APK + Play bundle)
     needs: build
     runs-on: ubuntu-latest
     # Runs only on main, and only does anything once signing secrets exist in repo settings.
@@ -317,7 +317,7 @@ jobs:
         with:
           gradle-version: ${{ env.GRADLE_VERSION }}
 
-      - name: Build signed release APK
+      - name: Build signed release APK and Play bundle (AAB)
         if: env.HAS_KEYSTORE == 'true'
         env:
           CINEMIND_KEYSTORE_PASSWORD: ${{ secrets.CINEMIND_KEYSTORE_PASSWORD }}
@@ -326,7 +326,13 @@ jobs:
         run: |
           echo "${{ secrets.CINEMIND_KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/release.jks"
           export CINEMIND_KEYSTORE_PATH="$RUNNER_TEMP/release.jks"
-          gradle :app:assembleRelease --stacktrace
+          # Use the key alias secret if set, otherwise the keystore's only private key.
+          if [ -z "$CINEMIND_KEY_ALIAS" ]; then
+            CINEMIND_KEY_ALIAS=$(keytool -list -keystore "$CINEMIND_KEYSTORE_PATH" -storepass "$CINEMIND_KEYSTORE_PASSWORD" | grep PrivateKeyEntry | head -1 | cut -d, -f1)
+            export CINEMIND_KEY_ALIAS
+          fi
+          gradle :app:assembleRelease :app:bundleRelease --stacktrace
+          rm -f "$RUNNER_TEMP/release.jks"
 
       - name: Upload release APK
         if: env.HAS_KEYSTORE == 'true'
@@ -334,6 +340,14 @@ jobs:
         with:
           name: cinemind-release-${{ github.run_number }}
           path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+
+      - name: Upload Play bundle
+        if: env.HAS_KEYSTORE == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: cinemind-play-bundle-${{ github.run_number }}
+          path: app/build/outputs/bundle/release/*.aab
           if-no-files-found: error
 
       - name: Skip notice

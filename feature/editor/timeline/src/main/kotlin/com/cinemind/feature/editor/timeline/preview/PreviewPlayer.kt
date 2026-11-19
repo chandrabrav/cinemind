@@ -273,7 +273,7 @@ class PreviewPlayer(context: Context) {
         val composition = runCatching {
             val voice = voiceClips.mapNotNull { v -> v.asset?.let { a -> RenderVoiceClip(v.clip, a.uri, a.durationUs) } }
             val sfx = sfxTracks.map { t -> RenderVoiceover(t.mapNotNull { v -> v.asset?.let { a -> RenderVoiceClip(v.clip, a.uri, a.durationUs) } }, com.cinemind.core.domain.audio.VoiceoverSettings()) }
-            renderer.buildComposition(pairs, size, fps, music, originalVolume, overlays = listOf(overlayTrack), voiceover = RenderVoiceover(voice, voiceSettings), grades = if (gradesEnabled) grades else emptyMap(), sfx = sfx, captions = underCaptions, texts = underTexts, layerOrder = layerOrder, voiceEnhance = voiceEnhance)
+            renderer.buildComposition(pairs, size, fps, music, originalVolume, overlays = listOf(overlayTrack), voiceover = RenderVoiceover(voice, voiceSettings), grades = if (gradesEnabled) grades else emptyMap(), sfx = sfx, captions = underCaptions, texts = underTexts, layerOrder = layerOrder, voiceEnhance = voiceEnhance, textsOnTop = false)
         }
             .getOrElse {
                 lastError = "Can't build the preview: ${it.message}"

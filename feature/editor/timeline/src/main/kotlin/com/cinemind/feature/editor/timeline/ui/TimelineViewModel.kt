@@ -530,7 +530,7 @@ class TimelineViewModel @Inject constructor(
     private fun pushUnderLayers() {
         val order = _layerOrder.value
         preview.setUnderLayers(
-            textHistory.present.filter { it.styleObj.drawnInPicture },
+            textHistory.present.filter { it.styleObj.drawnInPicture || it.styleObj.partlyBelow },
             previewCaptions.takeIf { !order.captionsAboveOverlays || it?.style?.behindSubject == true },
             order,
         )

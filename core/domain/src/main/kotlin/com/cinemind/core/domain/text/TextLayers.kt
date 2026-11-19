@@ -92,19 +92,31 @@ data class TextStyle(
      * to its own position and size over its duration. Null = it stays put.
      */
     val from: TextFrom? = null,
+    /**
+     * Per-overlay stacking: the picture-in-picture clips (ids) this title sits behind while they
+     * are on screen. In front of every other overlay. Ignored when [belowOverlays] is set.
+     */
+    val belowClips: Set<String> = emptySet(),
 ) {
     val hasGradient: Boolean get() = color2 != 0
+
+    /** Behind some overlay clips (not all): drawn under or over the picture-in-picture depending on the time. */
+    val partlyBelow: Boolean get() = !belowOverlays && belowClips.isNotEmpty()
+
+    /** Whether this title is drawn under the picture-in-picture while overlay clip [overlayId] shows. */
+    fun isBelow(overlayId: String?): Boolean = belowOverlays || (overlayId != null && overlayId in belowClips)
 
     /** Drawn into the video picture (under overlays or behind the subject) rather than on top of everything. */
     val drawnInPicture: Boolean get() = belowOverlays || behindSubject
 
     fun encode(): String = String.format(
         Locale.ROOT,
-        "font=%s;w=%d;c=%08x;o=%.3f;oc=%08x;sh=%d;gl=%d;bc=%08x;bo=%.3f;up=%d;sp=%.3f;al=%d;in=%s;out=%s;bl=%d;c2=%08x;ex=%.3f;ec=%08x;lp=%s;bs=%d%s",
+        "font=%s;w=%d;c=%08x;o=%.3f;oc=%08x;sh=%d;gl=%d;bc=%08x;bo=%.3f;up=%d;sp=%.3f;al=%d;in=%s;out=%s;bl=%d;c2=%08x;ex=%.3f;ec=%08x;lp=%s;bs=%d%s%s",
         font.name, weight, color, outline, outlineColor, if (shadow) 1 else 0, if (glow) 1 else 0, boxColor, boxOpacity,
         if (uppercase) 1 else 0, spacing, align, animIn.name, animOut.name, if (belowOverlays) 1 else 0,
         color2, extrude, extrudeColor, loop.name, if (behindSubject) 1 else 0,
         from?.let { String.format(Locale.ROOT, ";fr=%.4f,%.4f,%.4f", it.x, it.y, it.size) } ?: "",
+        if (belowClips.isEmpty()) "" else ";ub=" + belowClips.sorted().joinToString(","),
     )
 
     companion object {
@@ -138,6 +150,7 @@ data class TextStyle(
                 loop = TextLoop.entries.firstOrNull { it.name == m["lp"] } ?: TextLoop.NONE,
                 behindSubject = m["bs"] == "1",
                 from = m["fr"]?.split(',')?.mapNotNull { it.toFloatOrNull() }?.takeIf { it.size == 3 }?.let { TextFrom(it[0].coerceIn(-0.5f, 1.5f), it[1].coerceIn(-0.5f, 1.5f), it[2].coerceIn(0.01f, 0.6f)) },
+                belowClips = m["ub"]?.split(',')?.filter { it.isNotBlank() }?.toSet().orEmpty(),
             )
         }
     }
@@ -336,7 +349,7 @@ object LayerStack {
                         }
                     } to order
                 }
-                LayerEntry.PictureInPicture -> texts.map { if (it.id == entry.layer.id) it.copy(style = it.styleObj.copy(belowOverlays = !up).encode()) else it } to order
+                LayerEntry.PictureInPicture -> texts.map { if (it.id == entry.layer.id) it.copy(style = it.styleObj.copy(belowOverlays = !up, belowClips = emptySet()).encode()) else it } to order
                 LayerEntry.Captions -> {
                     // Crossing the captions inside one group flips captions-vs-titles for that group;
                     // simplest consistent rule: move the title to the other side of the captions.

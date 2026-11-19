@@ -258,6 +258,8 @@ internal fun EditTextSheet(
     onMove: (Long) -> Unit,
     onTrim: (Long, Long) -> Unit,
     onDismiss: () -> Unit,
+    /** Picture-in-picture clips on screen while this layer is (id to label), for per-overlay stacking. */
+    overlays: List<Pair<String, String>> = emptyList(),
 ) {
     val c = CineMind.colors
     val st = layer.styleObj
@@ -310,6 +312,22 @@ internal fun EditTextSheet(
                 ValueSlider("Size", layer.size, 0.015f..0.4f, { "${(it * 100).toInt()}" }) { onChange(layer.copy(size = it)) }
                 ValueSlider("Angle", layer.rotation, -180f..180f, { "${it.toInt()}°" }) { onChange(layer.copy(rotation = it)) }
                 Text("Drag it on the preview to move it; pinch to resize; twist to rotate.", style = MaterialTheme.typography.bodySmall, color = c.textTertiary)
+                if (overlays.isNotEmpty() && !st.behindSubject) {
+                    Spacer(Modifier.height(Spacing.s))
+                    Text("Picture-in-picture", style = MaterialTheme.typography.labelLarge, color = c.textSecondary)
+                    overlays.forEach { (id, label) ->
+                        val behind = st.isBelow(id)
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+                            Text(label, style = MaterialTheme.typography.bodySmall, color = c.textPrimary, modifier = Modifier.weight(1f))
+                            TextPill("In front", !behind) {
+                                setStyle(if (st.belowOverlays) st.copy(belowOverlays = false, belowClips = overlays.map { it.first }.toSet() - id) else st.copy(belowClips = st.belowClips - id))
+                            }
+                            TextPill("Behind", behind) {
+                                setStyle(if (st.belowOverlays) st else st.copy(belowClips = st.belowClips + id))
+                            }
+                        }
+                    }
+                }
             }
             1 -> {
                 Text("Text colour", style = MaterialTheme.typography.labelLarge, color = c.textSecondary)

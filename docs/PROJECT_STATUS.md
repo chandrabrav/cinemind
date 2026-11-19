@@ -413,15 +413,19 @@ Decisions:
 * Open Generative AI was dropped. It's a web front end for the paid Muapi API.
 | #40 | **Prompt library** (28 briefs, 8 genres, search, favourites, recents, own prompts). **Revisions in plain words** on AI edits: a new version from the original footage, with analysis reused, only affected agents rerun, and "keep the music" honoured. **Captions behind the person** (schema v11). **Text motion path**. **Progress bar**. **Home**: New project and AI edit first, then recent projects with resolution. **Fit / Fill / Reset** under the preview. | `docs/UX_REDESIGN.md` |
 
-Production readiness (2026-11-19): about 90% of the briefed features are built, but only about 25% have been verified on a phone. Before a public release we still need:
+Production readiness (updated 2026-11-19, branch `release-readiness`):
 
-* a phone test pass of everything since #172, plus the Spark benchmark report;
-* a release keystore in GitHub secrets, and an AAB build;
-* the Play privacy policy and Data Safety form;
-* opt-in crash reporting;
-* licence entries for Gemma and ML Kit.
-
-Per-overlay stacking (M4c) is still open.
+* **Done:**
+  * the CI release job now also builds the Play bundle (AAB) once the upload-key secrets exist (`docs/PLAY_RELEASE.md`);
+  * a privacy policy (`docs/PRIVACY_POLICY.md`) and Data Safety answers;
+  * a crash prompt: after a crash, the home screen offers to send the report through the share sheet;
+  * licence entries for Gemma, Spark, Whisper, LiteRT, ML Kit and the fonts;
+  * per-overlay stacking (M4c).
+* **Still needed, from the owner:**
+  * the phone test pass and the benchmark report;
+  * creating the upload key and adding the secrets;
+  * the contact email and effective date in the privacy policy;
+  * the Play Console setup.
 
 ## Agent framework (2026-11-19, branch `agent-framework`)
 
