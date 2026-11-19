@@ -112,6 +112,8 @@ class EditBriefViewModel @Inject constructor(
                         SmartEditProgress.Planning -> SmartEditUi.Working("Choosing shots and planning the edit…", null)
                         is SmartEditProgress.AskingCloud -> SmartEditUi.Working("${p.engine} is planning the edit…", null)
                         SmartEditProgress.PlanningOnPhone -> SmartEditUi.Working("Thinking the edit through on your phone… this can take a few minutes", null)
+                        SmartEditProgress.EnhancingAudio -> SmartEditUi.Working("Cleaning up the voices…", null)
+                        SmartEditProgress.Transcribing -> SmartEditUi.Working("Transcribing speech for subtitles…", null)
                         SmartEditProgress.Building -> SmartEditUi.Working("Applying colour, text, captions and sound…", null)
                     }
                 }, revisionRun) }

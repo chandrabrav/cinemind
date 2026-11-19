@@ -63,6 +63,8 @@ sealed interface SmartEditProgress {
     data class AskingCloud(val engine: String) : SmartEditProgress
     /** The on-phone planning model is thinking the edit through. */
     data object PlanningOnPhone : SmartEditProgress
+    data object EnhancingAudio : SmartEditProgress
+    data object Transcribing : SmartEditProgress
     data object Building : SmartEditProgress
 }
 
@@ -107,6 +109,7 @@ class SmartEditor @Inject constructor(
     private val aiPrefs: AiPreferences,
     private val cloud: EditAssistant,
     private val runtime: AgentRuntime,
+    private val transcriber: com.cinemind.feature.captions.speech.SpeechTranscriber,
 ) {
     /**
      * A follow-up on an earlier AI edit: [revision] says what changes and what stays; the new
@@ -126,6 +129,13 @@ class SmartEditor @Inject constructor(
         val assets = assetIds.mapNotNull { assetRepository.getAsset(it) }
         if (assets.isEmpty()) throw SmartEditException("The project's media is no longer available.")
 
+        // Execution trace for the developer diagnostics (agents, runtimes, durations, failures).
+        val traceStart = System.currentTimeMillis()
+        val trace = mutableListOf<com.cinemind.core.domain.agents.TraceEntry>()
+        fun record(agent: AgentId, kind: RuntimeKind, model: String?, status: com.cinemind.core.domain.agents.TaskStatus, startMs: Long, note: String = "", attempt: Int = 1) {
+            trace += com.cinemind.core.domain.agents.TraceEntry(java.util.UUID.randomUUID().toString().take(8), null, agent, kind, model, status, startMs, System.currentTimeMillis() - startMs, attempt, note, availMemMb())
+        }
+        val analysisStart = System.currentTimeMillis()
         // Footage analysis is reused between runs (same file = same measurements).
         var reusedAnalyses = 0
         val analyses = assets.mapIndexed { i, asset ->
@@ -144,10 +154,11 @@ class SmartEditor @Inject constructor(
             ?: projectRepository.getProjectAudio(projectId)
         val cachedInsights = assets.mapNotNull { a -> insightCache[cacheKey(a)]?.let { a.id to it } }.toMap()
 
+        val goals = revision?.intent?.goals ?: goalsOf(brief.prompt)
         // ---- CineMind Decision Engine: which agents this request needs, and where each runs.
         val orchestration = DecisionEngine.plan(
             revision?.intent ?: RequestIntent(
-                goals = setOf(Goal.NEW_EDIT),
+                goals = goals,
                 creative = brief.prompt.isNotBlank() || brief.style != EditStyle.AUTO,
                 targetSeconds = brief.targetDurationSec,
             ),
@@ -172,6 +183,7 @@ class SmartEditor @Inject constructor(
             runtime.policy(),
         )
         CineMindLogger.i("Decision engine: " + orchestration.explain().joinToString(" | "))
+        record(AgentId.VIDEO_ANALYSIS, RuntimeKind.DETERMINISTIC, null, com.cinemind.core.domain.agents.TaskStatus.SUCCEEDED, analysisStart, "${analyses.size} sources")
         // What actually ran (never what was only planned).
         val howMade = mutableListOf<String>()
         if (revision != null) howMade += "Revision: " + revision.understood.joinToString(", ").ifBlank { "your note" }
@@ -191,6 +203,7 @@ class SmartEditor @Inject constructor(
 
                 if (brief.prompt.isNotBlank() && creativeStep?.runtime == RuntimeKind.ON_DEVICE) {
                     onProgress(SmartEditProgress.ReadingBrief)
+                    val briefStart = System.currentTimeMillis()
                     val model = runtime.model(creativeStep.modelId)
                     val answer = model?.let { Prompts.parseBrief(it.infer(ModelRequest(Prompts.brief(brief.prompt), maxTokens = 120))) }
                     intent = AiAssist.mergeBrief(brief, intent, answer)
@@ -198,8 +211,10 @@ class SmartEditor @Inject constructor(
                         aiNotes += "On-device AI read your brief"
                         howMade += "${AgentId.CREATIVE_DIRECTOR.label}: read your brief on this phone"
                     }
+                    record(AgentId.CREATIVE_DIRECTOR, RuntimeKind.ON_DEVICE, creativeStep.modelId, if (answer != null) com.cinemind.core.domain.agents.TaskStatus.SUCCEEDED else com.cinemind.core.domain.agents.TaskStatus.FAILED, briefStart, if (answer != null) "" else "reply not readable; rules used")
                 }
                 if (visualStep == null) throw SkipVision()
+                val visionStart = System.currentTimeMillis()
 
                 val sharpRef = MomentScoring.sharpnessReference(analyses.flatMap { a -> a.samples.map { it.sharpness } })
                 // Keep total model calls bounded: up to 3 frames per source, at most MAX_FRAMES overall.
@@ -215,6 +230,7 @@ class SmartEditor @Inject constructor(
                     asset.id to described
                 }.filterValues { it.isNotEmpty() }
                 assets.forEach { a -> insights[a.id]?.let { remember(insightCache, cacheKey(a), it) } }
+                record(AgentId.VISUAL_INTELLIGENCE, RuntimeKind.ON_DEVICE, visualStep.modelId, com.cinemind.core.domain.agents.TaskStatus.SUCCEEDED, visionStart, "${insights.values.sumOf { it.size }} moments")
                 if (insights.isNotEmpty()) howMade += "${AgentId.VISUAL_INTELLIGENCE.label}: looked at ${insights.values.sumOf { it.size }} key moments on this phone"
             } catch (e: CancellationException) {
                 throw e
@@ -222,6 +238,7 @@ class SmartEditor @Inject constructor(
                 // Seeing the shots wasn't needed for this request.
             } catch (e: Exception) {
                 CineMindLogger.e(e, "On-device AI failed; using basic analysis")
+                record(AgentId.VISUAL_INTELLIGENCE, RuntimeKind.ON_DEVICE, visualStep?.modelId, com.cinemind.core.domain.agents.TaskStatus.FAILED, System.currentTimeMillis(), e.message?.take(80).orEmpty())
                 insights = emptyMap()
                 aiNotes += "On-device AI couldn't run (${e.message?.take(80)}); used basic analysis"
             } finally {
@@ -295,6 +312,7 @@ class SmartEditor @Inject constructor(
                     baseline = director,
                 )
                 var step = orchestration.step(AgentId.EDIT_PLANNER)
+                var attempt = 0
                 while (step != null) {
                     val current = step
                     val label = when (current.runtime) {
@@ -302,6 +320,8 @@ class SmartEditor @Inject constructor(
                         RuntimeKind.ON_DEVICE -> "The on-phone planner"
                         RuntimeKind.DETERMINISTIC -> "The built-in director"
                     }
+                    val planStart = System.currentTimeMillis()
+                    attempt++
                     val plan: EditPlan? = try {
                         when (current.runtime) {
                             RuntimeKind.DETERMINISTIC -> director
@@ -325,6 +345,7 @@ class SmartEditor @Inject constructor(
                         null
                     }
                     if (plan != null && EditPlanValidator.validate(plan, sources, ground, hasCaptions = captions.isNotEmpty()).usable) {
+                        record(AgentId.EDIT_PLANNER, current.runtime, current.modelId, com.cinemind.core.domain.agents.TaskStatus.SUCCEEDED, planStart, "", attempt)
                         chosen = plan
                         when (current.runtime) {
                             RuntimeKind.CLOUD -> { engine = cloud.engineName; howMade += "${AgentId.EDIT_PLANNER.label}: planned in the cloud (text summary only)" }
@@ -333,6 +354,7 @@ class SmartEditor @Inject constructor(
                         }
                         break
                     }
+                    record(AgentId.EDIT_PLANNER, current.runtime, current.modelId, com.cinemind.core.domain.agents.TaskStatus.FAILED, planStart, if (plan == null) "no plan" else "plan had no usable shots", attempt)
                     if (plan != null) aiNotes += "$label's plan had no usable shots; tried the next option"
                     step = DecisionEngine.recover(current)
                 }
@@ -345,6 +367,7 @@ class SmartEditor @Inject constructor(
         }
 
         onProgress(SmartEditProgress.Building)
+        val buildStart = System.currentTimeMillis()
         // A revision's hard limits (no slow motion, straight cuts, …) hold whatever the planner did.
         val fit = { p: EditPlan -> revision?.let { com.cinemind.core.domain.aiedit.RevisionReader.constrain(p, it) } ?: p }
         val validated = EditPlanValidator.validate(fit(chosen), sources, ground, hasCaptions = captions.isNotEmpty())
@@ -361,6 +384,62 @@ class SmartEditor @Inject constructor(
         runCatching { briefRepository.saveBrief(brief.copy(projectId = newId)) }
         howMade += "${AgentId.RENDERING.label}: built a new, editable project (your original is unchanged)"
         orchestration.skipped.forEach { (agent, why) -> howMade += "Not used — ${agent.label}: $why" }
+        record(AgentId.QUALITY_ASSURANCE, RuntimeKind.DETERMINISTIC, null, com.cinemind.core.domain.agents.TaskStatus.SUCCEEDED, buildStart, "$fixes fixed or left out")
+        record(AgentId.RENDERING, RuntimeKind.DETERMINISTIC, null, com.cinemind.core.domain.agents.TaskStatus.SUCCEEDED, buildStart, "new project")
+
+        // ---- Audio sub-workflow (run by the workflow engine): voice clean-up and transcription side
+        // by side, then captions. Each agent decides for itself whether it is needed.
+        val audioSteps = orchestration.steps.filter { it.agent in AUDIO_AGENTS }
+        if (audioSteps.isNotEmpty()) {
+            var transcript: List<com.cinemind.core.domain.captions.Caption>? = null
+            val noisy = Regex("noise|noisy|wind|traffic|crowd|loud", RegexOption.IGNORE_CASE).containsMatchIn(brief.prompt)
+            val runner = com.cinemind.core.domain.agents.WorkflowRunner(
+                run = { task ->
+                    when (task.agent) {
+                        AgentId.AUDIO_ENHANCEMENT -> {
+                            onProgress(SmartEditProgress.EnhancingAudio)
+                            val level = if (noisy) com.cinemind.core.domain.audio.EnhanceLevel.STRONG else com.cinemind.core.domain.audio.EnhanceLevel.LIGHT
+                            com.cinemind.feature.export.engine.VoiceEnhanceStore.set(appContext, newId, com.cinemind.core.domain.audio.VoiceEnhance(level))
+                            synchronized(howMade) { howMade += "${AgentId.AUDIO_ENHANCEMENT.label}: ${level.label.lowercase()} noise removal on the voices (Audio → Enhance voice to change it)" }
+                            com.cinemind.core.domain.agents.AgentOutcome.Done(level.name)
+                        }
+                        AgentId.AUDIO_INTELLIGENCE -> when {
+                            Goal.CAPTIONS !in goals -> com.cinemind.core.domain.agents.AgentOutcome.Skip("no subtitles asked for")
+                            captions.isNotEmpty() -> com.cinemind.core.domain.agents.AgentOutcome.Skip("kept your captions, re-timed to the new cut")
+                            else -> {
+                                onProgress(SmartEditProgress.Transcribing)
+                                val result = transcriber.transcribe(
+                                    newId, speechSources(built, assets),
+                                    com.cinemind.core.domain.captions.SpokenLanguage.AUTO, com.cinemind.core.domain.captions.CaptionScript.ROMAN,
+                                ) {}
+                                transcript = result.captions
+                                if (result.captions.isEmpty()) com.cinemind.core.domain.agents.AgentOutcome.Skip("no speech heard")
+                                else com.cinemind.core.domain.agents.AgentOutcome.Done("${result.captions.size} captions in ${result.totalMs / 1000} s")
+                            }
+                        }
+                        AgentId.CAPTIONS -> transcript?.takeIf { it.isNotEmpty() }?.let { list ->
+                            captionRepository.saveCaptions(newId, list.map { it.copy(projectId = newId) })
+                            if (built.captionPreset == null) captionRepository.saveStyle(CaptionPresets.REELS.applyTo(newId))
+                            synchronized(howMade) { howMade += "${AgentId.CAPTIONS.label}: ${list.size} subtitles from the speech, timed to the new cut" }
+                            com.cinemind.core.domain.agents.AgentOutcome.Done("${list.size} captions")
+                        } ?: com.cinemind.core.domain.agents.AgentOutcome.Skip("nothing new to caption")
+                        else -> com.cinemind.core.domain.agents.AgentOutcome.Done()
+                    }
+                },
+                memoryMb = ::availMemMb,
+            )
+            runCatching { trace += runner.execute(orchestration.copy(steps = audioSteps)) }
+                .onFailure { if (it is CancellationException) throw it; CineMindLogger.w("Audio workflow failed: ${it.message}") }
+        }
+        com.cinemind.feature.ai.llm.ondevice.TraceStore.save(
+            appContext,
+            com.cinemind.core.domain.agents.ExecutionTrace(
+                request = (if (revision != null) "Revision: " else "") + brief.prompt.take(120),
+                startedMs = traceStart,
+                planned = orchestration.explain(),
+                entries = trace,
+            ),
+        )
 
         CineMindLogger.d("Smart edit $newId by $engine: " + steps.joinToString(" | ") { "${it.status} ${it.area}: ${it.text}" })
         return SmartEditResult(
@@ -373,6 +452,30 @@ class SmartEditor @Inject constructor(
             questions = validated.plan.questions,
             howMade = howMade,
         )
+    }
+
+    /** What the brief asks for beyond a new edit (clear voices, subtitles). */
+    private fun goalsOf(prompt: String): Set<Goal> = buildSet {
+        add(Goal.NEW_EDIT)
+        val p = prompt.lowercase(Locale.ROOT)
+        if (listOf("clear voice", "clean voice", "clearer voice", "voice clear", "clean audio", "clear audio", "noise", "crisp audio", "clean sound", "clear sound").any { it in p }) add(Goal.CLEAN_AUDIO)
+        if (listOf("subtitle", "caption").any { it in p }) add(Goal.CAPTIONS)
+    }
+
+    private fun availMemMb(): Long = runCatching {
+        val info = android.app.ActivityManager.MemoryInfo()
+        appContext.getSystemService(android.app.ActivityManager::class.java)?.getMemoryInfo(info)
+        info.availMem / (1024 * 1024)
+    }.getOrDefault(-1)
+
+    /** The new edit's video clips as speech sources (trimmed range, mapped back to the timeline). */
+    private fun speechSources(built: BuiltEdit, assets: List<MediaAsset>): List<com.cinemind.feature.captions.speech.SpeechSource> {
+        val video = built.timeline.tracks.firstOrNull { it.type == TrackType.VIDEO } ?: return emptyList()
+        val byId = assets.associateBy { it.id }
+        return built.timeline.clips.filter { it.trackId == video.id }.sortedBy { it.timelineInUs }.mapNotNull { c ->
+            val a = byId[c.assetId]?.takeIf { it.isVideo && it.hasAudio } ?: return@mapNotNull null
+            com.cinemind.feature.captions.speech.SpeechSource(a.uri, c.sourceInUs, c.sourceOutUs, c.timelineInUs) { off -> com.cinemind.core.domain.editing.SpeedMath.sourceToTimeline(c, off) }
+        }
     }
 
     private class SkipVision : Exception()
@@ -486,6 +589,7 @@ class SmartEditor @Inject constructor(
 
     private companion object {
         const val MAX_FRAMES = 24
+        val AUDIO_AGENTS = setOf(AgentId.AUDIO_ENHANCEMENT, AgentId.AUDIO_INTELLIGENCE, AgentId.CAPTIONS)
         private const val CACHE_SIZE = 40
 
         // Per-file results kept while the app runs, so revisions don't measure or look again.
