@@ -265,6 +265,7 @@ fun EditBriefScreen(
             hasFootage = (project?.durationUs ?: 0) > 0,
             onCreate = viewModel::createSmartEdit,
             onCancel = viewModel::cancelSmartEdit,
+            onRestart = viewModel::restartSmartEdit,
         )
     }
 }
@@ -315,6 +316,7 @@ private fun GenerateCard(
     hasFootage: Boolean,
     onCreate: () -> Unit,
     onCancel: () -> Unit,
+    onRestart: () -> Unit,
 ) {
     val c = CineMind.colors
     GlassCard(
@@ -336,8 +338,25 @@ private fun GenerateCard(
                 } else {
                     LinearProgressIndicator(color = c.accent, trackColor = c.surfaceSunken, modifier = Modifier.fillMaxWidth())
                 }
+                Spacer(Modifier.height(Spacing.xs))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        if (p != null) "${(p * 100).toInt()}%" else "",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = c.textPrimary,
+                    )
+                    Spacer(Modifier.weight(1f))
+                    Text(
+                        "%d:%02d".format(state.elapsedSeconds / 60, state.elapsedSeconds % 60),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = c.textTertiary,
+                    )
+                }
                 Spacer(Modifier.height(Spacing.m))
-                OutlinedButton(onClick = onCancel) { Text("Cancel", color = c.textSecondary) }
+                Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(Spacing.s)) {
+                    OutlinedButton(onClick = onCancel) { Text("Stop", color = c.textSecondary) }
+                    OutlinedButton(onClick = onRestart) { Text("Restart", color = c.textSecondary) }
+                }
             }
             else -> {
                 GradientButton(

@@ -134,12 +134,17 @@ internal fun ClipInspector(
         val current = ClipTransition.fromName(item.clip.transitionInType)
         val currentMs = item.clip.transitionInMs
         val durationMs = if (current == ClipTransition.CUT || currentMs <= 0) 500L else currentMs
-        Text(
-            if (index == 0) "Opening" else "Transition from clip $index",
-            style = MaterialTheme.typography.labelMedium,
-            color = c.textSecondary,
-            modifier = Modifier.padding(top = Spacing.xs),
-        )
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = Spacing.xs)) {
+            Text(
+                if (index == 0) "Opening" else "Transition from clip $index",
+                style = MaterialTheme.typography.labelMedium,
+                color = c.textSecondary,
+                modifier = Modifier.weight(1f),
+            )
+            if (current != ClipTransition.CUT) {
+                TextButton(onClick = { onTransition(ClipTransition.CUT, 0L) }) { Text("Remove transition", color = c.danger) }
+            }
+        }
         ChoicePills(
             items = ClipTransition.entries,
             selected = current,
@@ -251,7 +256,7 @@ internal fun TransitionsSheet(
         SettingRow("Fade in from black at the start") { Switch(checked = fadeIn, onCheckedChange = { fadeIn = it }) }
         SettingRow("Fade out to black at the end") { Switch(checked = fadeOut, onCheckedChange = { fadeOut = it }) }
         Text(
-            "Fades dip through black; true cross-dissolves need multi-track editing, which is coming later. " +
+            "Fade dips through black; Cross-dissolve blends the two shots. " +
                 "Tap a clip to give it its own transition.",
             style = MaterialTheme.typography.bodySmall,
             color = c.textTertiary,
@@ -267,6 +272,14 @@ internal fun TransitionsSheet(
             icon = Icons.Default.Animation,
             modifier = Modifier.fillMaxWidth(),
         )
+        TextButton(
+            onClick = {
+                onApplyAll(ClipTransition.CUT, 0L)
+                onOpeningEnding(0L, 0L)
+                onDismiss()
+            },
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text("Remove all transitions", color = c.danger) }
     }
 }
 

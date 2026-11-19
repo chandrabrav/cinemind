@@ -215,6 +215,13 @@ class TimelineViewModel @Inject constructor(
         refreshPreview()
     }
 
+    /** Back to the very start and play (dragging the playhead all the way back was fiddly). */
+    fun replayFromStart() {
+        preview.seekToUs(0, fast = false)
+        if (!_previewState.value.isPlaying) preview.togglePlayPause()
+        refreshPreview()
+    }
+
     // ---- Colour -----------------------------------------------------------------------------
 
     /** The grade shown in the colour tool: the selected clip's, else the first clip's. */

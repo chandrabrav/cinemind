@@ -10,7 +10,7 @@ import com.cinemind.core.domain.model.Clip
  * clip's footage just beyond its trim point over the cut (the timeline itself stays back to back).
  */
 enum class ClipTransition(val label: String) {
-    CUT("Cut"),
+    CUT("None"),
     FADE("Fade"),
     ZOOM_IN("Zoom in"),
     ZOOM_OUT("Zoom out"),

@@ -23,6 +23,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Movie
 import androidx.compose.material3.AlertDialog
@@ -107,6 +108,27 @@ internal fun PromptInputRow(viewModel: EditBriefViewModel, onSpeak: () -> Unit) 
         }
         InputButton(Icons.Outlined.Image, "Image", canAdd, Modifier.weight(1f)) {
             image.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+        }
+    }
+    // Music: a song from the phone; the smart edit sets its level under speech, its fades and where it starts.
+    val musicName by viewModel.music.collectAsStateWithLifecycle()
+    val song = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let(viewModel::setMusic) }
+    Spacer(Modifier.height(Spacing.s))
+    val chosen = musicName
+    if (chosen == null) {
+        InputButton(Icons.Default.MusicNote, "Add music from your phone", true, Modifier.fillMaxWidth()) { song.launch(arrayOf("audio/*")) }
+    } else {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(c.surface, RoundedCornerShape(Radius.m))
+                .padding(start = Spacing.m),
+        ) {
+            Icon(Icons.Default.MusicNote, contentDescription = null, tint = c.accent, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(Spacing.s))
+            Text("Music: $chosen", style = MaterialTheme.typography.bodySmall, color = c.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            IconButton(onClick = viewModel::removeMusic) { Icon(Icons.Default.Close, contentDescription = "Remove music", tint = c.textSecondary) }
         }
     }
     if (refs.isEmpty() && work == null) {

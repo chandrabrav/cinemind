@@ -112,7 +112,8 @@ object SpeechGraphics {
         }
 
         // Keyword callouts: the strongest word of each caption, spaced out, never during the hook.
-        val maxCallouts = (totalUs / 4_000_000L).toInt().coerceIn(1, 8)
+        // Few and strong: a callout is an accent (numbers, words from your brief, rare long words), not a running label.
+        val maxCallouts = (totalUs / 8_000_000L).toInt().coerceIn(1, 3)
         // The first callout may follow the hook after half a second.
         var lastUs = if (hook != null) hookEnd - MIN_GAP_US + 500_000L else -MIN_GAP_US
         val hookWords = hook?.lowercase(Locale.ROOT)?.split(' ')?.toSet().orEmpty()
@@ -122,7 +123,7 @@ object SpeechGraphics {
             if (ws.isEmpty()) continue
             val bestIdx = ws.indices.maxByOrNull { score(ws[it], promptWords) } ?: continue
             val w = ws[bestIdx]
-            if (score(w, promptWords) < 3 || w.lowercase(Locale.ROOT) in hookWords) continue
+            if (score(w, promptWords) < 5 || w.lowercase(Locale.ROOT) in hookWords) continue
             // When the word is said: spread evenly through the caption.
             val at = c.startUs + (c.endUs - c.startUs) * bestIdx / ws.size
             if (at - lastUs < MIN_GAP_US || at + 600_000 > totalUs) continue
@@ -144,6 +145,21 @@ object SpeechGraphics {
         }
         return out
     }
+
+    /**
+     * True when the footage is a talking video: enough real words, covering a good part of it. A
+     * landscape or travel clip with wind, music or a few shouted words is not, and gets no speech text.
+     */
+    fun isTalking(captions: List<Caption>, totalUs: Long): Boolean {
+        if (totalUs <= 0 || captions.isEmpty()) return false
+        val wordCount = captions.sumOf { words(it.text).size }
+        val speechUs = captions.sumOf { (it.endUs - it.startUs).coerceAtLeast(0) }
+        return wordCount >= 8 && speechUs >= totalUs * 35 / 100
+    }
+
+    /** True when the brief asks for text from the speech (captions, subtitles, a hook/title). */
+    fun asksForSpeechText(prompt: String): Boolean =
+        Regex("""(?i)(captions?|subtitles?|subs|hook|title|what (i|we|he|she) (say|said)|spoken|speech)""").containsMatchIn(prompt)
 
     /** True for an automatic project name ("Project 19 Nov, 18:03", "VID_2026…"), not a real title. */
     fun isGenericName(name: String): Boolean {

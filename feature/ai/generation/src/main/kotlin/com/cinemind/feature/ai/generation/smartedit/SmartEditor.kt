@@ -68,6 +68,8 @@ sealed interface SmartEditProgress {
     /** Cutting the speaker out so text can sit behind them. */
     data object CuttingOut : SmartEditProgress
     data object Building : SmartEditProgress
+    /** How far the current step is (0..1), for steps that can tell. */
+    data class Partial(val fraction: Float) : SmartEditProgress
 }
 
 /**
@@ -378,7 +380,7 @@ class SmartEditor @Inject constructor(
         onProgress(SmartEditProgress.Building)
         val buildStart = System.currentTimeMillis()
         // A revision's hard limits (no slow motion, straight cuts, …) hold whatever the planner did.
-        val fit = { p: EditPlan -> revision?.let { com.cinemind.core.domain.aiedit.RevisionReader.constrain(p, it) } ?: p }
+        val fit = { p: EditPlan -> com.cinemind.core.domain.aiedit.ModernEdit.tidy(revision?.let { com.cinemind.core.domain.aiedit.RevisionReader.constrain(p, it) } ?: p, brief.prompt) }
         val validated = EditPlanValidator.validate(fit(chosen), sources, ground, hasCaptions = captions.isNotEmpty())
             .takeIf { it.usable } ?: EditPlanValidator.validate(fit(director), sources, ground, hasCaptions = captions.isNotEmpty())
         if (!validated.usable) throw SmartEditException("Couldn't build an edit from this footage.")
@@ -422,7 +424,7 @@ class SmartEditor @Inject constructor(
                                 val result = transcriber.transcribe(
                                     newId, speechSources(built, assets),
                                     com.cinemind.core.domain.captions.SpokenLanguage.AUTO, com.cinemind.core.domain.captions.CaptionScript.ROMAN,
-                                ) {}
+                                ) { p -> onProgress(SmartEditProgress.Partial(p.fraction)) }
                                 transcript = result.captions
                                 if (result.captions.isEmpty()) com.cinemind.core.domain.agents.AgentOutcome.Skip("no speech heard")
                                 else com.cinemind.core.domain.agents.AgentOutcome.Done("${result.captions.size} captions in ${result.totalMs / 1000} s")
@@ -512,19 +514,26 @@ class SmartEditor @Inject constructor(
         if (spoken.isEmpty() && llm.speechModel() != null) {
             onProgress(SmartEditProgress.Transcribing)
             spoken = runCatching {
-                transcriber.transcribe(newId, sources, com.cinemind.core.domain.captions.SpokenLanguage.AUTO, com.cinemind.core.domain.captions.CaptionScript.ROMAN) {}.captions
+                transcriber.transcribe(newId, sources, com.cinemind.core.domain.captions.SpokenLanguage.AUTO, com.cinemind.core.domain.captions.CaptionScript.ROMAN) { p -> onProgress(SmartEditProgress.Partial(p.fraction)) }.captions
             }.getOrDefault(emptyList())
         }
         if (spoken.isEmpty()) return
+        // Context first: a landscape or travel video with wind, music or a few shouted words is not a
+        // talking video, so it gets no hook, callouts or cutout (unless the brief asks for text from the speech).
+        val total0 = built.timeline.project.durationUs
+        if (!com.cinemind.core.domain.aiedit.SpeechGraphics.isTalking(spoken, total0) && !com.cinemind.core.domain.aiedit.SpeechGraphics.asksForSpeechText(prompt)) {
+            synchronized(howMade) { howMade += "Speech-aware text: not a talking video, so no text from the sound" }
+            return
+        }
 
         // Cut out the speaker (main-track videos; an existing cutout is reused).
         val video = built.timeline.tracks.firstOrNull { it.type == TrackType.VIDEO }
         val speakerAssets = built.timeline.clips.filter { it.trackId == video?.id }.mapNotNull { c -> assets.firstOrNull { it.id == c.assetId && it.isVideo } }.distinctBy { it.id }.take(3)
         onProgress(SmartEditProgress.CuttingOut)
         val maker = com.cinemind.feature.editor.timeline.matte.MatteMaker(appContext)
-        val cutOut = speakerAssets.isNotEmpty() && speakerAssets.all { a ->
+        val cutOut = speakerAssets.isNotEmpty() && speakerAssets.withIndex().all { (k, a) ->
             com.cinemind.feature.export.engine.MatteStore.existing(appContext, a.id) != null ||
-                runCatching { maker.make(a) {} }.onFailure { if (it is CancellationException) throw it; CineMindLogger.w("Cutout failed: ${it.message}") }.isSuccess
+                runCatching { maker.make(a) { f -> onProgress(SmartEditProgress.Partial((k + f) / speakerAssets.size)) } }.onFailure { if (it is CancellationException) throw it; CineMindLogger.w("Cutout failed: ${it.message}") }.isSuccess
         }
 
         val total = built.timeline.project.durationUs

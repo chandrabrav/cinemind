@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.filled.PersonRemove
 import androidx.compose.material.icons.filled.AutoAwesomeMotion
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.filled.SettingsBackupRestore
 import androidx.compose.material.icons.filled.Wallpaper
 import androidx.compose.material.icons.filled.Layers
@@ -337,6 +338,7 @@ fun TimelineScreen(
                     muted = editor.previewMuted,
                     volume = editor.previewVolume,
                     onTogglePlay = viewModel::togglePlayPause,
+                    onReplay = viewModel::replayFromStart,
                     onToggleMute = viewModel::togglePreviewMute,
                     onVolume = viewModel::setPreviewVolume,
                     onFullscreen = { fullscreen = true; controlsVisible = true },
@@ -1048,6 +1050,7 @@ private fun PlaybackBar(
     muted: Boolean,
     volume: Float,
     onTogglePlay: () -> Unit,
+    onReplay: () -> Unit,
     onToggleMute: () -> Unit,
     onVolume: (Float) -> Unit,
     onFullscreen: () -> Unit,
@@ -1080,7 +1083,9 @@ private fun PlaybackBar(
                 tint = c.onAccent,
             )
         }
-        Spacer(Modifier.width(Spacing.s))
+        IconButton(onClick = hapticClick(onClick = onReplay), enabled = enabled) {
+            Icon(Icons.Default.Replay, contentDescription = "Back to the start and play", tint = c.textSecondary)
+        }
         Text(
             "${formatTimecode(state.positionUs, fps)} / ${formatTimecode(state.durationUs, fps)}",
             color = c.textPrimary,
