@@ -42,6 +42,16 @@ object QuickCommands {
             )
         }
 
+        if (has(s, "silence", "silences", "pause", "pauses", "dead air", "jump cut", "jump cuts", "gaps") && has(s, "remove", "cut", "delete", "trim", "jump", "no", "get rid")) {
+            return AssistantPlan("I'll cut the pauses out of the talking clips.", listOf(AssistantAction(AssistantActionType.REMOVE_PAUSES)))
+        }
+        if (has(s, "punch in", "punch-in", "punch ins", "punch-ins") || (has(s, "zoom", "zooms") && has(s, "emphasis", "emphatic", "important", "loud", "talking", "words"))) {
+            return AssistantPlan("I'll add quick zoom-ins on the most emphatic moments.", listOf(AssistantAction(AssistantActionType.PUNCH_INS)))
+        }
+        if (has(s, "reframe", "re-frame") || (has(s, "vertical", "portrait", "9:16", "reel", "shorts", "tiktok") && has(s, "make", "convert", "fit", "turn"))) {
+            return AssistantPlan("I'll reframe every clip around its subject to fit the frame.", listOf(AssistantAction(AssistantActionType.REFRAME)))
+        }
+
         if (has(s, "cut out", "cutout", "mask", "segment", "isolate") && has(s, "me", "person", "subject", "him", "her", "people", "man", "woman", "dog", "cat", "product")) {
             return AssistantPlan(
                 "I'll cut out the subject of $where on the phone. Then pick a background look or add text behind.",
