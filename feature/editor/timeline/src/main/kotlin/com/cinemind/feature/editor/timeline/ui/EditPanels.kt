@@ -513,3 +513,59 @@ private fun OverlaySlider(
     Text(label, style = MaterialTheme.typography.labelMedium, color = com.cinemind.core.ui.theme.CineMind.colors.textSecondary)
     Slider(value = value, valueRange = range, onValueChange = onChange, onValueChangeFinished = onDone, colors = colors, modifier = Modifier.height(36.dp))
 }
+
+/**
+ * Sound of the picked clip or of the music: mute and level, and (for clips) the same for every
+ * clip at once. Opened from the speaker button at the left of the timeline.
+ */
+@Composable
+internal fun SoundSheet(
+    title: String,
+    volume: Float,
+    muted: Boolean,
+    maxVolume: Float,
+    onChange: (volume: Float, muted: Boolean) -> Unit,
+    onApplyAll: ((volume: Float, muted: Boolean) -> Unit)?,
+    onDismiss: () -> Unit,
+) {
+    val c = CineMind.colors
+    var level by remember(volume) { mutableStateOf(volume) }
+    var silent by remember(muted) { mutableStateOf(muted) }
+    CineMindSheet(onDismiss = onDismiss, title = title) {
+        SettingRow("Mute") {
+            Switch(checked = silent, onCheckedChange = { silent = it; onChange(level, it) })
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Volume", style = MaterialTheme.typography.labelLarge, color = c.textSecondary, modifier = Modifier.width(72.dp))
+            Slider(
+                value = level,
+                onValueChange = { level = it; silent = false },
+                onValueChangeFinished = { onChange(level, false) },
+                valueRange = 0f..maxVolume,
+                colors = SliderDefaults.colors(thumbColor = c.accent, activeTrackColor = c.accent, inactiveTrackColor = c.surfaceSunken),
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                if (silent) "Off" else "${(level * 100).toInt()}%",
+                style = MaterialTheme.typography.labelMedium,
+                color = c.textPrimary,
+                modifier = Modifier.width(48.dp).padding(start = Spacing.s),
+            )
+        }
+        if (onApplyAll != null) {
+            Spacer(Modifier.height(Spacing.m))
+            androidx.compose.material3.OutlinedButton(
+                onClick = { onApplyAll(level, silent); onDismiss() },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Apply to all clips", color = c.textPrimary) }
+        }
+        if (onApplyAll != null) {
+            Text(
+                "Changes this clip's own sound. Music and voiceover keep their levels.",
+                style = MaterialTheme.typography.bodySmall,
+                color = c.textTertiary,
+                modifier = Modifier.padding(top = Spacing.s),
+            )
+        }
+    }
+}

@@ -182,6 +182,10 @@ fun TimelineScreen(
         if (uri != null) viewModel.importSound(uri)
     }
     var showSounds by remember { mutableStateOf(false) }
+    // The speaker button: which sound it controls (the picked clip, else the music after it was tapped).
+    var showSound by remember { mutableStateOf(false) }
+    var musicPicked by remember { mutableStateOf(false) }
+    LaunchedEffect(editor.selectedClipId) { if (editor.selectedClipId != null) musicPicked = false }
     val addMediaPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickMultipleVisualMedia(maxItems = 50),
     ) { uris -> viewModel.addMedia(uris) }
@@ -348,6 +352,8 @@ fun TimelineScreen(
                     onResetFraming = viewModel::resetSelectedFraming,
                 )
 
+                // Speaker button at the left of the timeline: the picked clip's (or the music's) sound.
+                Box(Modifier.fillMaxWidth()) {
                 MultiTrackTimeline(
                     clips = clips,
                     music = editor.music,
@@ -384,7 +390,7 @@ fun TimelineScreen(
                     onScrub = viewModel::scrubTo,
                     onClipTap = viewModel::onClipTapped,
                     onTrim = viewModel::trimSelected,
-                    onMusicTap = { showMusic = true },
+                    onMusicTap = { musicPicked = true; showMusic = true },
                     // As tall as its lanes (two for a new project), at most TIMELINE_HEIGHT: more lanes
                     // scroll inside it, so the preview keeps its room and nothing is pushed off screen.
                     modifier = Modifier.fillMaxWidth().heightIn(max = TIMELINE_HEIGHT),
@@ -409,6 +415,28 @@ fun TimelineScreen(
                     onTextTap = viewModel::selectText,
                     onAddText = { showAddText = true },
                 )
+                val soundClip = selected
+                val showSpeaker = soundClip != null || (musicPicked && editor.music != null)
+                if (showSpeaker) {
+                    val silent = soundClip?.let { com.cinemind.core.domain.editing.ClipFraming.decode(it.clip.framing).muted } ?: (editor.music?.settings?.muted == true)
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .align(Alignment.CenterStart)
+                            .padding(start = Spacing.xs)
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(CineMind.colors.surface.copy(alpha = 0.92f))
+                            .clickable(role = Role.Button, onClick = hapticClick(onClick = { showSound = true })),
+                    ) {
+                        Icon(
+                            if (silent) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp,
+                            contentDescription = if (soundClip != null) "Sound of this clip" else "Music sound",
+                            tint = if (silent) CineMind.colors.danger else CineMind.colors.accent,
+                        )
+                    }
+                }
+                }
 
                 // One bottom bar: the selected item's actions, or the main tools.
                 when {
@@ -852,6 +880,34 @@ fun TimelineScreen(
         )
     }
 
+    if (showSound) {
+        val soundClip = selected
+        val music = editor.music
+        if (soundClip != null) {
+            val f = com.cinemind.core.domain.editing.ClipFraming.decode(soundClip.clip.framing)
+            SoundSheet(
+                title = "Clip ${clips.indexOf(soundClip) + 1} sound",
+                volume = f.volume,
+                muted = f.muted,
+                maxVolume = 2f,
+                onChange = { v, m -> viewModel.setClipSound(v, m) },
+                onApplyAll = { v, m -> viewModel.setClipSound(v, m, all = true) },
+                onDismiss = { showSound = false },
+            )
+        } else if (music != null) {
+            SoundSheet(
+                title = "Music sound",
+                volume = music.settings.volume,
+                muted = music.settings.muted,
+                maxVolume = 1f,
+                onChange = viewModel::setMusicSound,
+                onApplyAll = null,
+                onDismiss = { showSound = false },
+            )
+        } else {
+            LaunchedEffect(Unit) { showSound = false }
+        }
+    }
     if (showMusic) {
         MusicSheet(
             music = editor.music,

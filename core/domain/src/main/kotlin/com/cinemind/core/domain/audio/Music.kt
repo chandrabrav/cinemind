@@ -12,7 +12,12 @@ data class MusicSettings(
     val volume: Float = 0.8f,
     val fadeInMs: Long = 1_000,
     val fadeOutMs: Long = 1_500,
-)
+    /** Silenced without losing [volume] (the speaker button on the timeline). */
+    val muted: Boolean = false,
+) {
+    /** The level actually played. */
+    val playedVolume: Float get() = if (muted) 0f else volume
+}
 
 data class ProjectAudio(
     val music: MusicSettings?,

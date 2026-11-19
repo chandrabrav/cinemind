@@ -129,10 +129,11 @@ class TimelineRenderer(private val context: Context) {
         val sfxSequences = sfx.filter { it.clips.isNotEmpty() && !it.settings.muted }.map { buildVoiceSequence(it, totalUs, perClipVolume = true) }
         val hasAudio = voiceSequence != null || sfxSequences.isNotEmpty() || clips.any { (_, s) -> s.isVideo && s.hasAudio } || musicItems.isNotEmpty()
         // A fresh list per clip: the enhancer keeps state between samples.
-        val clipAudio = { buildList<androidx.media3.common.audio.AudioProcessor> {
-            // Clean the voice first, then set the level.
+        val clipAudio = { clip: Clip -> buildList<androidx.media3.common.audio.AudioProcessor> {
+            // Clean the voice first, then set the level (the whole video track's level times this clip's own).
             if (voiceEnhance.active && voiceEnhance.onClips) add(VoiceEnhanceAudioProcessor(voiceEnhance.level))
-            if (originalVolume < 0.999f) add(GainAudioProcessor { originalVolume.coerceIn(0f, 1f) })
+            val gain = originalVolume.coerceIn(0f, 1f) * ClipFraming.decode(clip.framing).gain
+            if (kotlin.math.abs(gain - 1f) > 0.001f) add(GainAudioProcessor { gain })
         } }
 
         // How a clip's picture is prepared (also used by the dissolve layer, so both match).
@@ -203,7 +204,7 @@ class TimelineRenderer(private val context: Context) {
                     .build()
                 EditedMediaItem.Builder(mediaItem)
                     .setDurationUs(knownDurationUs(source.durationUs, clip.sourceOutUs))
-                    .setEffects(Effects(clipAudio(), effects))
+                    .setEffects(Effects(clipAudio(clip), effects))
                     .apply {
                         ClipSpeedProvider.forClip(clip)?.let { provider ->
                             // "Keep voice pitch": time-stretch the sound instead of resampling it.

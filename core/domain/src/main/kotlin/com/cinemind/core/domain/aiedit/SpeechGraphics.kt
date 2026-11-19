@@ -82,6 +82,14 @@ object SpeechGraphics {
         return best?.joinToString(" ")?.uppercase(Locale.ROOT)?.take(28)
     }
 
+    const val EDITORIAL_WORD_US = 1_600_000L
+
+    /** Cream serif, no outline: the editorial title look (behind the person when there is a cutout). */
+    private fun editorialStyle(behind: Boolean) = TextStyle(
+        font = CaptionFont.SERIF, weight = 500, uppercase = true, color = 0xFFF3EBDD.toInt(),
+        shadow = !behind, outline = 0f, animIn = TextAnim.FADE, animOut = TextAnim.FADE, behindSubject = behind,
+    )
+
     /** Places for callouts: beside the speaker's head, left and right, a little higher or lower. */
     private val SPOTS = listOf(0.27f to 0.36f, 0.73f to 0.42f, 0.30f to 0.48f, 0.72f to 0.34f)
     private val COLORS = listOf(0xFFFFE600.toInt(), 0xFFFFFFFF.toInt(), 0xFF7DF9FF.toInt(), 0xFFFF5C93.toInt())
@@ -91,7 +99,12 @@ object SpeechGraphics {
      * The hook title and keyword callouts for a talking video of [totalUs]. [behindSpeaker] puts the
      * hook behind the person (needs the clip's cutout).
      */
-    fun plan(projectId: String, captions: List<Caption>, totalUs: Long, prompt: String, behindSpeaker: Boolean, idFor: (String) -> String = { it }): List<TextLayer> {
+    fun plan(
+        projectId: String, captions: List<Caption>, totalUs: Long, prompt: String, behindSpeaker: Boolean,
+        idFor: (String) -> String = { it },
+        /** Magazine look: large cream serif words behind the speaker instead of coloured pop words. */
+        editorial: Boolean = false,
+    ): List<TextLayer> {
         if (captions.isEmpty() || totalUs <= 0) return emptyList()
         val promptWords = words(prompt).map { it.lowercase(Locale.ROOT) }.filter { isContent(it) }.toSet()
         val out = mutableListOf<TextLayer>()
@@ -102,11 +115,11 @@ object SpeechGraphics {
             out += TextLayer(
                 id = idFor("hook"), projectId = projectId, startUs = 0, endUs = hookEnd, text = hook,
                 x = 0.5f, y = 0.24f, size = if (hook.length <= 10) 0.17f else 0.12f,
-                style = TextStyle(
+                style = (if (editorial) editorialStyle(behindSpeaker) else TextStyle(
                     font = CaptionFont.ANTON, weight = 900, uppercase = true, color = 0xFFFFFFFF.toInt(), color2 = 0xFFFFD43B.toInt(),
                     shadow = !behindSpeaker, outline = if (behindSpeaker) 0f else 0.05f, animIn = TextAnim.CASCADE, animOut = TextAnim.FADE,
                     behindSubject = behindSpeaker,
-                ).encode(),
+                )).encode(),
                 lane = 0,
             )
         }
@@ -130,6 +143,18 @@ object SpeechGraphics {
             picks += at to w
             lastUs = at
             if (picks.size >= maxCallouts) break
+        }
+        if (editorial) {
+            // One big word at a time, behind the speaker's head, as it is said.
+            picks.take(2).forEachIndexed { i, (at, w) ->
+                out += TextLayer(
+                    id = idFor("word-$i"), projectId = projectId, startUs = at, endUs = minOf(totalUs, at + EDITORIAL_WORD_US),
+                    text = w.uppercase(Locale.ROOT), x = 0.5f, y = 0.22f, size = if (w.length <= 6) 0.19f else 0.13f,
+                    style = editorialStyle(behindSpeaker).encode(),
+                    lane = 1 + i,
+                )
+            }
+            return out
         }
         picks.forEachIndexed { i, (at, w) ->
             val (x, y) = SPOTS[i % SPOTS.size]
@@ -159,7 +184,7 @@ object SpeechGraphics {
 
     /** True when the brief asks for text from the speech (captions, subtitles, a hook/title). */
     fun asksForSpeechText(prompt: String): Boolean =
-        Regex("""(?i)(captions?|subtitles?|subs|hook|title|what (i|we|he|she) (say|said)|spoken|speech)""").containsMatchIn(prompt)
+        Regex("""(?i)\b(captions?|subtitles?|subs|hook|title|what (i|we|he|she) (say|said)|spoken|speech)\b""").containsMatchIn(prompt)
 
     /** True for an automatic project name ("Project 19 Nov, 18:03", "VID_2026…"), not a real title. */
     fun isGenericName(name: String): Boolean {

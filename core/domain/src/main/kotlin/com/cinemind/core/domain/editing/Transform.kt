@@ -80,14 +80,23 @@ data class ClipFraming(
     val maskFeather: Float = 0.04f,
     /** Effect around the AI-cut-out subject. */
     val subject: SubjectLook = SubjectLook.NONE,
+    /** This clip's own sound level, 0..2 (1 = as recorded). Sound, not picture: not part of [isNone]. */
+    val volume: Float = 1f,
+    /** This clip's sound is silenced (its [volume] is kept for when it is switched back on). */
+    val muted: Boolean = false,
 ) {
+    /** The gain this clip's sound is played at. */
+    val gain: Float get() = if (muted) 0f else volume.coerceIn(0f, 2f)
     val isNone: Boolean get() = crop.isNone && quarterTurns % 4 == 0 && !flipH && !flipV && !fill && keys.all { it.isIdentity } && chroma == null && mask == MaskShape.NONE && subject == SubjectLook.NONE
     val hasKeyOrMask: Boolean get() = chroma != null || mask != MaskShape.NONE
     val hasMotion: Boolean get() = keys.size >= 2 && keys.zipWithNext().any { (a, b) -> !a.sameLook(b) }
 
     fun encode(): String {
-        if (isNone) return ""
+        val soundOnly = volume == 1f && !muted
+        if (isNone && soundOnly) return ""
         val parts = mutableListOf<String>()
+        if (volume != 1f) parts += String.format(Locale.ROOT, "vol=%.3f", volume.coerceIn(0f, 2f))
+        if (muted) parts += "mute=1"
         if (!crop.isNone) parts += String.format(Locale.ROOT, "crop=%.4f,%.4f,%.4f,%.4f", crop.left, crop.top, crop.right, crop.bottom)
         if (quarterTurns % 4 != 0) parts += "turn=${((quarterTurns % 4) + 4) % 4}"
         if (flipH || flipV) parts += "flip=" + (if (flipH) "h" else "") + (if (flipV) "v" else "")
@@ -121,6 +130,8 @@ data class ClipFraming(
                     "turn" -> f = f.copy(quarterTurns = (v.toIntOrNull() ?: 0).mod(4))
                     "flip" -> f = f.copy(flipH = 'h' in v, flipV = 'v' in v)
                     "fill" -> f = f.copy(fill = v == "1")
+                    "vol" -> f = f.copy(volume = (v.toFloatOrNull() ?: 1f).coerceIn(0f, 2f))
+                    "mute" -> f = f.copy(muted = v == "1")
                     "keys" -> f = f.copy(keys = v.split('|').mapNotNull(::decodeKey).sortedBy { it.sourceUs })
                     "chroma" -> v.split(',').let { p ->
                         val col = p.getOrNull(0)?.toLongOrNull(16)?.toInt()

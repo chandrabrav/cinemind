@@ -88,7 +88,7 @@ internal fun FramingSheet(
             else -> MotionTab(clip, framing, playheadOffsetUs, onSeek, onFraming)
         }
         if (!framing.isNone) {
-            TextButton(onClick = { onFraming(ClipFraming()) }) { Text("Reset to as filmed") }
+            TextButton(onClick = { onFraming(ClipFraming(volume = framing.volume, muted = framing.muted)) }) { Text("Reset to as filmed") }
         }
     }
 }

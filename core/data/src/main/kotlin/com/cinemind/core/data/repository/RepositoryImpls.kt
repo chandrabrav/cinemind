@@ -98,6 +98,7 @@ class ProjectRepositoryImpl(
                     volume = musicTrack?.volume ?: 0.8f,
                     fadeInMs = c.transitionInMs,
                     fadeOutMs = c.transitionOutMs,
+                    muted = musicTrack?.isEnabled == false,
                 )
             },
             originalVolume = video?.volume ?: 1f,
@@ -113,8 +114,8 @@ class ProjectRepositoryImpl(
                 existing?.let { database.trackDao().deleteById(it.id) } // cascades to its clip
             } else {
                 val asset = database.mediaAssetDao().getAsset(music.assetId) ?: return@withTransaction
-                val track = existing?.copy(volume = music.volume)?.also { database.trackDao().update(it) }
-                    ?: Track(projectId = projectId, type = TrackType.AUDIO, index = 1, name = "Music", volume = music.volume)
+                val track = existing?.copy(volume = music.volume, isEnabled = !music.muted)?.also { database.trackDao().update(it) }
+                    ?: Track(projectId = projectId, type = TrackType.AUDIO, index = 1, name = "Music", volume = music.volume, isEnabled = !music.muted)
                         .also { database.trackDao().insert(it) }
                 database.clipDao().deleteByTrackId(track.id)
                 database.clipDao().insert(

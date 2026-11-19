@@ -114,6 +114,7 @@ class SmartEditor @Inject constructor(
     private val cloud: EditAssistant,
     private val runtime: AgentRuntime,
     private val transcriber: com.cinemind.feature.captions.speech.SpeechTranscriber,
+    private val clipRepository: com.cinemind.core.domain.repository.ClipRepository,
 ) {
     /**
      * A follow-up on an earlier AI edit: [revision] says what changes and what stays; the new
@@ -526,6 +527,19 @@ class SmartEditor @Inject constructor(
             return
         }
 
+        // Jump cuts in a talking video change framing (wide, close, wide) like a two-camera shoot.
+        runCatching {
+            val saved = projectRepository.getProjectTimeline(newId)
+            val mainTrack = saved?.tracks?.firstOrNull { it.type == TrackType.VIDEO }
+            if (saved != null && mainTrack != null) {
+                val main = saved.clips.filter { it.trackId == mainTrack.id }
+                val punched = com.cinemind.core.domain.aiedit.JumpCuts.punchIns(main)
+                val changed = punched.filter { p -> main.first { it.id == p.id }.framing != p.framing }
+                changed.forEach { clipRepository.updateClip(it) }
+                if (changed.isNotEmpty()) synchronized(howMade) { howMade += "Jump cuts: ${changed.size} punch-in close-ups so cuts read as camera changes" }
+            }
+        }.onFailure { if (it is CancellationException) throw it; CineMindLogger.w("Punch-ins failed: ${it.message}") }
+
         // Cut out the speaker (main-track videos; an existing cutout is reused).
         val video = built.timeline.tracks.firstOrNull { it.type == TrackType.VIDEO }
         val speakerAssets = built.timeline.clips.filter { it.trackId == video?.id }.mapNotNull { c -> assets.firstOrNull { it.id == c.assetId && it.isVideo } }.distinctBy { it.id }.take(3)
@@ -537,7 +551,9 @@ class SmartEditor @Inject constructor(
         }
 
         val total = built.timeline.project.durationUs
-        val graphics = com.cinemind.core.domain.aiedit.SpeechGraphics.plan(newId, spoken, total, prompt, behindSpeaker = cutOut, idFor = { java.util.UUID.randomUUID().toString() })
+        // Energetic briefs keep the bold pop look; everything else gets the editorial (magazine) look.
+        val energetic = Regex("""(?i)\b(hype|energetic|fun|funny|gym|workout|meme|crazy|loud|bold)\b""").containsMatchIn(prompt)
+        val graphics = com.cinemind.core.domain.aiedit.SpeechGraphics.plan(newId, spoken, total, prompt, behindSpeaker = cutOut, idFor = { java.util.UUID.randomUUID().toString() }, editorial = !energetic)
         if (graphics.isEmpty()) return
         val hook = graphics.firstOrNull { it.startUs == 0L && it.styleObj.behindSubject == cutOut && it.size >= 0.12f }
         val existing = textRepository.get(newId)
@@ -546,7 +562,7 @@ class SmartEditor @Inject constructor(
         textRepository.save(newId, kept + graphics)
         // A talking video gets bold, readable captions low in the frame, clear of the callouts.
         if (built.captionPreset == null && (transcript.orEmpty().isNotEmpty() || built.captions.isNotEmpty())) {
-            runCatching { captionRepository.saveStyle(CaptionPresets.HYPE.applyTo(newId).copy(variety = true)) }
+            runCatching { captionRepository.saveStyle(if (energetic) CaptionPresets.HYPE.applyTo(newId).copy(variety = true) else CaptionPresets.EDITORIAL.applyTo(newId)) }
         }
         val callouts = graphics.size - (if (hook != null) 1 else 0)
         synchronized(howMade) {

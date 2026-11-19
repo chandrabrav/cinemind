@@ -50,3 +50,29 @@ class ModernEditTest {
         assertFalse(SpeechGraphics.asksForSpeechText("cinematic travel reel with music"))
     }
 }
+
+class JumpCutsTest {
+    private fun clip(id: String, asset: String, at: Long) = com.cinemind.core.domain.model.Clip(
+        id = id, trackId = "t", assetId = asset, timelineInUs = at, timelineOutUs = at + 2_000_000, sourceInUs = at, sourceOutUs = at + 2_000_000,
+    )
+
+    @Test
+    fun sameRecordingAlternatesWideAndClose() {
+        val out = JumpCuts.punchIns(listOf(clip("a", "x", 0), clip("b", "x", 2_000_000), clip("c", "x", 4_000_000), clip("d", "y", 6_000_000)))
+        val scales = out.map { com.cinemind.core.domain.editing.ClipFraming.decode(it.framing).keys.firstOrNull()?.scale ?: 1f }
+        assertEquals(listOf(1f, JumpCuts.PUNCH, 1f, 1f), scales)
+    }
+}
+
+class ClipSoundTest {
+    @Test
+    fun volumeAndMuteRoundTripWithoutTouchingPicture() {
+        val f = com.cinemind.core.domain.editing.ClipFraming(volume = 0.5f, muted = true)
+        assertTrue(f.isNone)
+        val back = com.cinemind.core.domain.editing.ClipFraming.decode(f.encode())
+        assertEquals(0.5f, back.volume, 0.001f)
+        assertTrue(back.muted)
+        assertEquals(0f, back.gain, 0f)
+        assertEquals("", com.cinemind.core.domain.editing.ClipFraming().encode())
+    }
+}
