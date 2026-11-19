@@ -95,7 +95,7 @@ class VoicePrompt @Inject constructor(
             runCatching {
                 WhisperEngine(context, llm.fileOf(spec)).use { engine ->
                     val language = com.cinemind.core.domain.audio.WhisperTokens.spokenLanguage(engine.detectLanguage(audio))
-                    engine.transcribe(audio, language, translate = language != "en").joinToString(" ") { it.text.trim() }.replace(Regex("\s+"), " ").trim()
+                    engine.transcribe(audio, language, translate = language != "en").joinToString(" ") { it.text.trim() }.replace(Regex("""\s+"""), " ").trim()
                 }
             }.onFailure { CineMindLogger.w("Voice prompt transcription failed: ${it.message}") }.getOrDefault("")
         }
