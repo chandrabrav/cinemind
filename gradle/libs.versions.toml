@@ -37,6 +37,9 @@ junit = "4.13.2"
 
 [libraries]
 anthropic-java = { group = "com.anthropic", name = "anthropic-java", version = "3.3.0" }
+# On-device subject cutout: any subject via Google Play services (model downloaded by Play), people-only bundled fallback.
+mlkit-subject-segmentation = { group = "com.google.android.gms", name = "play-services-mlkit-subject-segmentation", version = "16.0.0-beta1" }
+mlkit-selfie-segmentation = { group = "com.google.mlkit", name = "segmentation-selfie", version = "16.0.0-beta6" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "androidxCore" }
 androidx-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "androidxActivity" }
 androidx-lifecycle-runtime-ktx = { group = "androidx.lifecycle", name = "lifecycle-runtime-ktx", version.ref = "androidxLifecycle" }

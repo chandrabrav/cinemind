@@ -124,13 +124,13 @@ class ExportManager @Inject constructor(
         val missing = assets.count { it == null }
         if (missing > 0) throw ExportFailure("$missing clip(s) refer to media that is no longer available.")
         val pairs = clips.zip(
-            assets.map { a -> RenderSource(a!!.uri, a.isVideo, a.hasAudio, a.frameRate, a.durationUs) },
+            assets.map { a -> RenderSource(a!!.uri, a.isVideo, a.hasAudio, a.frameRate, a.durationUs, a.width, a.height, MatteStore.existing(context, a.id)?.path) },
         )
         // Overlay (picture-in-picture) tracks, bottom to top. Overlays whose media is gone are left out.
         val overlays = timeline.tracks.filter { it.type == TrackType.OVERLAY && it.isEnabled }.sortedBy { it.index }.map { t ->
             timeline.clips.filter { it.trackId == t.id }.mapNotNull { c ->
                 val a = assetRepository.getAsset(c.assetId) ?: return@mapNotNull null
-                RenderOverlay(c, RenderSource(a.uri, a.isVideo, false, a.frameRate, a.durationUs), a.width, a.height)
+                RenderOverlay(c, RenderSource(a.uri, a.isVideo, false, a.frameRate, a.durationUs, a.width, a.height, MatteStore.existing(context, a.id)?.path), a.width, a.height)
             }
         }
 

@@ -90,6 +90,9 @@ data class TextStyle(
 ) {
     val hasGradient: Boolean get() = color2 != 0
 
+    /** Drawn into the video picture (under overlays or behind the subject) rather than on top of everything. */
+    val drawnInPicture: Boolean get() = belowOverlays || behindSubject
+
     fun encode(): String = String.format(
         Locale.ROOT,
         "font=%s;w=%d;c=%08x;o=%.3f;oc=%08x;sh=%d;gl=%d;bc=%08x;bo=%.3f;up=%d;sp=%.3f;al=%d;in=%s;out=%s;bl=%d;c2=%08x;ex=%.3f;ec=%08x;lp=%s;bs=%d",

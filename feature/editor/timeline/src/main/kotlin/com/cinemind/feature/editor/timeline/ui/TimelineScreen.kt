@@ -1,6 +1,7 @@
 package com.cinemind.feature.editor.timeline.ui
 
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.material.icons.filled.PersonRemove
 import androidx.compose.material.icons.filled.AutoAwesomeMotion
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.SettingsBackupRestore
@@ -242,6 +243,7 @@ fun TimelineScreen(
     var showTts by remember { mutableStateOf(false) }
     var showAssistant by remember { mutableStateOf(false) }
     var showRemake by remember { mutableStateOf(false) }
+    var showCutout by remember { mutableStateOf(false) }
     var toolCategory by remember { mutableStateOf<ToolCategory?>(null) }
     var musicMood by remember { mutableStateOf<String?>(null) }
     var musicTheme by remember { mutableStateOf("") }
@@ -287,7 +289,7 @@ fun TimelineScreen(
                     val drawCaptions = layerOrder.captionsAboveOverlays
                     if (drawCaptions && !layerOrder.captionsAboveTitles) CaptionOverlay(captionsUi.captions, captionsUi.style, preview.positionUs, Modifier.fillMaxSize())
                     TextLayersOverlay(
-                        layers = shownTexts.filter { !it.styleObj.belowOverlays },
+                        layers = shownTexts.filter { !it.styleObj.drawnInPicture },
                         positionUs = preview.positionUs,
                         selectedId = if (fullscreen) null else editor.selectedTextId,
                         modifier = Modifier.fillMaxSize(),
@@ -426,6 +428,7 @@ fun TimelineScreen(
                             EditorAction(Icons.Default.Tune, "Adjust") { adjustOpen = true },
                             EditorAction(Icons.Default.Wallpaper, "Green screen") { keyMaskSheet = false },
                             EditorAction(Icons.Default.Crop, "Mask") { keyMaskSheet = true },
+                            EditorAction(Icons.Default.PersonRemove, "Cutout") { showCutout = true },
                             EditorAction(Icons.Default.Delete, "Delete") { viewModel.deleteOverlay() },
                         ),
                     )
@@ -477,6 +480,7 @@ fun TimelineScreen(
                                     tool(Icons.Default.AddPhotoAlternate, "Add clips") { addClips() },
                                     tool(Icons.Default.ContentCut, "Split", has) { atPlayhead { viewModel.splitSelectedAtPlayhead() } },
                                     tool(Icons.Default.Tune, "Trim", has) { atPlayhead { adjustOpen = true } },
+                                    tool(Icons.Default.PersonRemove, "Cutout", has) { showCutout = true },
                                     tool(Icons.Default.Crop, "Crop & move", has) { atPlayhead { showFraming = true } },
                                     tool(Icons.Default.AcUnit, "Freeze", has) { atPlayhead { viewModel.freezeFrameAtPlayhead() } },
                                     tool(Icons.Default.SettingsBackupRestore, "Reverse", has && reversing == null) { atPlayhead { viewModel.reverseSelected() } },
@@ -521,6 +525,7 @@ fun TimelineScreen(
                                     tool(Icons.Default.ClosedCaption, "Auto captions") { showCaptions = true },
                                     tool(Icons.Default.Title, "Smart graphics") { showGraphics = true },
                                     tool(Icons.Default.TravelExplore, "Music ideas") { showMusicIdeas = true },
+                                    tool(Icons.Default.PersonRemove, "Cut out subject") { showCutout = true },
                                     tool(Icons.Default.AutoAwesomeMotion, "Remake (KATANA)") { showRemake = true },
                                 ),
                             )
@@ -563,6 +568,10 @@ fun TimelineScreen(
             onAdd = { t, v, r, p, done -> viewModel.addSpeech(t, v, r, p, done) },
             onDismiss = { showTts = false },
         )
+    }
+
+    if (showCutout) {
+        CutoutSheet(viewModel = viewModel, onDismiss = { showCutout = false })
     }
 
     if (showRemake) {
