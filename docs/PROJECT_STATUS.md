@@ -17,7 +17,7 @@ _Last updated: 2026-11-19_
 | **Captions & speech (new, 2026-11-11)** | Editable caption layer (timeline lane, preview overlay, burned into export by the same painter), 7 style presets + full styling, sentence/phrase/word modes, karaoke highlight, animations; on-device speech-to-text with Gemma 4's audio encoder: Hinglish / Roman / native script / English translation as separate operations; Devanagari→Roman transliterator. See "Captions & speech-to-text". **Speech recognition itself is not yet run on a phone.** |
 | **Branding (new)** | "CineMind AI" on launch (wordmark after the system splash), home title and Settings → About CineMind AI (logo, version + build, "Developed by Gautam", description, privacy facts, open-source licences). |
 | **Current task** | Owner tests beta **#182** (motion graphics, AI cutout, text behind the person, Enhance voice, AI models hub) and the next beta (decision engine, Spark planning, Auto edit). **Owner to run AI models → Run benchmark on the Vivo and send the report**: it confirms that Spark X2.5 4B (the chosen planner) works on our LiteRT-LM 0.19.1 and how fast it is. Not tested on a phone yet: cutout speed, voice enhancer by ear, ChatGPT/Gemini/OpenRouter keys, KATANA handoff. See "2026-11-19 work" below. |
-| **Branch** | `main` (PRs #32–#37 merged 2026-11-16…19). Open: `auto-edit` (Auto edit tools + Spark X2.5 4B as planner). Feature pushes don't build any more — open a PR or run the workflow by hand. |
+| **Branch** | `main` (PRs #32–#38 merged 2026-11-16…19). Open: **#40** `ai-revisions` (prompt library, revisions, captions behind the person, text motion, progress bar, home + preview polish; all CI green). Latest beta: **#198**. Feature pushes don't build any more — open a PR or run the workflow by hand. |
 | **Latest verified build** | CI run 43071502601 (#82), commit `baa29f9`: **all green** — 164 unit tests + 12 instrumented (export e2e ×3 incl. caption burn-in, speech audio ×3, screenshots ×6) — https://github.com/chandrabrav/cinemind/actions/runs/43071502601 — artifact `cinemind-debug-82` |
 | **Previous fully verified build** | CI run 43061916979 (#73), commit `82f97fa`: build + 131 unit + 6 instrumented tests. |
 
@@ -411,3 +411,14 @@ Decisions:
 
 * Spark X2.6 **4B** has no LiteRT-LM build, so the owner chose Spark X2.5 4B instead.
 * Open Generative AI was dropped. It's a web front end for the paid Muapi API.
+| #40 | **Prompt library** (28 briefs, 8 genres, search, favourites, recents, own prompts). **Revisions in plain words** on AI edits: a new version from the original footage, with analysis reused, only affected agents rerun, and "keep the music" honoured. **Captions behind the person** (schema v11). **Text motion path**. **Progress bar**. **Home**: New project and AI edit first, then recent projects with resolution. **Fit / Fill / Reset** under the preview. | `docs/UX_REDESIGN.md` |
+
+Production readiness (2026-11-19): about 90% of the briefed features are built, but only about 25% have been verified on a phone. Before a public release we still need:
+
+* a phone test pass of everything since #172, plus the Spark benchmark report;
+* a release keystore in GitHub secrets, and an AAB build;
+* the Play privacy policy and Data Safety form;
+* opt-in crash reporting;
+* licence entries for Gemma and ML Kit.
+
+Per-overlay stacking (M4c) is still open.
