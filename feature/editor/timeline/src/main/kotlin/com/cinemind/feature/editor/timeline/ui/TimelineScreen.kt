@@ -288,7 +288,7 @@ fun TimelineScreen(
                 captionLayer = {
                     // Above the picture-in-picture, in the chosen order (layers set "below" are drawn
                     // into the video by the composition instead).
-                    val drawCaptions = layerOrder.captionsAboveOverlays
+                    val drawCaptions = layerOrder.captionsAboveOverlays && captionsUi.style?.behindSubject != true
                     if (drawCaptions && !layerOrder.captionsAboveTitles) CaptionOverlay(captionsUi.captions, captionsUi.style, preview.positionUs, Modifier.fillMaxSize())
                     TextLayersOverlay(
                         layers = shownTexts.filter { !it.styleObj.drawnInPicture },
@@ -722,6 +722,7 @@ fun TimelineScreen(
             onAddSticker = { s -> viewModel.addSticker(s); showAddText = false },
             onDismiss = { showAddText = false },
             onSuggest = { showAddText = false; showGraphics = true },
+            onAddProgress = viewModel::addProgressBar,
         )
     }
 

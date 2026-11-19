@@ -40,11 +40,13 @@ internal class SubjectEffect(
     private val mapping: SubjectMapping,
     private val look: SubjectLook,
     private val behindTexts: List<TextLayer>,
+    /** Captions set to sit behind the person (drawn with the same painter as everywhere else). */
+    private val behindCaptions: RenderCaptions? = null,
 ) : GlEffect {
 
     override fun toGlShaderProgram(context: Context, useHdr: Boolean): GlShaderProgram = Program(useHdr)
 
-    override fun isNoOp(inputWidth: Int, inputHeight: Int): Boolean = look == SubjectLook.NONE && behindTexts.isEmpty()
+    override fun isNoOp(inputWidth: Int, inputHeight: Int): Boolean = look == SubjectLook.NONE && behindTexts.isEmpty() && behindCaptions == null
 
     /** Source time of the clip shown at composition time [timelineUs]. */
     private fun sourceUs(timelineUs: Long): Long =
@@ -67,6 +69,8 @@ internal class SubjectEffect(
         private var textCanvas: Canvas? = null
         private val painter = TextLayerPainter()
         private var lastFrames: List<TextFrame>? = null
+        private val captionPainter = com.cinemind.core.ui.captions.CaptionPainter()
+        private var lastCaption: com.cinemind.core.domain.captions.CaptionFrame? = null
         private var width = 1
         private var height = 1
 
@@ -128,10 +132,10 @@ internal class SubjectEffect(
 
         /** Draws the behind-subject texts for this instant into a texture; false when none show. */
         private fun updateText(timeUs: Long): Boolean {
-            if (behindTexts.isEmpty()) return false
-            val frames = TextLayerEditing.framesAt(behindTexts, timeUs)
-            if (frames.isEmpty()) return false
-            if (frames == lastFrames) return true
+            val frames = if (behindTexts.isEmpty()) emptyList() else TextLayerEditing.framesAt(behindTexts, timeUs)
+            val caption = behindCaptions?.let { com.cinemind.core.domain.captions.CaptionLayout.frameAt(it.captions, it.style, timeUs) }
+            if (frames.isEmpty() && caption == null) return false
+            if (frames == lastFrames && caption == lastCaption) return true
             val bmp = textBitmap?.takeIf { it.width == width && it.height == height }
                 ?: Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also {
                     textBitmap?.recycle()
@@ -140,6 +144,8 @@ internal class SubjectEffect(
                 }
             bmp.eraseColor(Color.TRANSPARENT)
             painter.drawAll(textCanvas!!, width, height, frames)
+            if (caption != null) captionPainter.draw(textCanvas!!, width, height, caption, behindCaptions!!.style)
+            lastCaption = caption
             GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textTex)
             GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, bmp, 0)
             lastFrames = frames

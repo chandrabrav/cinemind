@@ -531,7 +531,7 @@ class TimelineViewModel @Inject constructor(
         val order = _layerOrder.value
         preview.setUnderLayers(
             textHistory.present.filter { it.styleObj.drawnInPicture },
-            previewCaptions.takeIf { !order.captionsAboveOverlays },
+            previewCaptions.takeIf { !order.captionsAboveOverlays || it.style.behindSubject },
             order,
         )
     }
@@ -825,6 +825,20 @@ class TimelineViewModel @Inject constructor(
         val total = mainLengthUs()
         if (total <= 0) return
         val layer = com.cinemind.core.domain.text.TextLayerEditing.create(project, textHistory.present, atUs ?: preview.currentPositionUs(), total, text, kind, preset)
+        commitText(textHistory.present + layer, select = layer.id)
+    }
+
+    /** A progress bar along the bottom that fills over the whole video (restyle like any text). */
+    fun addProgressBar() {
+        val project = projectId.value ?: return
+        val total = mainLengthUs()
+        if (total <= 0) return
+        val layer = com.cinemind.core.domain.text.TextLayer(
+            projectId = project, startUs = 0, endUs = total, kind = com.cinemind.core.domain.text.TextKind.PROGRESS.name, text = "progress",
+            x = 0.5f, y = 0.965f, size = 0.04f,
+            style = com.cinemind.core.domain.text.TextStyle(color = 0xFFFFD43B.toInt(), shadow = false, animIn = com.cinemind.core.domain.text.TextAnim.NONE, animOut = com.cinemind.core.domain.text.TextAnim.NONE).encode(),
+            lane = (textHistory.present.maxOfOrNull { it.lane } ?: -1) + 1,
+        )
         commitText(textHistory.present + layer, select = layer.id)
     }
 

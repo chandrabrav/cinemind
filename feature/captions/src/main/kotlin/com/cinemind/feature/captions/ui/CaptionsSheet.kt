@@ -383,6 +383,9 @@ private fun StyleTab(style: CaptionStyle, frameRatio: Float, viewModel: Captions
     Label("Size")
     Slider(value = size, valueRange = 0.03f..0.11f, onValueChange = { size = it }, onValueChangeFinished = { viewModel.updateStyle { it.copy(size = size) } }, colors = sliderColors)
     SettingRow("ALL CAPS") { Switch(checked = style.uppercase, onCheckedChange = { u -> viewModel.updateStyle { it.copy(uppercase = u) } }) }
+    SettingRow("Behind the person", subtitle = "Captions sit behind whoever is in the shot (uses the clip's cutout: Edit → Cutout)") {
+        Switch(checked = style.behindSubject, onCheckedChange = { b -> viewModel.updateStyle { it.copy(behindSubject = b) } })
+    }
 
     Label("Text colour")
     Swatches(TEXT_COLORS, style.textColor) { col -> viewModel.updateStyle { it.copy(textColor = col) } }
