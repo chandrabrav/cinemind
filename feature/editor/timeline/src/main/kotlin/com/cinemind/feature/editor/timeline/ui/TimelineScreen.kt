@@ -245,6 +245,7 @@ fun TimelineScreen(
     var showRemake by remember { mutableStateOf(false) }
     var showCutout by remember { mutableStateOf(false) }
     var showEnhance by remember { mutableStateOf(false) }
+    var showCreator by remember { mutableStateOf(false) }
     var toolCategory by remember { mutableStateOf<ToolCategory?>(null) }
     var musicMood by remember { mutableStateOf<String?>(null) }
     var musicTheme by remember { mutableStateOf("") }
@@ -527,6 +528,7 @@ fun TimelineScreen(
                                     tool(Icons.Default.ClosedCaption, "Auto captions") { showCaptions = true },
                                     tool(Icons.Default.Title, "Smart graphics") { showGraphics = true },
                                     tool(Icons.Default.TravelExplore, "Music ideas") { showMusicIdeas = true },
+                                    tool(Icons.Default.ContentCut, "Auto edit") { showCreator = true },
                                     tool(Icons.Default.PersonRemove, "Cut out subject") { showCutout = true },
                                     tool(Icons.Default.AutoAwesomeMotion, "Remake (KATANA)") { showRemake = true },
                                 ),
@@ -570,6 +572,10 @@ fun TimelineScreen(
             onAdd = { t, v, r, p, done -> viewModel.addSpeech(t, v, r, p, done) },
             onDismiss = { showTts = false },
         )
+    }
+
+    if (showCreator) {
+        CreatorToolsSheet(viewModel = viewModel, onDismiss = { showCreator = false })
     }
 
     if (showEnhance) {

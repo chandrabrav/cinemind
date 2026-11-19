@@ -19,6 +19,9 @@ enum class AssistantActionType(val label: String) {
     SUBJECT_LOOK("Change the background around the person"),
     CUT_OUT_SUBJECT("Cut out the person / subject"),
     TEXT_BEHIND("Put text behind the person"),
+    REMOVE_PAUSES("Cut out pauses"),
+    PUNCH_INS("Zoom in on emphasis"),
+    REFRAME("Reframe around the subject"),
 }
 
 /**
@@ -77,6 +80,9 @@ Allowed action types and their fields:
 - SUBJECT_LOOK: name = one of ${SubjectLook.entries.joinToString { it.name }} (CUTOUT removes the background, BLUR blurs it, MONO keeps only the subject in colour, SPOTLIGHT darkens the background, OUTLINE draws a white outline, NONE removes the effect); clip = clip number or 0 for every clip. The app cuts out the subject on the phone first.
 - CUT_OUT_SUBJECT: make the subject cutout only (for masking); clip = clip number or 0 for every clip.
 - TEXT_BEHIND: text = the words (max 4, big headline placed behind the person), atSeconds = start time.
+- REMOVE_PAUSES: cut the pauses out of talking clips (jump cuts); value = shortest pause to cut in seconds (0.3 to 1.5, 0 = default).
+- PUNCH_INS: quick zoom-ins on the most emphatic spoken moments.
+- REFRAME: crop every clip around its subject to fit the project's shape (e.g. landscape footage in a vertical reel).
 Use only these names. Unused fields: empty string or 0. Propose at most 6 actions; propose none if the request is a question. Never claim an edit is done: the user reviews and applies it.
 """.trim()
 
@@ -149,6 +155,7 @@ Use only these names. Unused fields: empty string or 0. Propose at most 6 action
         AssistantActionType.SUBJECT_LOOK -> SubjectLook.entries.any { it.name == a.name }
         AssistantActionType.CUT_OUT_SUBJECT -> true
         AssistantActionType.TEXT_BEHIND -> a.text.isNotBlank()
+        AssistantActionType.REMOVE_PAUSES, AssistantActionType.PUNCH_INS, AssistantActionType.REFRAME -> true
     }
 
     /** One line for the review list. */
@@ -164,6 +171,9 @@ Use only these names. Unused fields: empty string or 0. Propose at most 6 action
         AssistantActionType.SUBJECT_LOOK -> "${SubjectLook.from(a.name).label} on " + if (a.clip == 0) "every clip" else "clip ${a.clip}"
         AssistantActionType.CUT_OUT_SUBJECT -> "Cut out the subject of " + if (a.clip == 0) "every clip" else "clip ${a.clip}"
         AssistantActionType.TEXT_BEHIND -> "“${a.text}” behind the person at ${"%.1f".format(java.util.Locale.ROOT, a.atSeconds)} s"
+        AssistantActionType.REMOVE_PAUSES -> "Cut out pauses" + if (a.value > 0) " longer than ${"%.1f".format(java.util.Locale.ROOT, a.value)} s" else ""
+        AssistantActionType.PUNCH_INS -> "Zoom in on emphatic moments"
+        AssistantActionType.REFRAME -> "Reframe every clip around its subject"
     }
 }
 

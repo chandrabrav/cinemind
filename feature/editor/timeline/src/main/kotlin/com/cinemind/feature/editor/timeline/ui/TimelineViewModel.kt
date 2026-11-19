@@ -796,6 +796,10 @@ class TimelineViewModel @Inject constructor(
                     com.cinemind.core.domain.assistant.AssistantActionType.CUT_OUT_SUBJECT ->
                         subjectAction(if (clipId != null) listOf(clipId) else clips.map { it.id }, null)
                     com.cinemind.core.domain.assistant.AssistantActionType.TEXT_BEHIND -> addTextBehindSubject(a.text, at(a.atSeconds))
+                    com.cinemind.core.domain.assistant.AssistantActionType.REMOVE_PAUSES ->
+                        removeSilences(if (a.value in 0.3..1.5) (a.value * 1000).toLong() else 500L, zoomBetweenCuts = true)
+                    com.cinemind.core.domain.assistant.AssistantActionType.PUNCH_INS -> addPunchIns()
+                    com.cinemind.core.domain.assistant.AssistantActionType.REFRAME -> autoReframe()
                 }
             }
         }
@@ -1838,6 +1842,101 @@ class TimelineViewModel @Inject constructor(
     fun deleteCutout(target: CutoutTarget) {
         com.cinemind.feature.export.engine.MatteStore.delete(appContext, target.asset.id)
         preview.refresh()
+    }
+
+    // ---- Creator tools: remove pauses, punch-ins, auto-reframe ---------------------------------
+
+    private val _autoBusy = MutableStateFlow<String?>(null)
+    /** What an automatic edit is doing right now, or null. */
+    val autoBusy: StateFlow<String?> = _autoBusy.asStateFlow()
+
+    /** Peak levels of every main-track video's sound (decoded once, then cached). */
+    private suspend fun mainPeaks(): Map<String, FloatArray> {
+        val ids = history?.present.orEmpty().map { it.assetId }.distinct()
+        val out = mutableMapOf<String, FloatArray>()
+        ids.forEachIndexed { i, id ->
+            val a = assets[id] ?: return@forEachIndexed
+            if (!a.isVideo || !a.hasAudio) return@forEachIndexed
+            _autoBusy.value = "Listening to clip ${i + 1} of ${ids.size}…"
+            audioAnalysis.peaks(a)?.let { out[id] = it }
+        }
+        return out
+    }
+
+    private fun runAuto(label: String, block: suspend () -> com.cinemind.core.domain.editing.AutoEditResult?) {
+        if (_autoBusy.value != null) return
+        viewModelScope.launch {
+            _autoBusy.value = label
+            try {
+                val r = com.cinemind.core.common.BackgroundWork.run(appContext, label) { block() } ?: return@launch
+                if (r.changes > 0) commit(r.clips, selectAfter = null)
+                val extra = if (r.removedUs > 0) " (${"%.1f".format(java.util.Locale.ROOT, r.removedUs / 1e6)} s shorter)" else ""
+                Toast.makeText(appContext, r.note + extra + if (r.changes > 0) ". Undo to put it back." else "", Toast.LENGTH_LONG).show()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                CineMindLogger.w("$label failed: ${e.message}")
+                Toast.makeText(appContext, "$label didn't work: ${e.message ?: "unknown error"}", Toast.LENGTH_LONG).show()
+            } finally {
+                _autoBusy.value = null
+            }
+        }
+    }
+
+    /** Cuts the pauses out of talking clips (one undo step). */
+    fun removeSilences(minPauseMs: Long, zoomBetweenCuts: Boolean) = runAuto("Removing pauses") {
+        val peaks = mainPeaks()
+        val clips = history?.present ?: return@runAuto null
+        com.cinemind.core.domain.editing.TalkingHead.removeSilences(
+            clips,
+            { peaks[it] },
+            com.cinemind.core.domain.editing.TalkingHead.SilenceSettings(minPauseUs = minPauseMs * 1000, zoomAlternate = zoomBetweenCuts),
+        )
+    }
+
+    /** Quick zoom-ins on the most emphatic moments (one undo step). */
+    fun addPunchIns() = runAuto("Adding punch-ins") {
+        val peaks = mainPeaks()
+        val clips = history?.present ?: return@runAuto null
+        com.cinemind.core.domain.editing.TalkingHead.punchIns(clips, { peaks[it] })
+    }
+
+    /**
+     * Crops every clip around its subject so it fills the project's frame (vertical reel from
+     * landscape footage, or the other way round). Makes the cutouts it needs first, on the phone.
+     */
+    fun autoReframe() = runAuto("Reframing") {
+        val clips = history?.present ?: return@runAuto null
+        val p = project.value ?: return@runAuto null
+        val target = p.resolutionWidth.toFloat() / p.resolutionHeight.coerceAtLeast(1)
+        val need = clips.mapNotNull { assets[it.assetId] }.distinctBy { it.id }
+            .filter { (it.isVideo || it.isImage) && kotlin.math.abs(it.width.toFloat() / it.height.coerceAtLeast(1) - target) / target > 0.03f }
+        if (need.isEmpty()) return@runAuto com.cinemind.core.domain.editing.AutoEditResult(clips, 0, note = "Every clip already fits the frame")
+        val samples = mutableMapOf<String, List<com.cinemind.core.domain.editing.Reframe.SubjectSample>>()
+        need.forEachIndexed { i, a ->
+            if (com.cinemind.feature.export.engine.MatteStore.existing(appContext, a.id) == null) {
+                _autoBusy.value = "Finding the subject in clip ${i + 1} of ${need.size}…"
+                matteMaker.make(a) { f -> _autoBusy.value = "Finding the subject in clip ${i + 1} of ${need.size}… ${(f * 100).toInt()}%" }
+            }
+            val file = com.cinemind.feature.export.engine.MatteStore.existing(appContext, a.id) ?: return@forEachIndexed
+            com.cinemind.feature.export.engine.MatteReader(file).use { r ->
+                val length = if (a.isVideo) a.durationUs else 1L
+                val list = mutableListOf<com.cinemind.core.domain.editing.Reframe.SubjectSample>()
+                var t = 0L
+                while (t < length) {
+                    r.maskAt(t)?.let { s -> com.cinemind.core.domain.editing.Reframe.centre(s.a, r.width, r.height)?.let { (x, y) -> list += com.cinemind.core.domain.editing.Reframe.SubjectSample(t, x, y) } }
+                    t += 500_000L
+                }
+                samples[a.id] = list
+            }
+        }
+        preview.refresh()
+        com.cinemind.core.domain.editing.Reframe.apply(
+            clips,
+            { id -> assets[id]?.let { it.width to it.height } },
+            { id -> samples[id] },
+            target,
+        )
     }
 
     override fun onCleared() {

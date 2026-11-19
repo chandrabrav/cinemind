@@ -69,34 +69,35 @@ object ModelCatalog {
      */
     val SPARK_X26_1_7B = ModelSpec(
         id = "spark-x2.6-1.7b",
-        name = "Spark X2.6 1.7B (planning, recommended)",
+        name = "Spark X2.6 1.7B (planning, faster)",
         fileName = "Spark-X2.6-1.7B_int4-mlp.litertlm",
         url = "https://huggingface.co/litert-community/Spark-X2.6-1.7B/resolve/main/Spark-X2.6-1.7B_int4-mlp.litertlm",
         sizeBytes = 1_705_918_464L,
         sha256 = "c0ce1e9e80a7593c2492ff00d15ca49c182b95c7dfab5c805d4204fa07c14225",
         license = "Apache-2.0 (iFLYTEK SparkLLM)",
-        summary = "Thinks through edit plans and decisions (text only). Fast on phone GPUs; about 1.7 GB.",
+        summary = "Lighter planner: quick answers on phone GPUs, simpler plans; about 1.7 GB.",
         supportsImages = false,
         reasoning = true,
         tokensPerSecond = 27f,
     )
 
-    /** Spark X2.5 4B, LiteRT-LM build (tested by its publisher on LiteRT-LM 0.17). Stronger but ~5 tok/s on phones. */
+    /** Spark X2.5 4B, LiteRT-LM build (tested by its publisher on LiteRT-LM 0.17): the chosen planning model. ~5 tok/s on phones, so its thinking is capped (see OnDeviceLlm). */
     val SPARK_X25_4B = ModelSpec(
         id = "spark-x2.5-4b",
-        name = "Spark X2.5 4B (planning, slow)",
+        name = "Spark X2.5 4B (planning, recommended)",
         fileName = "Spark-X2.5-4B_int4.litertlm",
         url = "https://huggingface.co/litert-community/Spark-X2.5-4B/resolve/main/Spark-X2.5-4B_int4.litertlm",
         sizeBytes = 2_482_290_688L,
         sha256 = "0912969b1e7dc6de503d28884ee6611d2b10e1ab6a9c3682457e86b225072a48",
         license = "Apache-2.0 (iFLYTEK SparkLLM)",
-        summary = "Stronger reasoning, but only about 5 words a second on phones; about 2.5 GB. For comparison in the benchmark.",
+        summary = "Thinks edit plans and decisions through (text only). Stronger than the 1.7B but slower: a Smart edit plan takes a few minutes; about 2.5 GB.",
         supportsImages = false,
         reasoning = true,
         tokensPerSecond = 5f,
     )
 
-    val ALL: List<ModelSpec> = listOf(GEMMA_4_E2B, GEMMA_4_E4B, SPARK_X26_1_7B, SPARK_X25_4B)
+    // Order matters: "automatic" picks the first installed planner, so Spark X2.5 4B comes first.
+    val ALL: List<ModelSpec> = listOf(GEMMA_4_E2B, GEMMA_4_E4B, SPARK_X25_4B, SPARK_X26_1_7B)
 
     /** Models that see and hear (Gemma). */
     val VISUAL: List<ModelSpec> get() = ALL.filter { !it.reasoning }

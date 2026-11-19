@@ -108,7 +108,15 @@ class SmartEditor @Inject constructor(
     private val cloud: EditAssistant,
     private val runtime: AgentRuntime,
 ) {
-    suspend fun create(projectId: String, onProgress: (SmartEditProgress) -> Unit = {}): SmartEditResult {
+    /**
+     * A follow-up on an earlier AI edit: [revision] says what changes and what stays; the new
+     * version is made from the original footage ([create]'s projectId) and [previousId] is the
+     * version being revised (its music is kept when asked). The previous version is never touched.
+     */
+    data class RevisionRun(val revision: com.cinemind.core.domain.aiedit.Revision, val previousId: String)
+
+    suspend fun create(projectId: String, onProgress: (SmartEditProgress) -> Unit = {}, revisionRun: RevisionRun? = null): SmartEditResult {
+        val revision = revisionRun?.revision
         val timeline = projectRepository.getProjectTimeline(projectId) ?: throw SmartEditException("Project not found")
         val track = timeline.tracks.firstOrNull { it.type == TrackType.VIDEO }
         val clips = timeline.clips.filter { it.trackId == track?.id }.sortedBy { it.timelineInUs }
@@ -118,21 +126,27 @@ class SmartEditor @Inject constructor(
         val assets = assetIds.mapNotNull { assetRepository.getAsset(it) }
         if (assets.isEmpty()) throw SmartEditException("The project's media is no longer available.")
 
+        // Footage analysis is reused between runs (same file = same measurements).
+        var reusedAnalyses = 0
         val analyses = assets.mapIndexed { i, asset ->
             onProgress(SmartEditProgress.Analyzing(i + 1, assets.size))
-            analyzer.analyze(asset, order = i)
+            val key = cacheKey(asset) + "#" + i
+            analysisCache[key]?.also { reusedAnalyses++ } ?: analyzer.analyze(asset, order = i).also { remember(analysisCache, key, it) }
         }
 
-        val brief = briefRepository.observeBrief(projectId).first()
+        val brief = revision?.brief?.copy(projectId = projectId) ?: briefRepository.observeBrief(projectId).first()
         var intent = BriefInterpreter.interpret(brief)
         var insights: Map<String, List<TimedInsight>> = emptyMap()
         val aiNotes = mutableListOf<String>()
-        val captions = runCatching { captionRepository.getCaptions(projectId) }.getOrDefault(emptyList())
-        val audio = projectRepository.getProjectAudio(projectId)
+        val captions = if (revision?.dropCaptions == true) emptyList() else runCatching { captionRepository.getCaptions(projectId) }.getOrDefault(emptyList())
+        val keepMusic = revision != null && com.cinemind.core.domain.agents.Aspect.MUSIC in revision.intent.keep
+        val audio = revisionRun?.takeIf { keepMusic }?.let { runCatching { projectRepository.getProjectAudio(it.previousId) }.getOrNull() }
+            ?: projectRepository.getProjectAudio(projectId)
+        val cachedInsights = assets.mapNotNull { a -> insightCache[cacheKey(a)]?.let { a.id to it } }.toMap()
 
         // ---- CineMind Decision Engine: which agents this request needs, and where each runs.
         val orchestration = DecisionEngine.plan(
-            RequestIntent(
+            revision?.intent ?: RequestIntent(
                 goals = setOf(Goal.NEW_EDIT),
                 creative = brief.prompt.isNotBlank() || brief.style != EditStyle.AUTO,
                 targetSeconds = brief.targetDurationSec,
@@ -143,6 +157,15 @@ class SmartEditor @Inject constructor(
                 totalSeconds = analyses.sumOf { it.durationUs } / 1e6,
                 hasSpeech = if (captions.isNotEmpty()) true else null,
                 hasMusic = audio.music != null,
+                // What a revision may reuse instead of recomputing.
+                available = buildSet {
+                    if (revision != null) {
+                        add(com.cinemind.core.domain.agents.DataKind.FOOTAGE_REPORT)
+                        add(com.cinemind.core.domain.agents.DataKind.CREATIVE_BRIEF)
+                        if (cachedInsights.size == assets.size) add(com.cinemind.core.domain.agents.DataKind.SHOT_DESCRIPTIONS)
+                        if (keepMusic) add(com.cinemind.core.domain.agents.DataKind.MUSIC_PLAN)
+                    }
+                },
             ),
             runtime.models(),
             runtime.budget(),
@@ -151,7 +174,14 @@ class SmartEditor @Inject constructor(
         CineMindLogger.i("Decision engine: " + orchestration.explain().joinToString(" | "))
         // What actually ran (never what was only planned).
         val howMade = mutableListOf<String>()
-        howMade += "${AgentId.VIDEO_ANALYSIS.label}: measured ${analyses.size} source${if (analyses.size == 1) "" else "s"} on this phone"
+        if (revision != null) howMade += "Revision: " + revision.understood.joinToString(", ").ifBlank { "your note" }
+        howMade += "${AgentId.VIDEO_ANALYSIS.label}: " + if (reusedAnalyses == analyses.size) "reused the earlier measurements" else "measured ${analyses.size - reusedAnalyses} source${if (analyses.size - reusedAnalyses == 1) "" else "s"} on this phone"
+        if (keepMusic) howMade += "${AgentId.MUSIC_DIRECTOR.label}: kept the music of the version you revised"
+        // A revision that doesn't need to look again reuses what was seen before.
+        if (orchestration.step(AgentId.VISUAL_INTELLIGENCE) == null && cachedInsights.isNotEmpty() && revision != null) {
+            insights = cachedInsights
+            howMade += "${AgentId.VISUAL_INTELLIGENCE.label}: reused what it saw last time"
+        }
 
         val creativeStep = orchestration.step(AgentId.CREATIVE_DIRECTOR)
         val visualStep = orchestration.step(AgentId.VISUAL_INTELLIGENCE)
@@ -184,6 +214,7 @@ class SmartEditor @Inject constructor(
                     }.flatten()
                     asset.id to described
                 }.filterValues { it.isNotEmpty() }
+                assets.forEach { a -> insights[a.id]?.let { remember(insightCache, cacheKey(a), it) } }
                 if (insights.isNotEmpty()) howMade += "${AgentId.VISUAL_INTELLIGENCE.label}: looked at ${insights.values.sumOf { it.size }} key moments on this phone"
             } catch (e: CancellationException) {
                 throw e
@@ -314,8 +345,10 @@ class SmartEditor @Inject constructor(
         }
 
         onProgress(SmartEditProgress.Building)
-        val validated = EditPlanValidator.validate(chosen, sources, ground, hasCaptions = captions.isNotEmpty())
-            .takeIf { it.usable } ?: EditPlanValidator.validate(director, sources, ground, hasCaptions = captions.isNotEmpty())
+        // A revision's hard limits (no slow motion, straight cuts, …) hold whatever the planner did.
+        val fit = { p: EditPlan -> revision?.let { com.cinemind.core.domain.aiedit.RevisionReader.constrain(p, it) } ?: p }
+        val validated = EditPlanValidator.validate(fit(chosen), sources, ground, hasCaptions = captions.isNotEmpty())
+            .takeIf { it.usable } ?: EditPlanValidator.validate(fit(director), sources, ground, hasCaptions = captions.isNotEmpty())
         if (!validated.usable) throw SmartEditException("Couldn't build an edit from this footage.")
         val fixes = validated.steps.count { it.status != StepStatus.APPLIED }
         howMade += "${AgentId.QUALITY_ASSURANCE.label}: checked the plan against your real media" + if (fixes > 0) " ($fixes fixed or left out)" else ""
@@ -453,5 +486,17 @@ class SmartEditor @Inject constructor(
 
     private companion object {
         const val MAX_FRAMES = 24
+        private const val CACHE_SIZE = 40
+
+        // Per-file results kept while the app runs, so revisions don't measure or look again.
+        val analysisCache = LinkedHashMap<String, AssetAnalysis>()
+        val insightCache = LinkedHashMap<String, List<TimedInsight>>()
+
+        fun cacheKey(a: MediaAsset) = "${a.id}:${a.sizeBytes}:${a.durationUs}"
+
+        fun <V> remember(cache: LinkedHashMap<String, V>, key: String, value: V) = synchronized(cache) {
+            cache[key] = value
+            while (cache.size > CACHE_SIZE) cache.remove(cache.keys.first())
+        }
     }
 }

@@ -3,7 +3,7 @@
 > Handoff document for any Claude / Codex / ChatGPT session. Update after every milestone.
 > Never put API keys, keystore passwords or tokens in this file.
 
-_Last updated: 2026-11-16_
+_Last updated: 2026-11-19_
 
 ## Current position
 
@@ -16,8 +16,8 @@ _Last updated: 2026-11-16_
 | **UI redesign (new, 2026-11-11)** | Whole app moved onto a central design system (light + dark tokens, contrast-tested), persistent Light / Dark / System theme in a new Settings screen, every screen redesigned, editor rebuilt around a time-scaled multitrack timeline with drag-to-trim. See "UI redesign & design system". |
 | **Captions & speech (new, 2026-11-11)** | Editable caption layer (timeline lane, preview overlay, burned into export by the same painter), 7 style presets + full styling, sentence/phrase/word modes, karaoke highlight, animations; on-device speech-to-text with Gemma 4's audio encoder: Hinglish / Roman / native script / English translation as separate operations; Devanagari→Roman transliterator. See "Captions & speech-to-text". **Speech recognition itself is not yet run on a phone.** |
 | **Branding (new)** | "CineMind AI" on launch (wordmark after the system splash), home title and Settings → About CineMind AI (logo, version + build, "Developed by Gautam", description, privacy facts, open-source licences). |
-| **Current task** | Owner tests beta **#165** (run 43843978429, `992cf45`, optimised APK): UX redesign M1, M3, M4a, M4b, M5 (two-lane timeline, drag up/down to layer, category tool bar, undoable layer order) + editing assistant with optional Claude key. Repo is **public** since 2026-11-16 (free CI minutes ran out; owner can't pay). Next: per-overlay stacking (M4c), home screen (M6). **AI editing overhaul** (owner brief 2026-11-16) started: M1 audit + M2 structured edit plans on branch `ai-edit-engine` (PR #33). See `docs/AI_EDITING.md`. |
-| **Branch** | `main` (PRs #27–#31 merged); open: #32 (screenshot test fix), #33 (AI edit engine, stacked on #32). Feature pushes don't build any more — open a PR or run the workflow by hand. |
+| **Current task** | Owner tests beta **#182** (motion graphics, AI cutout, text behind the person, Enhance voice, AI models hub) and the next beta (decision engine, Spark planning, Auto edit). **Owner to run AI models → Run benchmark on the Vivo and send the report**: it confirms that Spark X2.5 4B (the chosen planner) works on our LiteRT-LM 0.19.1 and how fast it is. Not tested on a phone yet: cutout speed, voice enhancer by ear, ChatGPT/Gemini/OpenRouter keys, KATANA handoff. See "2026-11-19 work" below. |
+| **Branch** | `main` (PRs #32–#37 merged 2026-11-16…19). Open: `auto-edit` (Auto edit tools + Spark X2.5 4B as planner). Feature pushes don't build any more — open a PR or run the workflow by hand. |
 | **Latest verified build** | CI run 43071502601 (#82), commit `baa29f9`: **all green** — 164 unit tests + 12 instrumented (export e2e ×3 incl. caption burn-in, speech audio ×3, screenshots ×6) — https://github.com/chandrabrav/cinemind/actions/runs/43071502601 — artifact `cinemind-debug-82` |
 | **Previous fully verified build** | CI run 43061916979 (#73), commit `82f97fa`: build + 131 unit + 6 instrumented tests. |
 
@@ -396,3 +396,18 @@ Acceptance for each: unit tests for the maths, emulator export test that inspect
   - A result dialog lists every step as applied, adjusted or skipped.
   - The brief prompt cap is now 6000 characters.
 - **Not yet:** vision input, OpenAI and OpenRouter, prompt library, follow-up conversations, non-text graphics. No phone test yet.
+
+## 2026-11-19 work (PRs #34–#37, plus `auto-edit`)
+
+| PR | What | Docs |
+|---|---|---|
+| #34 | **AI modes** (Offline / Hybrid / Cloud-assisted), `AiRouter`, and the **KATANA handoff**: send the reference video and up to 5 photos to the Claude app, then import the result with its provenance (`generation_jobs`, migration 9→10). Higgsfield API relay **not built**: the owner wants generation free for users. | `docs/AI_PROVIDERS.md` |
+| #35 | **Motion graphics**: 15 bundled OFL fonts (incl. Devanagari), 7 new entrances, 6 looping effects, gradient and 3D text, 12 title and 6 caption looks. **AI cutout** on the phone (ML Kit subject segmentation, with a bundled people-only fallback): remove / blur / colour-pop / spotlight / outline background, **text behind the person**, and assistant masking commands. | `docs/MOTION_GRAPHICS.md` |
+| #36 | **Enhance voice** (on-device noise removal for clip sound and voiceover, Off/Light/Strong). **Cloud providers**: Claude, ChatGPT, Gemini and OpenRouter, each with the user's own key. **AI models hub**: On this phone and Cloud tabs. | — |
+| #37 | **CineMind Decision Engine**, agent registry (9 agents), model registry and adapters, resource policy (memory, heat, battery). Spark planning models. Smart Edit runs only the agents it needs and reports "How this was made". The benchmark compares models on a real edit plan. | `docs/AI_ORCHESTRATION.md` |
+| `auto-edit` | **Auto edit**: remove pauses (jump cuts), punch-ins on emphasis, auto-reframe around the subject. **Spark X2.5 4B is the chosen planner** (owner, 2026-11-19); its thinking is capped because it runs at about 5 tok/s. | `docs/MOTION_GRAPHICS.md`, `docs/AI_ORCHESTRATION.md` |
+
+Decisions:
+
+* Spark X2.6 **4B** has no LiteRT-LM build, so the owner chose Spark X2.5 4B instead.
+* Open Generative AI was dropped. It's a web front end for the paid Muapi API.

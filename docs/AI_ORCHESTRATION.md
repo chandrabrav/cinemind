@@ -18,8 +18,8 @@ Branch `agents`, 2026-11-19. It is stacked on `voice-and-cloud`.
 | Model | Artifact for our runtime | Status |
 |---|---|---|
 | Gemma 4 E2B / E4B | `litert-community/gemma-4-E*-it-litert-lm`, `.litertlm` | In use (picture and speech). |
-| **Spark X2.6 1.7B** | `litert-community/Spark-X2.6-1.7B`, `Spark-X2.6-1.7B_int4-mlp.litertlm`, 1.71 GB, Apache-2.0, built for LiteRT-LM 0.19.0 | **Added** as the recommended planning model. The publisher measured 27 tok/s on a Galaxy S26 GPU and GSM8K 82 (bf16 84). |
-| **Spark X2.5 4B** | `litert-community/Spark-X2.5-4B`, `Spark-X2.5-4B_int4.litertlm`, 2.48 GB, Apache-2.0, tested on LiteRT-LM 0.17 | **Added** for comparison. The publisher measured about 5 tok/s on phones, so a 1,500-token plan takes about 5 minutes. The engine's speed scoring keeps it from being chosen over the 1.7B for long plans. |
+| **Spark X2.6 1.7B** | `litert-community/Spark-X2.6-1.7B`, `Spark-X2.6-1.7B_int4-mlp.litertlm`, 1.71 GB, Apache-2.0, built for LiteRT-LM 0.19.0 | **Added** as the faster planning option. The publisher measured 27 tok/s on a Galaxy S26 GPU and GSM8K 82 (bf16 84). |
+| **Spark X2.5 4B** | `litert-community/Spark-X2.5-4B`, `Spark-X2.5-4B_int4.litertlm`, 2.48 GB, Apache-2.0, tested on LiteRT-LM 0.17 | **The chosen planning model** (owner's decision, 2026-11-19): picked automatically when installed, and ranked above Gemma for planning. About 5 tok/s on phones, so its thinking plus answer is capped at 2,400 tokens; a Smart Edit plan takes a few minutes. |
 | Spark X2.6 **4B** | Only GGUF, MLX, FP8/INT8/INT4 safetensors and AWQ builds. There is **no `.litertlm` build.** | **Not integrated.** Running GGUF would need a second runtime (llama.cpp through JNI and the NDK). The adapter boundary (`CineMindModel`) is ready for one. When a LiteRT-LM build appears, it is one `ModelSpec` entry. |
 | Qwen3.5 4B | Not checked for a LiteRT build in this pass | Same adapter path if a `.litertlm` exists. |
 
