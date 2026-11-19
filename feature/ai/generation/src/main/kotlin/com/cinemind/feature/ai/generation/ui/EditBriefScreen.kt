@@ -145,6 +145,34 @@ fun EditBriefScreen(
             subtitle = project?.let { "${it.name} · ${formatDuration(it.durationUs)} of footage" },
         ) { SaveState(state.saved) }
 
+        // An AI edit can be changed in plain words: a new version is made, this one stays.
+        if (viewModel.canRevise) {
+            var change by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf("") }
+            GlassCard(modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.gutter).padding(bottom = Spacing.m)) {
+                Text("Change this edit", style = MaterialTheme.typography.titleSmall, color = c.textPrimary)
+                Text(
+                    "Say what to change, e.g. “make it 30 seconds, keep the same music”, “more cinematic”, “smoother transitions”, “remove the slow motion”. Only that is redone; this version stays as it is.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = c.textSecondary,
+                )
+                Spacer(Modifier.height(Spacing.s))
+                OutlinedTextField(
+                    value = change,
+                    onValueChange = { change = it.take(400) },
+                    placeholder = { Text("What should change?", color = c.textTertiary) },
+                    minLines = 2,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(Spacing.s))
+                com.cinemind.core.ui.components.GradientButton(
+                    "Make a new version",
+                    onClick = { viewModel.revise(change); change = "" },
+                    enabled = change.isNotBlank() && smartEdit !is SmartEditUi.Working,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        }
+
         GlassCard(
             modifier = Modifier
                 .fillMaxWidth()
@@ -170,6 +198,20 @@ fun EditBriefScreen(
                     .fillMaxWidth()
                     .heightIn(min = 120.dp),
             )
+            var showLibrary by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+            val library by viewModel.library.collectAsStateWithLifecycle()
+            androidx.compose.material3.TextButton(onClick = { showLibrary = true }) { Text("Browse the prompt library (gym, travel, cinematic, podcast…)", color = c.accent) }
+            if (showLibrary) {
+                PromptLibrarySheet(
+                    library = library,
+                    onUse = { viewModel.useTemplate(it); showLibrary = false },
+                    onFavourite = viewModel::toggleFavourite,
+                    onSaveCurrent = viewModel::saveAsTemplate,
+                    onDelete = viewModel::deleteTemplate,
+                    canSaveCurrent = brief.prompt.isNotBlank(),
+                    onDismiss = { showLibrary = false },
+                )
+            }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Outlined.Lightbulb, contentDescription = null, tint = c.highlight, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(Spacing.xs))
