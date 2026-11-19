@@ -27,7 +27,7 @@ class ClaudeClient(apiKey: String, private val model: CloudModel) {
 
     private val client: AnthropicClient = AnthropicOkHttpClient.builder()
         .apiKey(apiKey)
-        .timeout(Duration.ofSeconds(180))
+        .timeout(Duration.ofSeconds(300))
         .maxRetries(2)
         .build()
 

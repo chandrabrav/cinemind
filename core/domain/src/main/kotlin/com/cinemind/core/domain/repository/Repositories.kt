@@ -118,3 +118,12 @@ interface TextLayerRepository {
     /** Replaces every text layer of the project (one transaction). */
     suspend fun save(projectId: String, layers: List<com.cinemind.core.domain.text.TextLayer>)
 }
+
+/** Generation requests handed to outside providers, with the provenance of imported results. */
+interface GenerationJobRepository {
+    fun observe(projectId: String): Flow<List<com.cinemind.core.domain.aigen.GenerationJob>>
+    suspend fun get(id: String): com.cinemind.core.domain.aigen.GenerationJob?
+    suspend fun save(job: com.cinemind.core.domain.aigen.GenerationJob)
+    /** The job that produced [assetId], if it came from a provider. */
+    suspend fun forAsset(assetId: String): com.cinemind.core.domain.aigen.GenerationJob?
+}

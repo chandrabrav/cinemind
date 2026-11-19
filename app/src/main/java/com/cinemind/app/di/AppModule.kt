@@ -53,6 +53,9 @@ object DatabaseModule {
 
     @Provides
     fun provideTextLayerDao(database: AppDatabase): com.cinemind.core.data.local.dao.TextLayerDao = database.textLayerDao()
+
+    @Provides
+    fun provideGenerationJobDao(database: AppDatabase): com.cinemind.core.data.local.dao.GenerationJobDao = database.generationJobDao()
 }
 
 @Module
@@ -86,4 +89,8 @@ object RepositoryModule {
     @Provides
     fun provideTextLayerRepository(dao: com.cinemind.core.data.local.dao.TextLayerDao): com.cinemind.core.domain.repository.TextLayerRepository =
         com.cinemind.core.data.repository.TextLayerRepositoryImpl(dao)
+
+    @Provides
+    fun provideGenerationJobRepository(dao: com.cinemind.core.data.local.dao.GenerationJobDao): com.cinemind.core.domain.repository.GenerationJobRepository =
+        com.cinemind.core.data.repository.GenerationJobRepositoryImpl(dao)
 }

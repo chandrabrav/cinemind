@@ -28,6 +28,7 @@ data class CloudSettings(
     val keyHint: String = "",
     val model: CloudModel = CloudModel.OPUS,
     val consented: Boolean = false,
+    val mode: com.cinemind.core.domain.aigen.AiMode = com.cinemind.core.domain.aigen.AiMode.HYBRID,
 )
 
 /**
@@ -52,6 +53,7 @@ class CloudKeyStore @Inject constructor(@ApplicationContext private val context:
             keyHint = key?.let { "••••" + it.takeLast(4) }.orEmpty(),
             model = CloudModel.entries.firstOrNull { it.name == prefs.getString(K_MODEL, null) } ?: CloudModel.OPUS,
             consented = prefs.getBoolean(K_CONSENT, false),
+            mode = com.cinemind.core.domain.aigen.AiMode.from(prefs.getString(K_MODE, null)),
         )
     }
 
@@ -88,6 +90,12 @@ class CloudKeyStore @Inject constructor(@ApplicationContext private val context:
         refresh()
     }
 
+    /** Offline, Hybrid or Cloud-assisted (see [com.cinemind.core.domain.aigen.AiMode]). */
+    fun setMode(mode: com.cinemind.core.domain.aigen.AiMode) {
+        prefs.edit().putString(K_MODE, mode.name).apply()
+        refresh()
+    }
+
     private fun secret(): SecretKey {
         val ks = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
         (ks.getKey(ALIAS, null) as? SecretKey)?.let { return it }
@@ -109,5 +117,6 @@ class CloudKeyStore @Inject constructor(@ApplicationContext private val context:
         const val K_KEY = "k"
         const val K_MODEL = "model"
         const val K_CONSENT = "consent"
+        const val K_MODE = "ai_mode"
     }
 }

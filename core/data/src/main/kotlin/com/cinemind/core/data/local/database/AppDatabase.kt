@@ -31,8 +31,9 @@ import com.cinemind.core.domain.model.Track
         com.cinemind.core.domain.captions.Caption::class,
         com.cinemind.core.domain.captions.CaptionStyle::class,
         com.cinemind.core.domain.text.TextLayer::class,
+        com.cinemind.core.domain.aigen.GenerationJob::class,
     ],
-    version = 9,
+    version = 10,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -43,6 +44,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun editBriefDao(): EditBriefDao
     abstract fun captionDao(): com.cinemind.core.data.local.dao.CaptionDao
     abstract fun textLayerDao(): com.cinemind.core.data.local.dao.TextLayerDao
+    abstract fun generationJobDao(): com.cinemind.core.data.local.dao.GenerationJobDao
 
     companion object {
         @Volatile private var instance: AppDatabase? = null
@@ -69,7 +71,6 @@ val MIGRATION_1_2 = object : Migration(1, 2) {
     }
 }
 
-
 /** v2 → v3: per-project AI edit briefs (prompt, style, length, pacing). */
 val MIGRATION_2_3 = object : Migration(2, 3) {
     override fun migrate(db: SupportSQLiteDatabase) {
@@ -82,7 +83,6 @@ val MIGRATION_2_3 = object : Migration(2, 3) {
         )
     }
 }
-
 
 /** v3 → v4: clips record which transition leads into them. */
 val MIGRATION_3_4 = object : Migration(3, 4) {
@@ -150,4 +150,19 @@ val MIGRATION_8_9 = object : Migration(8, 9) {
     }
 }
 
-val ALL_MIGRATIONS: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
+/** v10: generation jobs handed to outside providers (KATANA handoff) and the provenance of their results. Additive only. */
+val MIGRATION_9_10 = object : Migration(9, 10) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `generation_jobs` (" +
+                "`id` TEXT NOT NULL, `projectId` TEXT NOT NULL, `providerId` TEXT NOT NULL, `task` TEXT NOT NULL, " +
+                "`instructions` TEXT NOT NULL, `brief` TEXT NOT NULL, `referenceUri` TEXT, `photoUris` TEXT NOT NULL, " +
+                "`status` TEXT NOT NULL, `providerJobId` TEXT, `outputAssetId` TEXT, `error` TEXT, " +
+                "`createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`id`), " +
+                "FOREIGN KEY(`projectId`) REFERENCES `projects`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_generation_jobs_projectId` ON `generation_jobs` (`projectId`)")
+    }
+}
+
+val ALL_MIGRATIONS: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
