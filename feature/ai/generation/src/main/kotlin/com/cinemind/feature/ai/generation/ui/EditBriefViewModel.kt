@@ -58,7 +58,84 @@ class EditBriefViewModel @Inject constructor(
     private val briefRepository: EditBriefRepository,
     private val projectRepository: ProjectRepository,
     private val smartEditor: SmartEditor,
+    private val referenceAnalyzer: com.cinemind.feature.ai.generation.smartedit.ReferenceAnalyzer,
+    val voice: com.cinemind.feature.ai.generation.smartedit.VoicePrompt,
 ) : ViewModel() {
+
+    // ---- Sample videos and reference images (their measured style steers pace and look) ----
+
+    private val _references = MutableStateFlow<List<com.cinemind.core.domain.aiedit.StyleReference>>(emptyList())
+    val references: StateFlow<List<com.cinemind.core.domain.aiedit.StyleReference>> = _references.asStateFlow()
+
+    /** What the reference analysis is doing right now, or null. */
+    private val _referenceWork = MutableStateFlow<String?>(null)
+    val referenceWork: StateFlow<String?> = _referenceWork.asStateFlow()
+
+    fun addReference(uri: android.net.Uri, kind: com.cinemind.core.domain.aiedit.ReferenceKind) {
+        val id = projectId.value ?: return
+        if (_references.value.size >= com.cinemind.core.domain.aiedit.StyleReferences.MAX || _referenceWork.value != null) return
+        viewModelScope.launch {
+            runCatching { referenceAnalyzer.analyze(uri, kind) { step -> _referenceWork.value = step } }
+                .onSuccess { ref ->
+                    val all = _references.value + ref
+                    _references.value = all
+                    com.cinemind.feature.ai.generation.smartedit.ReferenceStore.save(appContext, id, all)
+                    // A sample video sets the pacing to match its cutting (still changeable below).
+                    com.cinemind.core.domain.aiedit.StyleReferences.pacing(all)?.let { setPacing(it) }
+                }
+                .onFailure { if (it is CancellationException) throw it; CineMindLogger.w("Reference failed: ${it.message}") }
+            _referenceWork.value = null
+        }
+    }
+
+    fun removeReference(index: Int) {
+        val id = projectId.value ?: return
+        val all = _references.value.filterIndexed { i, _ -> i != index }
+        _references.value = all
+        com.cinemind.feature.ai.generation.smartedit.ReferenceStore.save(appContext, id, all)
+    }
+
+    // ---- Speak instead of typing ----
+
+    sealed interface VoiceUi {
+        data object Idle : VoiceUi
+        data object Listening : VoiceUi
+        data object Transcribing : VoiceUi
+        data class Failed(val message: String) : VoiceUi
+    }
+
+    private val _voiceUi = MutableStateFlow<VoiceUi>(VoiceUi.Idle)
+    val voiceUi: StateFlow<VoiceUi> = _voiceUi.asStateFlow()
+
+    private var voiceTarget: (String) -> Unit = {}
+
+    fun startListening(onText: (String) -> Unit) {
+        voiceTarget = onText
+        _voiceUi.value = if (voice.start()) VoiceUi.Listening else VoiceUi.Failed("The microphone isn't available right now.")
+    }
+
+    fun cancelListening() {
+        voice.cancel()
+        _voiceUi.value = VoiceUi.Idle
+    }
+
+    /** Stops listening; the words go to the box that started it (the prompt, or "change this edit"). */
+    fun finishListening() {
+        val onText = voiceTarget
+        _voiceUi.value = VoiceUi.Transcribing
+        viewModelScope.launch {
+            val text = voice.finish()
+            if (text.isBlank()) _voiceUi.value = VoiceUi.Failed("Didn't catch that. Try again a little closer to the phone.")
+            else { _voiceUi.value = VoiceUi.Idle; onText(text) }
+        }
+    }
+
+    fun dismissVoiceError() { _voiceUi.value = VoiceUi.Idle }
+
+    fun voiceUnavailable() { _voiceUi.value = VoiceUi.Failed("Voice input isn't available on this phone. Download Whisper under AI models → On this phone to speak your prompt.") }
+
+    /** Adds spoken or recognised words to the prompt. */
+    fun appendToPrompt(text: String) = edit { b -> b.copy(prompt = EditBriefRules.clampPrompt(if (b.prompt.isBlank()) text.trim() else b.prompt.trimEnd() + " " + text.trim())) }
 
     private val _smartEdit = MutableStateFlow<SmartEditUi>(SmartEditUi.Idle)
     val smartEdit: StateFlow<SmartEditUi> = _smartEdit.asStateFlow()
@@ -198,6 +275,7 @@ class EditBriefViewModel @Inject constructor(
         if (projectId.value == id) return
         projectId.value = id
         readLibrary()
+        _references.value = com.cinemind.feature.ai.generation.smartedit.ReferenceStore.load(appContext, id)
         viewModelScope.launch {
             // Edits are made on a local copy; the stored brief is read once so typing isn't
             // overwritten by database echoes.
@@ -261,6 +339,7 @@ class EditBriefViewModel @Inject constructor(
     }
 
     override fun onCleared() {
+        voice.cancel()
         flush()
         super.onCleared()
     }

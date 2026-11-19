@@ -144,7 +144,10 @@ class SmartEditor @Inject constructor(
             analysisCache[key]?.also { reusedAnalyses++ } ?: analyzer.analyze(asset, order = i).also { remember(analysisCache, key, it) }
         }
 
-        val brief = revision?.brief?.copy(projectId = projectId) ?: briefRepository.observeBrief(projectId).first()
+        val ownBrief = revision?.brief?.copy(projectId = projectId) ?: briefRepository.observeBrief(projectId).first()
+        // Sample videos and reference images steer pace and look: the planner reads their measured style after the user's words.
+        val references = ReferenceStore.load(appContext, projectId)
+        val brief = ownBrief.copy(prompt = ownBrief.prompt + com.cinemind.core.domain.aiedit.StyleReferences.promptBlock(references))
         var intent = BriefInterpreter.interpret(brief)
         var insights: Map<String, List<TimedInsight>> = emptyMap()
         val aiNotes = mutableListOf<String>()
@@ -381,7 +384,9 @@ class SmartEditor @Inject constructor(
         val newId = projectRepository.createProjectWithTimeline(built.timeline)
         val steps = built.steps.toMutableList()
         persistExtras(newId, built, audio, steps)
-        runCatching { briefRepository.saveBrief(brief.copy(projectId = newId)) }
+        runCatching { briefRepository.saveBrief(ownBrief.copy(projectId = newId)) }
+        ReferenceStore.save(appContext, newId, references)
+        if (references.isNotEmpty()) howMade += "Style references: followed the pace and look of " + references.joinToString(", ") { it.name }
         howMade += "${AgentId.RENDERING.label}: built a new, editable project (your original is unchanged)"
         orchestration.skipped.forEach { (agent, why) -> howMade += "Not used — ${agent.label}: $why" }
         record(AgentId.QUALITY_ASSURANCE, RuntimeKind.DETERMINISTIC, null, com.cinemind.core.domain.agents.TaskStatus.SUCCEEDED, buildStart, "$fixes fixed or left out")

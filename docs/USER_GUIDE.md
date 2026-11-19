@@ -73,6 +73,14 @@ Undo and Redo are always in the top bar. Hold a lane and drag it up or down to c
    > *A 30-second cinematic travel reel, emotional music feel, slow-motion on the best shots, clear voices, subtitles.*
 
    Or open the **prompt library**: 28 ready-made briefs in 8 genres. You can search them, mark favourites, and save your own prompts.
+
+   Under the prompt box:
+
+   * **🎤 Speak:** say what you want, in any language. With Whisper installed it is transcribed on the phone, and Hindi or Hinglish becomes an English prompt. Without Whisper, the phone's own recogniser is used. There's also a mic on **Change this edit**.
+   * **🎬 Sample video:** a video whose style you like (*"make it like this"*). CineMind measures how fast it cuts, how much it moves and its look, and sets the pacing to match.
+   * **🖼 Image:** a picture with the look you want (light, colours, mood).
+
+   You can add up to 4 references. Only your own clips are edited: a reference only steers pace and look. References are studied on the phone, nothing is uploaded or copied, and with a vision model installed the AI also describes them in one sentence.
 3. Tap **Create**. CineMind's decision engine runs only the agents your request needs, and shows the progress as it goes:
    * **Video analysis** measures sharpness, motion, exposure and faces in every clip.
    * **Visual intelligence** (Gemma) describes the key frames.

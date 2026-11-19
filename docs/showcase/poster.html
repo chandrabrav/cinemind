@@ -24,9 +24,7 @@
 
   /* ---------- header ---------- */
   .brand { display: flex; align-items: center; gap: 22px; }
-  .logo { width: 84px; height: 84px; border-radius: 24px; background: linear-gradient(135deg, var(--violet), var(--pink));
-          display: grid; place-items: center; box-shadow: 0 18px 50px rgba(124,92,255,0.45); }
-  .logo svg { width: 46px; height: 46px; }
+  .logo { width: 96px; height: 96px; border-radius: 26px; box-shadow: 0 18px 50px rgba(124,92,255,0.45); }
   .brand h1 { font-size: 44px; font-weight: 800; letter-spacing: -0.5px; }
   .brand p { color: var(--soft); font-size: 20px; font-weight: 500; }
   .tag { margin-left: auto; padding: 12px 22px; border: 1px solid var(--line); border-radius: 999px; color: var(--soft); font-size: 18px; font-weight: 500; }
@@ -90,9 +88,7 @@
 <div class="wrap">
 
   <div class="brand">
-    <div class="logo">
-      <svg viewBox="0 0 24 24" fill="none"><path d="M4 6.5A2.5 2.5 0 0 1 6.5 4h7A2.5 2.5 0 0 1 16 6.5v11a2.5 2.5 0 0 1-2.5 2.5h-7A2.5 2.5 0 0 1 4 17.5v-11Z" fill="#fff"/><path d="m16 10 4-2.5v9L16 14v-4Z" fill="#fff" opacity=".85"/><path d="M10 7.2l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8.8-2Z" fill="#7C5CFF"/></svg>
-    </div>
+    <img class="logo" src="logo.webp" alt="CineMind AI logo">
     <div>
       <h1>CineMind AI</h1>
       <p>AI video editor for Android</p>

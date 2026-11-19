@@ -34,6 +34,7 @@ dependencies {
     implementation(project(":feature:captions"))
     implementation(project(":feature:export"))
     implementation(libs.compose.material.icons.extended)
+    implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.hilt.navigation.compose)
