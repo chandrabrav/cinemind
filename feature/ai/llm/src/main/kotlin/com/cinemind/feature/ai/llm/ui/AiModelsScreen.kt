@@ -70,12 +70,19 @@ data class AiSettingsUi(
     val preferGpu: Boolean,
     val selectedId: String,
     val freeBytes: Long,
+    /** Planning model id: "" automatic, "off", or a model id. */
+    val plannerId: String = "",
+    /** The planning model actually in use (after "automatic" is resolved). */
+    val plannerInUse: String? = null,
 )
 
 sealed interface BenchmarkUi {
     data object Idle : BenchmarkUi
     data object Running : BenchmarkUi
-    data class Done(val result: BenchmarkResult) : BenchmarkUi
+    data class Done(val results: List<BenchmarkResult>) : BenchmarkUi {
+        val report: String get() = results.joinToString("
+") { it.report() }
+    }
     data class Failed(val message: String) : BenchmarkUi
 }
 
@@ -98,7 +105,7 @@ class AiModelsViewModel @Inject constructor(
 
     fun record(spec: ModelSpec) = store.record(spec)
 
-    private fun read() = AiSettingsUi(prefs.useAiInSmartEdit, prefs.wifiOnly, prefs.preferGpu, prefs.selectedModelId, store.freeBytes())
+    private fun read() = AiSettingsUi(prefs.useAiInSmartEdit, prefs.wifiOnly, prefs.preferGpu, prefs.selectedModelId, store.freeBytes(), prefs.plannerModelId, llm.reasoningModel()?.id)
 
     fun setUseAi(v: Boolean) { prefs.useAiInSmartEdit = v; _settings.value = read() }
     fun setWifiOnly(v: Boolean) { prefs.wifiOnly = v; _settings.value = read() }
@@ -108,9 +115,15 @@ class AiModelsViewModel @Inject constructor(
         viewModelScope.launch { llm.unload() } // reload on the new backend next time
     }
     fun select(spec: ModelSpec) {
-        prefs.selectedModelId = spec.id
+        if (spec.reasoning) prefs.plannerModelId = spec.id else prefs.selectedModelId = spec.id
         _settings.value = read()
         viewModelScope.launch { llm.unload() }
+    }
+
+    /** Don't use any planning model (text planning falls back to the picture model or the rules). */
+    fun plannerOff() {
+        prefs.plannerModelId = AiPreferences.PLANNER_OFF
+        _settings.value = read()
     }
 
     fun download(spec: ModelSpec) { downloads.start(spec); _settings.value = read() }
@@ -127,7 +140,7 @@ class AiModelsViewModel @Inject constructor(
         if (_bench.value is BenchmarkUi.Running) return
         _bench.value = BenchmarkUi.Running
         viewModelScope.launch {
-            _bench.value = runCatching { benchmark.run() }
+            _bench.value = runCatching { benchmark.runAll() }
                 .fold({ BenchmarkUi.Done(it) }, { BenchmarkUi.Failed(it.message ?: "Benchmark failed") })
         }
     }
@@ -160,7 +173,8 @@ fun AiModelsScreen(viewModel: AiModelsViewModel = hiltViewModel()) {
             modifier = Modifier.padding(horizontal = Spacing.gutter),
         )
 
-        ModelCatalog.ALL.forEach { spec ->
+        SectionHeader("Pictures & speech", hint = "Sees your shots, transcribes speech (Gemma)")
+        ModelCatalog.VISUAL.forEach { spec ->
             val state by viewModel.state(spec).collectAsStateWithLifecycle()
             ModelCard(
                 spec = spec,
@@ -174,12 +188,31 @@ fun AiModelsScreen(viewModel: AiModelsViewModel = hiltViewModel()) {
             )
         }
 
+        SectionHeader("Planning (optional)", hint = "Thinks edit plans through on the phone (Spark). Without one, the picture model or the built-in rules plan.")
+        ModelCatalog.PLANNERS.forEach { spec ->
+            val state by viewModel.state(spec).collectAsStateWithLifecycle()
+            ModelCard(
+                spec = spec,
+                state = state,
+                selected = settings.plannerInUse == spec.id,
+                onSelect = { viewModel.select(spec) },
+                onDownload = { viewModel.download(spec) },
+                onPause = viewModel::pause,
+                onDelete = { viewModel.delete(spec) },
+                record = if (state == ModelState.Installed) viewModel.record(spec) else null,
+                inUseText = "In use for planning edits",
+            )
+        }
+        if (settings.plannerId != AiPreferences.PLANNER_OFF) {
+            TextButton(onClick = viewModel::plannerOff, modifier = Modifier.padding(horizontal = Spacing.gutter)) { Text("Don't use a planning model", color = c.textSecondary) }
+        }
+
         SectionHeader("Options")
         GlassCard(modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.gutter)) {
             SettingRow("Use AI in Smart edit", subtitle = "Reads your brief and describes your shots") {
                 Switch(checked = settings.useAi, onCheckedChange = viewModel::setUseAi)
             }
-            SettingRow("Download on Wi-Fi only", subtitle = "Models are 2.6–3.7 GB") {
+            SettingRow("Download on Wi-Fi only", subtitle = "Models are 1.7–3.7 GB") {
                 Switch(checked = settings.wifiOnly, onCheckedChange = viewModel::setWifiOnly)
             }
             SettingRow("Use the GPU", subtitle = "Faster; turn off if the app crashes while analysing") {
@@ -187,7 +220,7 @@ fun AiModelsScreen(viewModel: AiModelsViewModel = hiltViewModel()) {
             }
         }
 
-        SectionHeader("Benchmark this phone", hint = "Times loading, a text answer and one image analysis. Send the report back.")
+        SectionHeader("Benchmark this phone", hint = "Every installed model on the same CineMind tasks: load, a text answer, a picture (Gemma) and a real edit plan checked by the app. Send the report back.")
         GlassCard(modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.gutter)) {
             when (val b = bench) {
                 BenchmarkUi.Running -> {
@@ -196,9 +229,9 @@ fun AiModelsScreen(viewModel: AiModelsViewModel = hiltViewModel()) {
                     LinearProgressIndicator(color = c.accent, trackColor = c.surfaceSunken, modifier = Modifier.fillMaxWidth())
                 }
                 is BenchmarkUi.Done -> {
-                    Text(b.result.report(), style = MaterialTheme.typography.bodySmall, color = c.textPrimary)
+                    Text(b.report, style = MaterialTheme.typography.bodySmall, color = c.textPrimary)
                     Row {
-                        TextButton(onClick = { copy(context, b.result.report()) }) { Text("Copy report", color = c.accent) }
+                        TextButton(onClick = { copy(context, b.report) }) { Text("Copy report", color = c.accent) }
                         TextButton(onClick = viewModel::runBenchmark) { Text("Run again", color = c.textSecondary) }
                     }
                 }
@@ -223,6 +256,7 @@ private fun ModelCard(
     onPause: () -> Unit,
     onDelete: () -> Unit,
     record: com.cinemind.feature.ai.llm.ondevice.ModelRecord? = null,
+    inUseText: String = "In use for Smart edit and captions",
 ) {
     val c = CineMind.colors
     GlassCard(modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.gutter)) {
@@ -273,7 +307,7 @@ private fun ModelCard(
             ModelState.Installed -> Column {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        if (selected) "In use for Smart edit and captions" else "Ready",
+                        if (selected) inUseText else "Ready",
                         style = MaterialTheme.typography.labelMedium,
                         color = c.textSecondary,
                         modifier = Modifier.weight(1f),

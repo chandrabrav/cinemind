@@ -83,10 +83,31 @@ class OnDeviceLlm @Inject constructor(
     var backendName: String? = null
         private set
 
+    /** The model that sees and hears (Gemma): the chosen one if installed, else any installed. */
     fun installedModel(): ModelSpec? {
-        val preferred = ModelCatalog.byId(prefs.selectedModelId)
-        return preferred?.takeIf { store.isInstalled(it) } ?: ModelCatalog.ALL.firstOrNull { store.isInstalled(it) }
+        val preferred = ModelCatalog.byId(prefs.selectedModelId)?.takeIf { !it.reasoning }
+        return preferred?.takeIf { store.isInstalled(it) } ?: ModelCatalog.VISUAL.firstOrNull { store.isInstalled(it) }
     }
+
+    /**
+     * The planning model (Spark) if one is installed and not turned off: the chosen one, else the
+     * first installed. Null = text reasoning uses the picture model instead.
+     */
+    fun reasoningModel(): ModelSpec? {
+        val choice = prefs.plannerModelId
+        if (choice == AiPreferences.PLANNER_OFF) return null
+        val preferred = ModelCatalog.byId(choice)?.takeIf { it.reasoning }
+        return preferred?.takeIf { store.isInstalled(it) } ?: ModelCatalog.PLANNERS.firstOrNull { store.isInstalled(it) }
+    }
+
+    /** Every model whose file is installed and verified. */
+    fun installedModels(): List<ModelSpec> = ModelCatalog.ALL.filter { store.isInstalled(it) }
+
+    /** The model a text-only reasoning request goes to, or null when none is installed. */
+    fun textModel(): ModelSpec? = reasoningModel() ?: installedModel()
+
+    /** Id of the model in memory right now (one at a time), or null. */
+    val loadedModelId: String? get() = loadedId
 
     val isAvailable: Boolean get() = installedModel() != null
 
@@ -94,15 +115,14 @@ class OnDeviceLlm @Inject constructor(
     val supportsAudio: Boolean get() = installedModel()?.supportsAudio == true
 
     /** Loads the model if needed; returns load time in ms (0 if it was already loaded). */
-    suspend fun ensureLoaded(withAudio: Boolean = false): Long =
+    suspend fun ensureLoaded(withAudio: Boolean = false, spec: ModelSpec? = null): Long =
         try {
-            lock.withLock { loadLocked(withAudio) }
+            lock.withLock { loadLocked(spec ?: installedModel() ?: throw ModelNotInstalledException(), withAudio) }
         } finally {
             scheduleIdleUnload()
         }
 
-    private suspend fun loadLocked(withAudio: Boolean): Long = withContext(Dispatchers.Default) {
-        val spec = installedModel() ?: throw ModelNotInstalledException()
+    private suspend fun loadLocked(spec: ModelSpec, withAudio: Boolean): Long = withContext(Dispatchers.Default) {
         if (withAudio && !spec.supportsAudio) throw AudioNotSupportedException("${spec.name} can't listen to audio")
         if (engine != null && loadedId == spec.id && (loadedWithAudio || !withAudio)) return@withContext 0L
         unloadLocked()
@@ -120,8 +140,9 @@ class OnDeviceLlm @Inject constructor(
                         visionBackend = if (spec.supportsImages) make() else null,
                         // The audio encoder runs on the CPU (as in Google's reference app).
                         audioBackend = if (withAudio) Backend.CPU() else null,
-                        maxNumTokens = 4096,
-                        maxNumImages = 1,
+                        // Reasoning models think before answering, so they get a larger window.
+                        maxNumTokens = if (spec.reasoning) 8192 else 4096,
+                        maxNumImages = if (spec.supportsImages) 1 else null,
                         cacheDir = cache,
                     ),
                 )
@@ -144,21 +165,33 @@ class OnDeviceLlm @Inject constructor(
     /**
      * Asks the model one question, optionally about one image (JPEG/PNG file) or one audio clip
      * (16 kHz mono WAV file, at most ~30 s), and returns its text.
+     *
+     * [reasoning] = a text-only planning / decision question: it goes to the planning model (Spark)
+     * when one is installed, with room to think first; the thinking is never part of the answer.
+     * [spec] forces one installed model (benchmark).
      */
     suspend fun ask(
         prompt: String,
         imageFile: File? = null,
         maxOutputTokens: Int = 256,
         audioFile: File? = null,
+        reasoning: Boolean = false,
+        spec: ModelSpec? = null,
     ): String = try {
-        askLocked(prompt, imageFile, maxOutputTokens, audioFile)
+        val model = spec ?: when {
+            imageFile == null && audioFile == null && reasoning -> textModel()
+            else -> installedModel()
+        } ?: throw ModelNotInstalledException()
+        val budget = if (model.reasoning) (maxOutputTokens * 3).coerceIn(maxOutputTokens + 768, 6_000) else maxOutputTokens
+        val raw = askLocked(model, prompt, imageFile, budget, audioFile)
+        if (model.reasoning) stripThinking(raw) else raw
     } finally {
         // Also after a failure: a failed request must not leave the model in memory.
         scheduleIdleUnload()
     }
 
-    private suspend fun askLocked(prompt: String, imageFile: File?, maxOutputTokens: Int, audioFile: File?): String = lock.withLock {
-        loadLocked(withAudio = audioFile != null)
+    private suspend fun askLocked(spec: ModelSpec, prompt: String, imageFile: File?, maxOutputTokens: Int, audioFile: File?): String = lock.withLock {
+        loadLocked(spec, withAudio = audioFile != null)
         withContext(Dispatchers.Default) {
             val e = engine ?: throw ModelNotInstalledException()
             e.createConversation(
@@ -192,7 +225,14 @@ class OnDeviceLlm @Inject constructor(
         backendName = null
     }
 
-    private companion object {
+    companion object {
+        /** Removes a reasoning model's <think>…</think> part if the runtime left it in the answer. */
+        fun stripThinking(text: String): String {
+            val end = text.lastIndexOf("</think>")
+            val answer = if (end >= 0) text.substring(end + "</think>".length) else text.replace("<think>", "")
+            return answer.trim()
+        }
+
         /** Unload after this long without requests (a reload takes a few seconds). */
         const val IDLE_UNLOAD_MS = 60_000L
     }

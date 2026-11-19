@@ -64,6 +64,10 @@ internal fun SmartEditReport(result: SmartEditResult, onOpen: () -> Unit) {
                     Text("Needs your input", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 4.dp))
                     result.questions.forEach { Text("? $it", style = MaterialTheme.typography.bodySmall) }
                 }
+                if (result.howMade.isNotEmpty()) {
+                    Text("How this was made", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 4.dp))
+                    result.howMade.forEach { Text("· $it", style = MaterialTheme.typography.bodySmall, color = CineMind.colors.textSecondary) }
+                }
             }
         },
     )

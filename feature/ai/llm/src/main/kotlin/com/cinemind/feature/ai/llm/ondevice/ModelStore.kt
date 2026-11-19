@@ -204,4 +204,13 @@ class AiPreferences @Inject constructor(
     var preferGpu: Boolean
         get() = prefs.getBoolean("prefer_gpu", true)
         set(value) = prefs.edit().putBoolean("prefer_gpu", value).apply()
+
+    /** Planning model id; "" = automatic (any installed one), [PLANNER_OFF] = don't use one. */
+    var plannerModelId: String
+        get() = prefs.getString("planner", "") ?: ""
+        set(value) = prefs.edit().putString("planner", value).apply()
+
+    companion object {
+        const val PLANNER_OFF = "off"
+    }
 }

@@ -3,7 +3,16 @@ package com.cinemind.feature.ai.generation.smartedit
 import android.content.Context
 import android.net.Uri
 import com.cinemind.core.common.CineMindLogger
+import com.cinemind.core.domain.agents.AgentId
+import com.cinemind.core.domain.agents.DecisionEngine
+import com.cinemind.core.domain.agents.Goal
+import com.cinemind.core.domain.agents.ModelRequest
+import com.cinemind.core.domain.agents.ProjectContext
+import com.cinemind.core.domain.agents.RequestIntent
+import com.cinemind.core.domain.agents.RuntimeKind
 import com.cinemind.core.domain.aiedit.BuiltEdit
+import com.cinemind.core.domain.aiedit.EditPlanJson
+import com.cinemind.core.domain.model.EditStyle
 import com.cinemind.core.domain.aiedit.CreativeDirector
 import com.cinemind.core.domain.aiedit.DirectorBrief
 import com.cinemind.core.domain.aiedit.EditPlan
@@ -52,6 +61,8 @@ sealed interface SmartEditProgress {
     data class Looking(val index: Int, val count: Int) : SmartEditProgress
     data object Planning : SmartEditProgress
     data class AskingCloud(val engine: String) : SmartEditProgress
+    /** The on-phone planning model is thinking the edit through. */
+    data object PlanningOnPhone : SmartEditProgress
     data object Building : SmartEditProgress
 }
 
@@ -67,6 +78,8 @@ data class SmartEditResult(
     val summary: String = "",
     val steps: List<PlanStep> = emptyList(),
     val questions: List<String> = emptyList(),
+    /** Which agents ran and where (on this phone / cloud), and which were skipped and why. */
+    val howMade: List<String> = emptyList(),
 )
 
 class SmartEditException(message: String) : Exception(message)
@@ -93,6 +106,7 @@ class SmartEditor @Inject constructor(
     private val llm: OnDeviceLlm,
     private val aiPrefs: AiPreferences,
     private val cloud: EditAssistant,
+    private val runtime: AgentRuntime,
 ) {
     suspend fun create(projectId: String, onProgress: (SmartEditProgress) -> Unit = {}): SmartEditResult {
         val timeline = projectRepository.getProjectTimeline(projectId) ?: throw SmartEditException("Project not found")
@@ -113,18 +127,49 @@ class SmartEditor @Inject constructor(
         var intent = BriefInterpreter.interpret(brief)
         var insights: Map<String, List<TimedInsight>> = emptyMap()
         val aiNotes = mutableListOf<String>()
+        val captions = runCatching { captionRepository.getCaptions(projectId) }.getOrDefault(emptyList())
+        val audio = projectRepository.getProjectAudio(projectId)
 
-        if (aiPrefs.useAiInSmartEdit && llm.isAvailable) {
+        // ---- CineMind Decision Engine: which agents this request needs, and where each runs.
+        val orchestration = DecisionEngine.plan(
+            RequestIntent(
+                goals = setOf(Goal.NEW_EDIT),
+                creative = brief.prompt.isNotBlank() || brief.style != EditStyle.AUTO,
+                targetSeconds = brief.targetDurationSec,
+            ),
+            ProjectContext(
+                clipCount = clips.size,
+                videoCount = assets.count { it.isVideo },
+                totalSeconds = analyses.sumOf { it.durationUs } / 1e6,
+                hasSpeech = if (captions.isNotEmpty()) true else null,
+                hasMusic = audio.music != null,
+            ),
+            runtime.models(),
+            runtime.budget(),
+            runtime.policy(),
+        )
+        CineMindLogger.i("Decision engine: " + orchestration.explain().joinToString(" | "))
+        // What actually ran (never what was only planned).
+        val howMade = mutableListOf<String>()
+        howMade += "${AgentId.VIDEO_ANALYSIS.label}: measured ${analyses.size} source${if (analyses.size == 1) "" else "s"} on this phone"
+
+        val creativeStep = orchestration.step(AgentId.CREATIVE_DIRECTOR)
+        val visualStep = orchestration.step(AgentId.VISUAL_INTELLIGENCE)
+        if (creativeStep?.runtime == RuntimeKind.ON_DEVICE || visualStep != null) {
             try {
                 onProgress(SmartEditProgress.LoadingModel)
-                llm.ensureLoaded()
 
-                if (brief.prompt.isNotBlank()) {
+                if (brief.prompt.isNotBlank() && creativeStep?.runtime == RuntimeKind.ON_DEVICE) {
                     onProgress(SmartEditProgress.ReadingBrief)
-                    val answer = Prompts.parseBrief(llm.ask(Prompts.brief(brief.prompt), maxOutputTokens = 120))
+                    val model = runtime.model(creativeStep.modelId)
+                    val answer = model?.let { Prompts.parseBrief(it.infer(ModelRequest(Prompts.brief(brief.prompt), maxTokens = 120))) }
                     intent = AiAssist.mergeBrief(brief, intent, answer)
-                    if (answer != null) aiNotes += "On-device AI read your brief"
+                    if (answer != null) {
+                        aiNotes += "On-device AI read your brief"
+                        howMade += "${AgentId.CREATIVE_DIRECTOR.label}: read your brief on this phone"
+                    }
                 }
+                if (visualStep == null) throw SkipVision()
 
                 val sharpRef = MomentScoring.sharpnessReference(analyses.flatMap { a -> a.samples.map { it.sharpness } })
                 // Keep total model calls bounded: up to 3 frames per source, at most MAX_FRAMES overall.
@@ -139,8 +184,11 @@ class SmartEditor @Inject constructor(
                     }.flatten()
                     asset.id to described
                 }.filterValues { it.isNotEmpty() }
+                if (insights.isNotEmpty()) howMade += "${AgentId.VISUAL_INTELLIGENCE.label}: looked at ${insights.values.sumOf { it.size }} key moments on this phone"
             } catch (e: CancellationException) {
                 throw e
+            } catch (_: SkipVision) {
+                // Seeing the shots wasn't needed for this request.
             } catch (e: Exception) {
                 CineMindLogger.e(e, "On-device AI failed; using basic analysis")
                 insights = emptyMap()
@@ -170,8 +218,6 @@ class SmartEditor @Inject constructor(
                 seen = AiAssist.nearest(insights[s.assetId], (s.sourceInUs + s.sourceOutUs) / 2)?.insight?.let { "${it.subject}, ${it.scene}" }.orEmpty(),
             )
         }
-        val captions = runCatching { captionRepository.getCaptions(projectId) }.getOrDefault(emptyList())
-        val audio = projectRepository.getProjectAudio(projectId)
         val filmedAt = assets.mapNotNull { it.dateTaken }.minOrNull()
         val director = CreativeDirector.direct(
             measured,
@@ -184,12 +230,11 @@ class SmartEditor @Inject constructor(
         val dateText = filmedAt?.let { SimpleDateFormat("d MMM yyyy", Locale.ENGLISH).format(Date(it)) }
         val ground = listOfNotNull(brief.prompt, timeline.project.name, dateText, captions.joinToString(" ") { it.text }).joinToString(" ")
 
-        // ---- optional cloud plan (only with the user's own key and consent; text only)
+        // ---- Editing planner: the engine's chosen runtime first, then its fallbacks in order
+        // (cloud only with the user's own key and consent, text only; the rules always work).
         var engine = if (insights.isNotEmpty()) "On-device AI" else "On-device"
         var chosen: EditPlan = director
-        if (cloud.usesCloud) {
-            onProgress(SmartEditProgress.AskingCloud(cloud.engineName))
-            try {
+        run {
                 val request = PlanRequest(
                     request = brief.prompt,
                     style = intent.style.label,
@@ -218,30 +263,62 @@ class SmartEditor @Inject constructor(
                     filmedOn = dateText,
                     baseline = director,
                 )
-                val plan = cloud.planEdit(request)
-                if (plan != null) {
-                    val check = EditPlanValidator.validate(plan, sources, ground, hasCaptions = captions.isNotEmpty())
-                    if (check.usable) {
-                        chosen = plan
-                        engine = cloud.engineName
-                    } else {
-                        aiNotes += "${cloud.engineName}'s plan had no usable shots; used the on-device plan"
+                var step = orchestration.step(AgentId.EDIT_PLANNER)
+                while (step != null) {
+                    val current = step
+                    val label = when (current.runtime) {
+                        RuntimeKind.CLOUD -> cloud.engineName
+                        RuntimeKind.ON_DEVICE -> "The on-phone planner"
+                        RuntimeKind.DETERMINISTIC -> "The built-in director"
                     }
+                    val plan: EditPlan? = try {
+                        when (current.runtime) {
+                            RuntimeKind.DETERMINISTIC -> director
+                            RuntimeKind.CLOUD -> {
+                                onProgress(SmartEditProgress.AskingCloud(cloud.engineName))
+                                cloud.planEdit(request)
+                            }
+                            RuntimeKind.ON_DEVICE -> {
+                                onProgress(SmartEditProgress.PlanningOnPhone)
+                                planOnPhone(current.modelId, request)
+                            }
+                        }
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: CloudAiException) {
+                        aiNotes += "$label couldn't plan this (${e.message}); tried the next option"
+                        null
+                    } catch (e: Exception) {
+                        CineMindLogger.e(e, "Planner ${current.runtime} ${current.modelId} failed")
+                        aiNotes += "$label failed (${e.message?.take(80)}); tried the next option"
+                        null
+                    }
+                    if (plan != null && EditPlanValidator.validate(plan, sources, ground, hasCaptions = captions.isNotEmpty()).usable) {
+                        chosen = plan
+                        when (current.runtime) {
+                            RuntimeKind.CLOUD -> { engine = cloud.engineName; howMade += "${AgentId.EDIT_PLANNER.label}: planned in the cloud (text summary only)" }
+                            RuntimeKind.ON_DEVICE -> { engine = "On-device AI"; howMade += "${AgentId.EDIT_PLANNER.label}: thought the edit through on this phone" }
+                            RuntimeKind.DETERMINISTIC -> howMade += "${AgentId.EDIT_PLANNER.label}: built-in creative director (no model)"
+                        }
+                        break
+                    }
+                    if (plan != null) aiNotes += "$label's plan had no usable shots; tried the next option"
+                    step = DecisionEngine.recover(current)
                 }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: CloudAiException) {
-                aiNotes += "${cloud.engineName} couldn't plan this (${e.message}); used the on-device plan"
-            } catch (e: Exception) {
-                CineMindLogger.e(e, "Cloud plan failed")
-                aiNotes += "Cloud AI failed (${e.message?.take(80)}); used the on-device plan"
-            }
+        }
+        if (orchestration.uses(AgentId.MUSIC_DIRECTOR)) {
+            howMade += "${AgentId.MUSIC_DIRECTOR.label}: " + if (audio.music != null) "set music level and fades for your song" else "suggested a music mood (no song yet)"
+        }
+        if (orchestration.uses(AgentId.AUDIO_INTELLIGENCE)) {
+            howMade += "${AgentId.AUDIO_INTELLIGENCE.label}: " + if (captions.isNotEmpty()) "kept your captions in time with the new cut" else "no transcript yet, so speech wasn't checked (add captions first)"
         }
 
         onProgress(SmartEditProgress.Building)
         val validated = EditPlanValidator.validate(chosen, sources, ground, hasCaptions = captions.isNotEmpty())
             .takeIf { it.usable } ?: EditPlanValidator.validate(director, sources, ground, hasCaptions = captions.isNotEmpty())
         if (!validated.usable) throw SmartEditException("Couldn't build an edit from this footage.")
+        val fixes = validated.steps.count { it.status != StepStatus.APPLIED }
+        howMade += "${AgentId.QUALITY_ASSURANCE.label}: checked the plan against your real media" + if (fixes > 0) " ($fixes fixed or left out)" else ""
 
         val name = timeline.project.name.take(60) + if (engine == "On-device") " · Smart edit" else " · AI edit"
         val built = EditPlanExecutor.execute(validated, sources, timeline.project, name, timeline, captions)
@@ -249,6 +326,8 @@ class SmartEditor @Inject constructor(
         val steps = built.steps.toMutableList()
         persistExtras(newId, built, audio, steps)
         runCatching { briefRepository.saveBrief(brief.copy(projectId = newId)) }
+        howMade += "${AgentId.RENDERING.label}: built a new, editable project (your original is unchanged)"
+        orchestration.skipped.forEach { (agent, why) -> howMade += "Not used — ${agent.label}: $why" }
 
         CineMindLogger.d("Smart edit $newId by $engine: " + steps.joinToString(" | ") { "${it.status} ${it.area}: ${it.text}" })
         return SmartEditResult(
@@ -259,7 +338,39 @@ class SmartEditor @Inject constructor(
             summary = validated.plan.summary,
             steps = steps,
             questions = validated.plan.questions,
+            howMade = howMade,
         )
+    }
+
+    private class SkipVision : Exception()
+
+    /**
+     * The edit plan from the on-phone planning model (Spark, or Gemma when no planner is
+     * installed). The footage report is shortened to fit a phone-sized context window; the reply
+     * is validated by the caller exactly like a cloud plan. The model is freed afterwards.
+     */
+    private suspend fun planOnPhone(modelId: String?, request: PlanRequest): EditPlan? {
+        val model = runtime.model(modelId) ?: return null
+        val compact = request.copy(
+            sources = request.sources.map { s ->
+                val every = (s.moments.size / 8).coerceAtLeast(1)
+                s.copy(moments = s.moments.filterIndexed { i, _ -> i % every == 0 }.take(8))
+            }.take(12),
+            speech = request.speech.take(1_200),
+        )
+        return try {
+            val text = model.infer(
+                ModelRequest(
+                    prompt = EditPlanJson.userPrompt(compact),
+                    system = EditPlanJson.systemPrompt,
+                    schema = EditPlanJson.schema,
+                    maxTokens = 2_000,
+                ),
+            )
+            EditPlanJson.parse(text)
+        } finally {
+            withContext(NonCancellable) { llm.unload() }
+        }
     }
 
     /** Saves the parts beyond the main track. A failure is reported as a skipped step, never hidden. */
