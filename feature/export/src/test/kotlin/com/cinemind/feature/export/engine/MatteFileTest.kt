@@ -11,7 +11,7 @@ class MatteFileTest {
 
     @Test
     fun framesRoundTripAndBlendByTime() {
-        val dir = createTempDir()
+        val dir = kotlin.io.path.createTempDirectory("matte").toFile()
         val file = File(dir, "a.cmm")
         val w = 5
         val h = 3
@@ -47,7 +47,7 @@ class MatteFileTest {
 
     @Test
     fun anUnfinishedWriteLeavesNoFile() {
-        val dir = createTempDir()
+        val dir = kotlin.io.path.createTempDirectory("matte").toFile()
         val file = File(dir, "b.cmm")
         MatteWriter(file, 2, 2).use { it.add(0, ByteArray(4)) }
         assertFalse(file.exists())
