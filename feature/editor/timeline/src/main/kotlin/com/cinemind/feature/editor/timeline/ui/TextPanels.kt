@@ -15,6 +15,8 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
@@ -62,6 +64,7 @@ import androidx.compose.ui.unit.sp
 import com.cinemind.core.domain.captions.CaptionFont
 import com.cinemind.core.domain.text.Stickers
 import com.cinemind.core.domain.text.TextAnim
+import com.cinemind.core.domain.text.TextLoop
 import com.cinemind.core.domain.text.TextKind
 import com.cinemind.core.domain.text.TextLayer
 import com.cinemind.core.domain.text.TextLayerEditing
@@ -266,6 +269,7 @@ internal fun EditTextSheet(
             TextPill("Timing", tab == 3) { tab = 3 }
         }
         Spacer(Modifier.height(Spacing.m))
+        Column(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState())) {
         when (tab) {
             0 -> {
                 if (!sticker) {
@@ -289,7 +293,7 @@ internal fun EditTextSheet(
                     Spacer(Modifier.height(Spacing.s))
                     Text("Font", style = MaterialTheme.typography.labelLarge, color = c.textSecondary)
                     Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs), modifier = Modifier.horizontalScroll(rememberScrollState())) {
-                        CaptionFont.entries.forEach { f -> TextPill(f.label, st.font == f) { setStyle(st.copy(font = f)) } }
+                        CaptionFont.entries.forEach { f -> TextPill(f.label, st.font == f, fontFamilyOf(f)) { setStyle(st.copy(font = f)) } }
                     }
                     ValueSlider("Weight", st.weight.toFloat(), 100f..900f, { "${it.toInt()}" }) { setStyle(st.copy(weight = ((it / 100).toInt() * 100).coerceIn(100, 900))) }
                     ValueSlider("Letter spacing", st.spacing, 0f..0.6f, { String.format(java.util.Locale.ROOT, "%.2f", it) }) { setStyle(st.copy(spacing = it)) }
@@ -313,6 +317,14 @@ internal fun EditTextSheet(
                 SettingRow("Glow") { Switch(checked = st.glow, onCheckedChange = { setStyle(st.copy(glow = it, shadow = if (it) false else st.shadow)) }) }
                 ValueSlider("Box behind", st.boxOpacity, 0f..1f, { "${(it * 100).toInt()}%" }) { setStyle(st.copy(boxOpacity = it)) }
                 if (st.boxOpacity > 0f) Swatches(st.boxColor) { setStyle(st.copy(boxColor = it)) }
+                SettingRow("Gradient") { Switch(checked = st.hasGradient, onCheckedChange = { setStyle(st.copy(color2 = if (it) 0xFFFFA94D.toInt() else 0)) }) }
+                if (st.hasGradient) Swatches(st.color2) { setStyle(st.copy(color2 = it)) }
+                ValueSlider("3D depth", st.extrude, 0f..0.25f, { "${(it * 100).toInt()}" }) { setStyle(st.copy(extrude = it)) }
+                if (st.extrude > 0f) Swatches(st.extrudeColor) { setStyle(st.copy(extrudeColor = it)) }
+                SettingRow(
+                    title = "Behind the person",
+                    subtitle = "Text sits behind whoever is in the shot. Needs the clip's cutout (AI → Cut out subject).",
+                ) { Switch(checked = st.behindSubject, onCheckedChange = { setStyle(st.copy(behindSubject = it)) }) }
             }
             2 -> {
                 Text("Entrance", style = MaterialTheme.typography.labelLarge, color = c.textSecondary)
@@ -326,6 +338,11 @@ internal fun EditTextSheet(
                         TextPill(a.label, st.animOut == a) { setStyle(st.copy(animOut = a)) }
                     }
                 }
+                Spacer(Modifier.height(Spacing.s))
+                Text("Keeps moving", style = MaterialTheme.typography.labelLarge, color = c.textSecondary)
+                Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs), modifier = Modifier.horizontalScroll(rememberScrollState())) {
+                    TextLoop.entries.filter { !sticker || it != TextLoop.WAVE }.forEach { l -> TextPill(l.label, st.loop == l) { setStyle(st.copy(loop = l)) } }
+                }
             }
             else -> {
                 Text("${formatShortTime(layer.startUs)} – ${formatShortTime(layer.endUs)} (${formatShortTime(layer.lengthUs)})", style = MaterialTheme.typography.bodyMedium, color = c.textPrimary)
@@ -338,6 +355,7 @@ internal fun EditTextSheet(
                     TextPill("Start later", false) { onTrim(500_000, 0) }
                 }
             }
+        }
         }
         Spacer(Modifier.height(Spacing.s))
         Row(horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
@@ -384,6 +402,10 @@ private fun ValueSlider(label: String, value: Float, range: ClosedFloatingPointR
     }
 }
 
+/** The same typeface the preview and export draw with, for showing font and look names. */
+internal fun fontFamilyOf(font: CaptionFont, weight: Int = 700): FontFamily =
+    FontFamily(androidx.compose.ui.text.font.Typeface(com.cinemind.core.ui.text.FontBook.typeface(font, weight)))
+
 /** A look shown in its own style (font, weight, colour, box). */
 @Composable
 private fun PresetChip(p: TextPreset, selected: Boolean, onClick: () -> Unit) {
@@ -404,25 +426,21 @@ private fun PresetChip(p: TextPreset, selected: Boolean, onClick: () -> Unit) {
             label,
             color = Color(s.color),
             fontSize = 15.sp,
-            fontWeight = FontWeight(s.weight.coerceIn(100, 900)),
-            fontFamily = when (s.font) {
-                CaptionFont.SERIF -> FontFamily.Serif
-                CaptionFont.MONO -> FontFamily.Monospace
-                CaptionFont.CASUAL -> FontFamily.Cursive
-                else -> FontFamily.SansSerif
-            },
+            fontWeight = if (s.font.display) null else FontWeight(s.weight.coerceIn(100, 900)),
+            fontFamily = fontFamilyOf(s.font, s.weight),
             modifier = if (s.boxOpacity > 0f) Modifier.background(Color(s.boxColor).copy(alpha = s.boxOpacity), RoundedCornerShape(4.dp)).padding(horizontal = 4.dp) else Modifier,
         )
     }
 }
 
 @Composable
-private fun TextPill(text: String, selected: Boolean, onClick: () -> Unit) {
+private fun TextPill(text: String, selected: Boolean, fontFamily: FontFamily? = null, onClick: () -> Unit) {
     val c = CineMind.colors
     val shape = RoundedCornerShape(Radius.xl)
     Text(
         text,
         style = MaterialTheme.typography.labelLarge,
+        fontFamily = fontFamily,
         color = if (selected) c.onAccent else c.textPrimary,
         modifier = Modifier
             .clip(shape)

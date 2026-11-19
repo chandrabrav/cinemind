@@ -159,8 +159,7 @@ class CaptionPainter {
         val key = "${style.font}:${style.weight}"
         if (key == typefaceKey) return
         typefaceKey = key
-        val base = Typeface.create(style.fontEnum.family, Typeface.NORMAL)
-        val tf = Typeface.create(base, style.weight.coerceIn(100, 1000), false)
+        val tf = com.cinemind.core.ui.text.FontBook.typeface(style.fontEnum, style.weight)
         fill.typeface = tf
         stroke.typeface = tf
     }

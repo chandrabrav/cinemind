@@ -43,6 +43,17 @@ data class TextLayer(
 
 enum class TextAnim(val label: String) {
     NONE("None"), FADE("Fade"), POP("Pop"), SLIDE_UP("Slide up"), SLIDE_LEFT("Slide in"), ZOOM("Zoom"), TYPEWRITER("Typewriter"), BOUNCE("Bounce"),
+    // Motion-graphics entrances (letter / word staggered ones take up to 1.2 s, like the typewriter).
+    CASCADE("Letter drop"), WORDS("Word by word"), WIPE("Wipe"), TRACK("Tracking"), SPIN("Spin"), STAMP("Stamp"), GLITCH("Glitch"),
+    ;
+
+    /** Builds letter by letter or word by word, so it needs a longer entrance. */
+    val staggered: Boolean get() = this == TYPEWRITER || this == CASCADE || this == WORDS
+}
+
+/** Emphasis that keeps moving while the text is on screen (after the entrance). */
+enum class TextLoop(val label: String) {
+    NONE("None"), PULSE("Pulse"), SHAKE("Shake"), WAVE("Wave"), FLOAT("Float"), FLICKER("Neon flicker"), GLITCH("Glitch"),
 }
 
 /** Looks of a text layer. Colours are ARGB ints. */
@@ -64,12 +75,27 @@ data class TextStyle(
     val animOut: TextAnim = TextAnim.FADE,
     /** Drawn under picture-in-picture overlays (default: above everything). */
     val belowOverlays: Boolean = false,
+    /** Second colour of a top-to-bottom gradient fill; 0 = solid [color]. */
+    val color2: Int = 0,
+    /** 3D extrusion depth (fraction of text size, 0 = flat) and its colour. */
+    val extrude: Float = 0f,
+    val extrudeColor: Int = 0xFF7A1F1F.toInt(),
+    /** Emphasis after the entrance. */
+    val loop: TextLoop = TextLoop.NONE,
+    /**
+     * Drawn behind the person / subject (needs the clip's subject cutout). Without a cutout it is
+     * drawn normally, under the picture-in-picture.
+     */
+    val behindSubject: Boolean = false,
 ) {
+    val hasGradient: Boolean get() = color2 != 0
+
     fun encode(): String = String.format(
         Locale.ROOT,
-        "font=%s;w=%d;c=%08x;o=%.3f;oc=%08x;sh=%d;gl=%d;bc=%08x;bo=%.3f;up=%d;sp=%.3f;al=%d;in=%s;out=%s;bl=%d",
+        "font=%s;w=%d;c=%08x;o=%.3f;oc=%08x;sh=%d;gl=%d;bc=%08x;bo=%.3f;up=%d;sp=%.3f;al=%d;in=%s;out=%s;bl=%d;c2=%08x;ex=%.3f;ec=%08x;lp=%s;bs=%d",
         font.name, weight, color, outline, outlineColor, if (shadow) 1 else 0, if (glow) 1 else 0, boxColor, boxOpacity,
         if (uppercase) 1 else 0, spacing, align, animIn.name, animOut.name, if (belowOverlays) 1 else 0,
+        color2, extrude, extrudeColor, loop.name, if (behindSubject) 1 else 0,
     )
 
     companion object {
@@ -97,6 +123,11 @@ data class TextStyle(
                 animIn = TextAnim.entries.firstOrNull { it.name == m["in"] } ?: d.animIn,
                 animOut = TextAnim.entries.firstOrNull { it.name == m["out"] } ?: d.animOut,
                 belowOverlays = m["bl"] == "1",
+                color2 = color("c2", 0),
+                extrude = (m["ex"]?.toFloatOrNull() ?: 0f).coerceIn(0f, 0.3f),
+                extrudeColor = color("ec", d.extrudeColor),
+                loop = TextLoop.entries.firstOrNull { it.name == m["lp"] } ?: TextLoop.NONE,
+                behindSubject = m["bs"] == "1",
             )
         }
     }
@@ -113,6 +144,20 @@ enum class TextPreset(val label: String, val style: TextStyle, val size: Float, 
     LABEL("Label", TextStyle(weight = 800, color = BLACKISH, boxColor = WHITEISH, boxOpacity = 1f, shadow = false, animIn = TextAnim.POP), 0.05f, 0.2f),
     TYPEWRITER("Typewriter", TextStyle(font = CaptionFont.MONO, weight = 500, shadow = true, animIn = TextAnim.TYPEWRITER), 0.055f, 0.5f),
     HANDWRITTEN("Casual", TextStyle(font = CaptionFont.CASUAL, weight = 600, color = 0xFFFFF4E0.toInt(), shadow = true, animIn = TextAnim.SLIDE_UP), 0.08f, 0.6f),
+
+    // Motion-graphics looks (original designs in the spirit of modern social video editors).
+    BEHIND_ME("Behind me", TextStyle(font = CaptionFont.ANTON, uppercase = true, shadow = false, spacing = 0.02f, animIn = TextAnim.TRACK, behindSubject = true), 0.3f, 0.32f),
+    HYPE("Hype", TextStyle(font = CaptionFont.ANTON, uppercase = true, color = 0xFFFFE600.toInt(), outline = 0.1f, animIn = TextAnim.STAMP, loop = TextLoop.SHAKE), 0.14f, 0.38f),
+    KINETIC("Kinetic", TextStyle(font = CaptionFont.BEBAS, uppercase = true, spacing = 0.04f, animIn = TextAnim.WORDS, animOut = TextAnim.ZOOM), 0.12f, 0.45f),
+    GRADIENT_POP("Gradient pop", TextStyle(font = CaptionFont.POPPINS, color = 0xFFFF5FA2.toInt(), color2 = 0xFFFFB347.toInt(), shadow = true, animIn = TextAnim.POP, loop = TextLoop.PULSE), 0.1f, 0.35f),
+    RETRO_3D("Retro 3D", TextStyle(font = CaptionFont.BUNGEE, uppercase = true, color = 0xFFFFD43B.toInt(), extrude = 0.12f, extrudeColor = 0xFFD7263D.toInt(), shadow = false, animIn = TextAnim.BOUNCE), 0.11f, 0.35f),
+    GLITCH("Glitch", TextStyle(font = CaptionFont.ARCHIVO, uppercase = true, color = 0xFFE8FFFF.toInt(), shadow = false, animIn = TextAnim.GLITCH, loop = TextLoop.GLITCH), 0.1f, 0.4f),
+    NEON_SIGN("Neon sign", TextStyle(font = CaptionFont.NEON, color = 0xFFFF6EC7.toInt(), glow = true, shadow = false, animIn = TextAnim.FADE, loop = TextLoop.FLICKER), 0.1f, 0.35f),
+    WAVE("Wave", TextStyle(font = CaptionFont.LUCKIEST, color = 0xFFFFFFFF.toInt(), outline = 0.08f, outlineColor = 0xFF2B59C3.toInt(), animIn = TextAnim.CASCADE, loop = TextLoop.WAVE), 0.1f, 0.4f),
+    COMIC("Comic", TextStyle(font = CaptionFont.BANGERS, uppercase = true, color = 0xFFFFE600.toInt(), outline = 0.06f, extrude = 0.08f, extrudeColor = BLACKISH, spacing = 0.03f, animIn = TextAnim.SPIN), 0.12f, 0.35f),
+    SIGNATURE("Signature", TextStyle(font = CaptionFont.SCRIPT, weight = 400, shadow = true, animIn = TextAnim.WIPE), 0.12f, 0.55f),
+    EDITORIAL("Editorial", TextStyle(font = CaptionFont.ABRIL, color = 0xFFF5EFE6.toInt(), shadow = true, animIn = TextAnim.TRACK, loop = TextLoop.FLOAT), 0.09f, 0.4f),
+    HINDI_BOLD("Hindi bold", TextStyle(font = CaptionFont.MUKTA, color = 0xFFFFE600.toInt(), outline = 0.08f, animIn = TextAnim.WORDS), 0.1f, 0.4f),
     ;
 }
 
@@ -132,7 +177,7 @@ object Stickers {
 }
 
 /** Animation state of a layer at one instant: progress of the entrance and exit (0..1). */
-data class TextFrame(val layer: TextLayer, val enter: Float, val exit: Float)
+data class TextFrame(val layer: TextLayer, val enter: Float, val exit: Float, /** Time since the layer appeared, for looping emphasis. */ val localUs: Long = 0L)
 
 object TextLayerEditing {
 
@@ -147,10 +192,12 @@ object TextLayerEditing {
             .map { l ->
                 val anim = minOf(ANIM_US, l.lengthUs / 3).coerceAtLeast(1)
                 // Typewriter types for up to 1.2 s (half the layer at most).
-                val inAnim = if (l.styleObj.animIn == TextAnim.TYPEWRITER) minOf(1_200_000L, l.lengthUs / 2).coerceAtLeast(1) else anim
+                val inAnim = if (l.styleObj.animIn.staggered) minOf(1_200_000L, l.lengthUs / 2).coerceAtLeast(1) else anim
                 val enter = ((timeUs - l.startUs).toFloat() / inAnim).coerceIn(0f, 1f)
                 val exit = (1f - (l.endUs - timeUs).toFloat() / anim).coerceIn(0f, 1f)
-                TextFrame(l, enter, exit)
+                // Running time only while something moves, so still text isn't redrawn every frame.
+                val moving = enter < 1f || l.styleObj.loop != TextLoop.NONE
+                TextFrame(l, enter, exit, if (moving) timeUs - l.startUs else 0L)
             }
 
     /** New layer at [atUs] lasting [DEFAULT_US] (shortened to fit [timelineUs]); on top of the others. */
