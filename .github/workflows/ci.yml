@@ -191,8 +191,8 @@ jobs:
           ffmpeg-version: release
 
       - name: Install ffmpeg (apt fallback)
-        timeout-minutes: 8
-        run: command -v ffmpeg >/dev/null || (sudo apt-get update -q && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends ffmpeg)
+        timeout-minutes: 20
+        run: command -v ffmpeg >/dev/null || (sudo apt-get update -q -o Acquire::Retries=3 && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends -o Acquire::Retries=3 ffmpeg)
 
       - name: Generate test media (ffmpeg)
         timeout-minutes: 10
