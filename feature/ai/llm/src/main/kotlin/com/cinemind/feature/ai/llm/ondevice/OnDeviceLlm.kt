@@ -39,6 +39,19 @@ class OnDeviceLlm @Inject constructor(
     private val prefs: AiPreferences,
 ) {
     private val lock = Mutex()
+
+    init {
+        // The last request never finished: the runtime took the app down with it. Stop using that
+        // planning model on this phone (the user can switch it back on in AI models).
+        val crashed = prefs.inFlightModel
+        if (crashed.isNotEmpty()) {
+            prefs.inFlightModel = ""
+            if (ModelCatalog.byId(crashed)?.reasoning == true) {
+                prefs.crashedModels = prefs.crashedModels + crashed
+                com.cinemind.core.common.Diagnostics.memoryNote(context, "Planning model $crashed crashed the app; switched off")
+            }
+        }
+    }
     private var engine: Engine? = null
     private var loadedId: String? = null
     private var loadedWithAudio = false
@@ -96,8 +109,9 @@ class OnDeviceLlm @Inject constructor(
     fun reasoningModel(): ModelSpec? {
         val choice = prefs.plannerModelId
         if (choice == AiPreferences.PLANNER_OFF) return null
-        val preferred = ModelCatalog.byId(choice)?.takeIf { it.reasoning }
-        return preferred?.takeIf { store.isInstalled(it) } ?: ModelCatalog.PLANNERS.firstOrNull { store.isInstalled(it) }
+        val crashed = prefs.crashedModels
+        val preferred = ModelCatalog.byId(choice)?.takeIf { it.reasoning && it.id !in crashed }
+        return preferred?.takeIf { store.isInstalled(it) } ?: ModelCatalog.PLANNERS.firstOrNull { store.isInstalled(it) && it.id !in crashed }
     }
 
     /** Every model whose file is installed and verified. */
@@ -200,7 +214,8 @@ class OnDeviceLlm @Inject constructor(
         loadLocked(spec, withAudio = audioFile != null)
         withContext(Dispatchers.Default) {
             val e = engine ?: throw ModelNotInstalledException()
-            e.createConversation(
+            if (spec.reasoning) prefs.inFlightModel = spec.id
+            try { e.createConversation(
                 ConversationConfig(
                     // Near-greedy decoding: stable, parseable answers.
                     samplerConfig = SamplerConfig(topK = 1, topP = 0.95, temperature = 0.1),
@@ -213,6 +228,9 @@ class OnDeviceLlm @Inject constructor(
                     add(Content.Text(prompt))
                 }
                 conversation.sendMessage(Contents.of(*parts.toTypedArray())).toString()
+            } } finally {
+                // Finished (or failed normally): not a crash.
+                if (spec.reasoning) prefs.inFlightModel = ""
             }
         }
     }

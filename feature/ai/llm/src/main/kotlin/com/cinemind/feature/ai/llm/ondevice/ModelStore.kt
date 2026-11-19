@@ -210,6 +210,20 @@ class AiPreferences @Inject constructor(
         get() = prefs.getString("planner", "") ?: ""
         set(value) = prefs.edit().putString("planner", value).apply()
 
+    /**
+     * Crash guard: the model being asked right now. Written synchronously before a request and
+     * cleared after it, so if the runtime kills the app (a native crash can't be caught) the next
+     * start knows which model did it.
+     */
+    var inFlightModel: String
+        get() = prefs.getString("in_flight", "") ?: ""
+        set(value) { prefs.edit().putString("in_flight", value).commit() }
+
+    /** Planning models switched off after they crashed the app on this phone. */
+    var crashedModels: Set<String>
+        get() = prefs.getStringSet("crashed", emptySet()).orEmpty()
+        set(value) = prefs.edit().putStringSet("crashed", value).apply()
+
     companion object {
         const val PLANNER_OFF = "off"
     }

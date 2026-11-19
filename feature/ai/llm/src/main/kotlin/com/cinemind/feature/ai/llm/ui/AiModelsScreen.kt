@@ -114,7 +114,10 @@ class AiModelsViewModel @Inject constructor(
         viewModelScope.launch { llm.unload() } // reload on the new backend next time
     }
     fun select(spec: ModelSpec) {
-        if (spec.reasoning) prefs.plannerModelId = spec.id else prefs.selectedModelId = spec.id
+        if (spec.reasoning) {
+            prefs.plannerModelId = spec.id
+            prefs.crashedModels = prefs.crashedModels - spec.id // the user wants to try it again
+        } else prefs.selectedModelId = spec.id
         _settings.value = read()
         viewModelScope.launch { llm.unload() }
     }
