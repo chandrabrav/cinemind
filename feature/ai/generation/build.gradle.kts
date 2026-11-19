@@ -31,6 +31,8 @@ dependencies {
     implementation(project(":core:ui"))
     implementation(project(":feature:ai:llm"))
     implementation(project(":feature:ai:cloud"))
+    implementation(project(":feature:captions"))
+    implementation(project(":feature:export"))
     implementation(libs.compose.material.icons.extended)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)

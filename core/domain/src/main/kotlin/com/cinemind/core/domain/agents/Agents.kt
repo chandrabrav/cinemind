@@ -13,6 +13,7 @@ enum class Capability {
     VISUAL_UNDERSTANDING,
     VIDEO_ANALYSIS,
     AUDIO_ANALYSIS,
+    AUDIO_ENHANCEMENT,
     SPEECH_TRANSCRIPTION,
     BEAT_ANALYSIS,
     MUSIC_DIRECTION,
@@ -31,6 +32,8 @@ enum class DataKind {
     FOOTAGE_REPORT,
     SHOT_DESCRIPTIONS,
     AUDIO_PROFILE,
+    /** The clip sound with voice clean-up applied (non-destructive: a setting, originals untouched). */
+    CLEAN_AUDIO,
     TRANSCRIPT,
     BEAT_GRID,
     MUSIC_PLAN,
@@ -48,6 +51,7 @@ enum class Tool {
     AUDIO_DECODER,
     SPEECH_DETECTOR,
     SPEECH_RECOGNISER,
+    VOICE_ENHANCER,
     BEAT_DETECTOR,
     PLAN_VALIDATOR,
     TIMELINE_COMPILER,
@@ -55,7 +59,7 @@ enum class Tool {
 }
 
 /** What a model can do. Agents ask for skills, never for a particular model. */
-enum class ModelSkill { TEXT_REASONING, STRUCTURED_OUTPUT, VISION, AUDIO }
+enum class ModelSkill { TEXT_REASONING, STRUCTURED_OUTPUT, VISION, AUDIO, /** Speech to timed text (Whisper; Gemma's audio encoder too). */ TRANSCRIPTION }
 
 enum class RuntimeKind { DETERMINISTIC, ON_DEVICE, CLOUD }
 
@@ -63,7 +67,8 @@ enum class AgentId(val label: String) {
     CREATIVE_DIRECTOR("Creative director"),
     VISUAL_INTELLIGENCE("Visual intelligence"),
     VIDEO_ANALYSIS("Video analysis"),
-    AUDIO_INTELLIGENCE("Audio intelligence"),
+    AUDIO_INTELLIGENCE("Speech (transcription)"),
+    AUDIO_ENHANCEMENT("Voice clean-up"),
     MUSIC_DIRECTOR("Music director"),
     EDIT_PLANNER("Editing planner"),
     CAPTIONS("Captions & subtitles"),
@@ -92,6 +97,8 @@ data class AgentSpec(
     val optional: Boolean = false,
     /** Rough output size when a model is used, for latency estimates. */
     val outputTokens: Int = 0,
+    /** Bumped when the agent's contract changes (shown in diagnostics). */
+    val version: Int = 1,
 ) {
     val deterministic: Boolean get() = needs.isEmpty()
 }
@@ -119,8 +126,14 @@ object AgentRegistry {
     val AUDIO_INTELLIGENCE = AgentSpec(
         AgentId.AUDIO_INTELLIGENCE, setOf(Capability.AUDIO_ANALYSIS, Capability.SPEECH_TRANSCRIPTION),
         requires = setOf(DataKind.PROJECT_MEDIA), produces = DataKind.TRANSCRIPT,
-        tools = setOf(Tool.AUDIO_DECODER, Tool.SPEECH_DETECTOR, Tool.SPEECH_RECOGNISER), needs = setOf(ModelSkill.AUDIO),
-        deterministicFallback = true, cloudSafe = false, optional = true, outputTokens = 256,
+        tools = setOf(Tool.AUDIO_DECODER, Tool.SPEECH_DETECTOR, Tool.SPEECH_RECOGNISER), needs = setOf(ModelSkill.TRANSCRIPTION),
+        deterministicFallback = true, cloudSafe = false, optional = true, outputTokens = 256, version = 2,
+    )
+    /** CineMind's on-device voice enhancer (DSP: low cut, spectral noise reduction, presence, leveller). */
+    val AUDIO_ENHANCEMENT = AgentSpec(
+        AgentId.AUDIO_ENHANCEMENT, setOf(Capability.AUDIO_ENHANCEMENT),
+        requires = setOf(DataKind.PROJECT_MEDIA), produces = DataKind.CLEAN_AUDIO,
+        tools = setOf(Tool.AUDIO_DECODER, Tool.VOICE_ENHANCER),
     )
     val MUSIC_DIRECTOR = AgentSpec(
         AgentId.MUSIC_DIRECTOR, setOf(Capability.BEAT_ANALYSIS, Capability.MUSIC_DIRECTION),
@@ -146,12 +159,12 @@ object AgentRegistry {
     )
     val RENDERING = AgentSpec(
         AgentId.RENDERING, setOf(Capability.RENDERING, Capability.TIMELINE_OPERATION),
-        requires = emptySet(), uses = setOf(DataKind.EDIT_PLAN, DataKind.QA_REPORT, DataKind.CAPTIONS),
+        requires = emptySet(), uses = setOf(DataKind.EDIT_PLAN, DataKind.QA_REPORT, DataKind.CAPTIONS, DataKind.CLEAN_AUDIO),
         produces = DataKind.TIMELINE, tools = setOf(Tool.TIMELINE_COMPILER, Tool.RENDERER),
     )
 
     val ALL: List<AgentSpec> = listOf(
-        CREATIVE_DIRECTOR, VISUAL_INTELLIGENCE, VIDEO_ANALYSIS, AUDIO_INTELLIGENCE, MUSIC_DIRECTOR,
+        CREATIVE_DIRECTOR, VISUAL_INTELLIGENCE, VIDEO_ANALYSIS, AUDIO_INTELLIGENCE, AUDIO_ENHANCEMENT, MUSIC_DIRECTOR,
         EDIT_PLANNER, CAPTIONS, QUALITY_ASSURANCE, RENDERING,
     )
 

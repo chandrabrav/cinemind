@@ -32,10 +32,17 @@ class AgentRuntime @Inject constructor(
 ) {
     fun budget(): ResourceBudget = ResourcePolicy.budget(DeviceResources.snapshot(context))
 
-    fun policy(): Policy = keys.settings.value.let { Policy(it.mode, it.consented, useOnDeviceAi = prefs.useAiInSmartEdit) }
+    fun policy(): Policy = keys.settings.value.let {
+        Policy(it.mode, it.consented, useOnDeviceAi = prefs.useAiInSmartEdit, disabled = com.cinemind.feature.ai.llm.ondevice.AgentSwitches.disabled(context))
+    }
 
     /** Every model the engine may choose from right now. */
-    fun models(): List<ModelDescriptor> = local().map { it.descriptor } + listOfNotNull(cloud()?.descriptor)
+    fun models(): List<ModelDescriptor> = local().map { it.descriptor } + listOfNotNull(speech(), cloud()?.descriptor)
+
+    /** Whisper, when downloaded: transcription only (run by the captions module, not this adapter). */
+    private fun speech(): ModelDescriptor? = llm.speechModel()?.let { s ->
+        ModelDescriptor(s.id, RuntimeKind.ON_DEVICE, setOf(ModelSkill.TRANSCRIPTION), (s.sizeBytes / (1024 * 1024) * 3).toInt(), 50f, if (s.id == "whisper-base") 5 else 4, true)
+    }
 
     fun model(id: String?): CineMindModel? = (local() + listOfNotNull(cloud())).firstOrNull { it.descriptor.id == id }
 
@@ -57,7 +64,7 @@ class AgentRuntime @Inject constructor(
                 add(ModelSkill.TEXT_REASONING)
                 add(ModelSkill.STRUCTURED_OUTPUT)
                 if (spec.supportsImages) add(ModelSkill.VISION)
-                if (spec.supportsAudio) add(ModelSkill.AUDIO)
+                if (spec.supportsAudio) { add(ModelSkill.AUDIO); add(ModelSkill.TRANSCRIPTION) }
             },
             // Room for activations and the KV cache on top of the file.
             memoryMb = (spec.sizeBytes / (1024 * 1024) * 1.25).toInt(),

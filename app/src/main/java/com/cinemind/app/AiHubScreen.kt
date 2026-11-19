@@ -24,7 +24,7 @@ import com.cinemind.feature.ai.llm.ui.AiModelsScreen
 @Composable
 fun AiHubScreen(initialTab: Int = 0) {
     val c = CineMind.colors
-    var tab by rememberSaveable { mutableIntStateOf(initialTab.coerceIn(0, 1)) }
+    var tab by rememberSaveable { mutableIntStateOf(initialTab.coerceIn(0, 2)) }
     Column(Modifier.fillMaxSize()) {
         TabRow(
             selectedTabIndex = tab,
@@ -34,10 +34,12 @@ fun AiHubScreen(initialTab: Int = 0) {
         ) {
             Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("On this phone") })
             Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Cloud") })
+            Tab(selected = tab == 2, onClick = { tab = 2 }, text = { Text("Diagnostics") })
         }
         when (tab) {
             0 -> AiModelsScreen()
-            else -> CloudAiScreen()
+            1 -> CloudAiScreen()
+            else -> AgentDiagnosticsScreen()
         }
     }
 }

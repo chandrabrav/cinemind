@@ -13,6 +13,8 @@ enum class Goal {
     FIND_BEST_SCENES,
     SYNC_TO_MUSIC,
     CAPTIONS,
+    /** Clearer voices: noise reduction and levelling of the clips' sound. */
+    CLEAN_AUDIO,
 }
 
 /** Parts of an edit a revision may change or must keep. */
@@ -47,6 +49,8 @@ data class Policy(
     val cloudConsent: Boolean,
     /** Optional AI agents may be skipped (e.g. "Use AI in Smart edit" off). */
     val useOnDeviceAi: Boolean = true,
+    /** Agents switched off in the developer diagnostics. */
+    val disabled: Set<AgentId> = emptySet(),
 )
 
 /** One agent in the plan, with where it runs and what to try if that fails. */
@@ -111,13 +115,14 @@ object DecisionEngine {
 
         // Capabilities → agents, then pull in the producers of everything they require.
         val chosen = linkedMapOf<AgentId, AgentSpec>()
-        caps.forEach { c -> AgentRegistry.forCapability(c)?.let { chosen[it.id] = it } }
+        caps.forEach { c -> AgentRegistry.forCapability(c)?.let { a -> if (a.id in policy.disabled) skipped[a.id] = "switched off in developer settings" else chosen[a.id] = a } }
         var grew = true
         while (grew) {
             grew = false
             for (a in chosen.values.toList()) for (d in a.requires) {
                 if (d == DataKind.USER_REQUEST || d == DataKind.PROJECT_MEDIA || d in reused) continue
                 val p = AgentRegistry.producerOf(d) ?: continue
+                if (p.id in policy.disabled) { skipped[p.id] = "switched off in developer settings"; continue }
                 if (p.id !in chosen && p.id !in skipped) { chosen[p.id] = p; grew = true }
             }
         }
@@ -190,6 +195,10 @@ object DecisionEngine {
             if (ctx.hasSpeech == false) skipped[AgentId.CAPTIONS] = "no speech was found in this project"
             else c += listOf(Capability.SPEECH_TRANSCRIPTION, Capability.CAPTIONING)
         }
+        if (Goal.CLEAN_AUDIO in g) {
+            if (ctx.videoCount == 0) skipped[AgentId.AUDIO_ENHANCEMENT] = "the project has no clips with sound"
+            else c += listOf(Capability.AUDIO_ENHANCEMENT, Capability.RENDERING)
+        }
         if (Goal.REVISE_EDIT in g) c += RevisionPlanner.capabilitiesFor(intent)
         if (Goal.DIRECT_OPERATION in g) c += Capability.TIMELINE_OPERATION
         if (c.isEmpty()) c += Capability.UNDERSTAND_REQUEST
@@ -238,6 +247,7 @@ object DecisionEngine {
         AgentId.VISUAL_INTELLIGENCE -> "choosing between shots needs to see them"
         AgentId.VIDEO_ANALYSIS -> "measures every clip (sharpness, motion, exposure, faces)"
         AgentId.AUDIO_INTELLIGENCE -> if (Goal.CAPTIONS in intent.goals) "captions need the words" else "keeps cuts out of the middle of speech"
+        AgentId.AUDIO_ENHANCEMENT -> "cleans up the voices (noise reduction, levelling) without touching the originals"
         AgentId.MUSIC_DIRECTOR -> if (ctx.hasMusic) "places cuts and fades against the music" else "no music yet: suggests what to look for"
         AgentId.EDIT_PLANNER -> "turns the findings into a structured edit plan"
         AgentId.CAPTIONS -> "writes timed captions from the speech"

@@ -10,7 +10,7 @@ import org.junit.Test
 
 class DecisionEngineTest {
 
-    private val gemma = ModelDescriptor("gemma-4-e2b", RuntimeKind.ON_DEVICE, setOf(ModelSkill.TEXT_REASONING, ModelSkill.STRUCTURED_OUTPUT, ModelSkill.VISION, ModelSkill.AUDIO), 3_200, 25f, 2, true)
+    private val gemma = ModelDescriptor("gemma-4-e2b", RuntimeKind.ON_DEVICE, setOf(ModelSkill.TEXT_REASONING, ModelSkill.STRUCTURED_OUTPUT, ModelSkill.VISION, ModelSkill.AUDIO, ModelSkill.TRANSCRIPTION), 3_200, 25f, 2, true)
     private val spark = ModelDescriptor("spark-x2.6-1.7b", RuntimeKind.ON_DEVICE, setOf(ModelSkill.TEXT_REASONING, ModelSkill.STRUCTURED_OUTPUT), 2_100, 27f, 3, true)
     private val claude = ModelDescriptor("claude", RuntimeKind.CLOUD, setOf(ModelSkill.TEXT_REASONING, ModelSkill.STRUCTURED_OUTPUT), 0, 60f, 5, true)
     private val roomy = ResourcePolicy.budget(ResourceSnapshot(availMemMb = 9_000, totalMemMb = 16_000))
