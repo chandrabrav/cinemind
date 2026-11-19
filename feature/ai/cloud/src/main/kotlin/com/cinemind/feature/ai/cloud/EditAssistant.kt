@@ -25,13 +25,12 @@ class EditAssistant @Inject constructor(
         com.cinemind.core.domain.aigen.AiRouter.cloudPlanningAllowed(it.mode, it.hasKey && it.consented)
     }
 
-    val engineName: String get() = if (usesCloud) keys.settings.value.model.label else "On-device AI"
+    val engineName: String get() = if (usesCloud) keys.settings.value.engineLabel else "On-device AI"
 
     suspend fun plan(brief: ProjectBrief, request: String): AssistantPlan {
         val user = Assistant.userPrompt(brief, request)
         val text = if (usesCloud) {
-            val key = keys.apiKey() ?: throw CloudAiException("Add your Claude API key in Settings → Cloud AI.")
-            val client = ClaudeClient(key, keys.settings.value.model)
+            val client = keys.client() ?: throw CloudAiException("Add a cloud AI key and model in AI models → Cloud.")
             try {
                 client.ask(Assistant.systemPrompt, user, Assistant.schema)
             } finally {
@@ -39,7 +38,7 @@ class EditAssistant @Inject constructor(
             }
         } else {
             if (onDevice.installedModel() == null) {
-                throw CloudAiException("Download an on-device AI model (Settings → AI models) or add a Claude API key (Settings → Cloud AI).")
+                throw CloudAiException("Download an on-device model or add a cloud AI key (both in AI models).")
             }
             onDevice.ask(
                 Assistant.systemPrompt +
@@ -59,25 +58,18 @@ class EditAssistant @Inject constructor(
      */
     suspend fun planEdit(request: PlanRequest): EditPlan? {
         if (!usesCloud) return null
-        val key = keys.apiKey() ?: return null
-        val client = ClaudeClient(key, keys.settings.value.model)
+        val client = keys.client() ?: return null
         val text = try {
-            client.ask(EditPlanJson.systemPrompt, EditPlanJson.userPrompt(request), EditPlanJson.schema, 12_000L, planEffort())
+            client.ask(EditPlanJson.systemPrompt, EditPlanJson.userPrompt(request), EditPlanJson.schema, 12_000L, deep = keys.settings.value.mode == com.cinemind.core.domain.aigen.AiMode.CLOUD)
         } finally {
             client.close()
         }
-        return EditPlanJson.parse(text) ?: throw CloudAiException("Claude's plan couldn't be read. Try again.")
+        return EditPlanJson.parse(text) ?: throw CloudAiException("The cloud plan couldn't be read. Try again.")
     }
-
-    // Cloud-assisted mode buys deeper reasoning; Hybrid keeps plans quick and cheaper.
-    private fun planEffort() =
-        if (keys.settings.value.mode == com.cinemind.core.domain.aigen.AiMode.CLOUD) com.anthropic.models.messages.OutputConfig.Effort.HIGH
-        else com.anthropic.models.messages.OutputConfig.Effort.MEDIUM
 
     /** A tiny request to check the saved key works; returns Claude's reply. */
     suspend fun test(): String {
-        val key = keys.apiKey() ?: throw CloudAiException("No key saved")
-        val client = ClaudeClient(key, keys.settings.value.model)
+        val client = keys.client() ?: throw CloudAiException(if (keys.apiKey() == null) "No key saved" else "Choose a model first")
         return try {
             val brief = ProjectBrief("Test", 10.0, listOf("video 10.0 s"), emptyList(), "", 0f, false)
             val reply = client.ask(Assistant.systemPrompt, Assistant.userPrompt(brief, "Say hello in five words. No actions."), Assistant.schema, 1_000L)

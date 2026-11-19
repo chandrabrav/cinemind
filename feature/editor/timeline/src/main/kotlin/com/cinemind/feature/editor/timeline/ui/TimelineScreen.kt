@@ -244,6 +244,7 @@ fun TimelineScreen(
     var showAssistant by remember { mutableStateOf(false) }
     var showRemake by remember { mutableStateOf(false) }
     var showCutout by remember { mutableStateOf(false) }
+    var showEnhance by remember { mutableStateOf(false) }
     var toolCategory by remember { mutableStateOf<ToolCategory?>(null) }
     var musicMood by remember { mutableStateOf<String?>(null) }
     var musicTheme by remember { mutableStateOf("") }
@@ -495,6 +496,7 @@ fun TimelineScreen(
                                     tool(Icons.Default.MusicNote, if (editor.music != null) "Music" else "Add music") { showMusic = true },
                                     tool(Icons.Default.GraphicEq, "Sounds") { showSounds = true },
                                     tool(Icons.Default.Mic, "Voiceover") { openVoice() },
+                                    tool(Icons.Default.GraphicEq, "Enhance voice") { showEnhance = true },
                                     tool(Icons.Default.RecordVoiceOver, "Voice from text") { showTts = true },
                                     tool(Icons.Default.TravelExplore, "Find music") { showMusicIdeas = true },
                                 ),
@@ -568,6 +570,10 @@ fun TimelineScreen(
             onAdd = { t, v, r, p, done -> viewModel.addSpeech(t, v, r, p, done) },
             onDismiss = { showTts = false },
         )
+    }
+
+    if (showEnhance) {
+        VoiceEnhanceSheet(value = editor.voiceEnhance, onChange = viewModel::setVoiceEnhance, onDismiss = { showEnhance = false })
     }
 
     if (showCutout) {

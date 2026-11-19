@@ -45,7 +45,6 @@ import com.cinemind.core.ui.components.AppBackground
 import com.cinemind.core.ui.theme.CineMind
 import com.cinemind.core.ui.theme.CineMindTheme
 import com.cinemind.feature.ai.generation.ui.EditBriefScreen
-import com.cinemind.feature.ai.llm.ui.AiModelsScreen
 import com.cinemind.feature.editor.timeline.ui.TimelineScreen
 import com.cinemind.feature.export.ui.ExportScreen
 import com.cinemind.feature.media.ui.MediaLibraryScreen
@@ -104,13 +103,13 @@ class MainActivity : ComponentActivity() {
                         Routes.EDITOR -> "Editor"
                         Routes.BRIEF -> "Smart edit"
                         Routes.EXPORT -> "Export"
-                        Routes.AI_MODELS -> "On-device AI"
+                        Routes.AI_MODELS -> "AI models"
                         Routes.SETTINGS -> ""
                         Routes.ABOUT -> "About"
                         Routes.DIAGNOSTICS -> "Diagnostics"
                         Routes.TELEPROMPTER -> "Teleprompter"
                         Routes.TEMPLATES -> "Templates"
-                        Routes.CLOUD_AI -> "Cloud AI"
+                        Routes.CLOUD_AI -> "AI models"
                         else -> com.cinemind.feature.settings.ui.Branding.APP_NAME
                     }
 
@@ -222,8 +221,8 @@ fun CineMindNavHost(
                 onSmartEditCreated = { newId -> navController.navigate(Routes.editor(newId)) { popUpTo(Routes.HOME) } },
             )
         }
-        composable(Routes.AI_MODELS) { AiModelsScreen() }
-        composable(Routes.CLOUD_AI) { com.cinemind.feature.ai.cloud.ui.CloudAiScreen() }
+        composable(Routes.AI_MODELS) { AiHubScreen(initialTab = 0) }
+        composable(Routes.CLOUD_AI) { AiHubScreen(initialTab = 1) }
         composable(Routes.TEMPLATES) {
             com.cinemind.feature.media.ui.TemplatesScreen(
                 onProjectCreated = { id -> navController.navigate(Routes.editor(id)) { popUpTo(Routes.HOME) } },

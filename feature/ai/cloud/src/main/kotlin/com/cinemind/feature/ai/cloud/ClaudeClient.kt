@@ -23,7 +23,7 @@ class CloudAiException(message: String, cause: Throwable? = null) : Exception(me
  * Calls Claude with the user's own key (official Anthropic Java SDK): one request, a JSON reply
  * constrained by a schema. Low effort: the assistant answers short editing requests.
  */
-class ClaudeClient(apiKey: String, private val model: CloudModel) {
+class ClaudeClient(apiKey: String, private val model: CloudModel) : CloudLlm {
 
     private val client: AnthropicClient = AnthropicOkHttpClient.builder()
         .apiKey(apiKey)
@@ -31,7 +31,10 @@ class ClaudeClient(apiKey: String, private val model: CloudModel) {
         .maxRetries(2)
         .build()
 
-    suspend fun ask(system: String, user: String, schema: Map<String, Any>, maxTokens: Long = 4_000L, effort: OutputConfig.Effort = OutputConfig.Effort.LOW): String = withContext(Dispatchers.IO) {
+    override suspend fun ask(system: String, user: String, schema: Map<String, Any>, maxTokens: Long, deep: Boolean): String =
+        askWithEffort(system, user, schema, maxTokens, if (deep) OutputConfig.Effort.HIGH else if (maxTokens > 6_000L) OutputConfig.Effort.MEDIUM else OutputConfig.Effort.LOW)
+
+    suspend fun askWithEffort(system: String, user: String, schema: Map<String, Any>, maxTokens: Long, effort: OutputConfig.Effort): String = withContext(Dispatchers.IO) {
         val schemaBuilder = JsonOutputFormat.Schema.builder()
         schema.forEach { (k, v) -> schemaBuilder.putAdditionalProperty(k, JsonValue.from(v)) }
         val params = MessageCreateParams.builder()
@@ -49,9 +52,9 @@ class ClaudeClient(apiKey: String, private val model: CloudModel) {
         val response = try {
             client.messages().create(params)
         } catch (e: UnauthorizedException) {
-            throw CloudAiException("Claude didn't accept this API key. Check it in Settings → Cloud AI.", e)
+            throw CloudAiException("Claude didn't accept this API key. Check it in AI models → Cloud.", e)
         } catch (e: PermissionDeniedException) {
-            throw CloudAiException("This API key can't use ${model.label}. Pick another model in Settings → Cloud AI.", e)
+            throw CloudAiException("This API key can't use ${model.label}. Pick another model in AI models → Cloud.", e)
         } catch (e: RateLimitException) {
             throw CloudAiException("Claude is busy for this key right now (rate limit). Try again in a minute.", e)
         } catch (e: AnthropicIoException) {
@@ -69,7 +72,7 @@ class ClaudeClient(apiKey: String, private val model: CloudModel) {
         }
     }
 
-    fun close() {
+    override fun close() {
         runCatching { client.close() }
     }
 }

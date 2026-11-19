@@ -101,7 +101,7 @@ class RemakeViewModel @Inject constructor(
         val project = projectId.value ?: return
         val d = _draft.value
         val brief = brief()
-        if (!allowed.value) { _message.value = "Offline mode is on (Settings → Cloud AI)."; return }
+        if (!allowed.value) { _message.value = "Offline mode is on (AI models → Cloud)."; return }
         if (!brief.ready) { _message.value = brief.problems.first(); return }
         viewModelScope.launch {
             _busy.value = true
@@ -139,7 +139,7 @@ class RemakeViewModel @Inject constructor(
 
     /** Opens the official KATANA page instead (the brief goes on the clipboard). */
     fun openPage() {
-        if (!allowed.value) { _message.value = "Offline mode is on (Settings → Cloud AI)."; return }
+        if (!allowed.value) { _message.value = "Offline mode is on (AI models → Cloud)."; return }
         runCatching { sender.openPage(provider, brief().text) }
             .onSuccess { _message.value = "Opened ${provider.launchUrl}. The brief is copied." }
             .onFailure { _message.value = it.message }

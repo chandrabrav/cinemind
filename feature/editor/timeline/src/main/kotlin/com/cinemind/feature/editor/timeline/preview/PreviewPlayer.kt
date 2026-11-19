@@ -134,6 +134,15 @@ class PreviewPlayer(context: Context) {
         scheduleRebuild()
     }
 
+    private var voiceEnhance = com.cinemind.core.domain.audio.VoiceEnhance()
+
+    /** On-device noise removal, heard in the preview exactly as it will be exported. */
+    fun setVoiceEnhance(value: com.cinemind.core.domain.audio.VoiceEnhance) {
+        if (value == voiceEnhance) return
+        voiceEnhance = value
+        scheduleRebuild()
+    }
+
     fun setOriginalVolume(volume: Float) {
         val v = volume.coerceIn(0f, 1f)
         if (v == originalVolume) return
@@ -246,7 +255,7 @@ class PreviewPlayer(context: Context) {
     private var matteVersion = 0
 
     private fun rebuild() {
-        val key = listOf(clips.map { it.clip to it.asset?.uri }, overlays.map { it.clip to it.asset?.uri }, voiceClips.map { it.clip to it.asset?.uri }, voiceSettings, sfxTracks.map { t -> t.map { it.clip to it.asset?.uri } }, underTexts, underCaptions, layerOrder, grades.keys.associateWith { grades[it]?.hashCode() }, gradesEnabled, musicPlayback, originalVolume, size, fps, matteVersion)
+        val key = listOf(clips.map { it.clip to it.asset?.uri }, overlays.map { it.clip to it.asset?.uri }, voiceClips.map { it.clip to it.asset?.uri }, voiceSettings, sfxTracks.map { t -> t.map { it.clip to it.asset?.uri } }, underTexts, underCaptions, layerOrder, grades.keys.associateWith { grades[it]?.hashCode() }, gradesEnabled, musicPlayback, originalVolume, size, fps, matteVersion, voiceEnhance)
         if (key == builtKey) return
         builtKey = key
         lastError = null
@@ -264,7 +273,7 @@ class PreviewPlayer(context: Context) {
         val composition = runCatching {
             val voice = voiceClips.mapNotNull { v -> v.asset?.let { a -> RenderVoiceClip(v.clip, a.uri, a.durationUs) } }
             val sfx = sfxTracks.map { t -> RenderVoiceover(t.mapNotNull { v -> v.asset?.let { a -> RenderVoiceClip(v.clip, a.uri, a.durationUs) } }, com.cinemind.core.domain.audio.VoiceoverSettings()) }
-            renderer.buildComposition(pairs, size, fps, music, originalVolume, overlays = listOf(overlayTrack), voiceover = RenderVoiceover(voice, voiceSettings), grades = if (gradesEnabled) grades else emptyMap(), sfx = sfx, captions = underCaptions, texts = underTexts, layerOrder = layerOrder)
+            renderer.buildComposition(pairs, size, fps, music, originalVolume, overlays = listOf(overlayTrack), voiceover = RenderVoiceover(voice, voiceSettings), grades = if (gradesEnabled) grades else emptyMap(), sfx = sfx, captions = underCaptions, texts = underTexts, layerOrder = layerOrder, voiceEnhance = voiceEnhance)
         }
             .getOrElse {
                 lastError = "Can't build the preview: ${it.message}"
