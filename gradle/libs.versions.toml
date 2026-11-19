@@ -31,6 +31,8 @@ kotlinxSerialization = "1.7.3"
 coil = "2.7.0"
 timber = "5.0.1"
 litertlm = "0.19.1"
+# Google LiteRT SDK (runs the Whisper speech model; separate from LiteRT-LM, no shared native libraries).
+litert = "2.3.2"
 
 # Testing
 junit = "4.13.2"
@@ -91,6 +93,7 @@ coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coi
 coil-video = { group = "io.coil-kt", name = "coil-video", version.ref = "coil" }
 timber = { group = "com.jakewharton.timber", name = "timber", version.ref = "timber" }
 litertlm-android = { group = "com.google.ai.edge.litertlm", name = "litertlm-android", version.ref = "litertlm" }
+litert-android = { group = "com.google.ai.edge.litert", name = "litert", version.ref = "litert" }
 
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 androidx-test-runner = { group = "androidx.test", name = "runner", version = "1.6.2" }

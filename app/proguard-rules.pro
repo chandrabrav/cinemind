@@ -110,3 +110,7 @@
 -keep class com.google.ai.edge.litertlm.** { *; }
 -keep interface com.google.ai.edge.litertlm.** { *; }
 -keep enum com.google.ai.edge.litertlm.** { *; }
+
+# Google LiteRT / TensorFlow Lite (Whisper speech model): JNI looks classes and methods up by name.
+-keep class org.tensorflow.lite.** { *; }
+-keep class com.google.ai.edge.litert.** { *; }

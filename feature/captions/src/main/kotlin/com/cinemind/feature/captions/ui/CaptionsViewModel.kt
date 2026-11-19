@@ -74,13 +74,13 @@ class CaptionsViewModel @Inject constructor(
             val captions = repository.getCaptions(id)
             val style = repository.getStyle(id)
             history = EditHistory(captions)
-            _ui.value = _ui.value.copy(loaded = true, captions = captions, style = style, speechModelReady = llm.supportsAudio)
+            _ui.value = _ui.value.copy(loaded = true, captions = captions, style = style, speechModelReady = llm.supportsAudio || llm.speechModel() != null)
                 .withHistory()
         }
     }
 
     fun refreshModelState() {
-        _ui.value = _ui.value.copy(speechModelReady = llm.supportsAudio)
+        _ui.value = _ui.value.copy(speechModelReady = llm.supportsAudio || llm.speechModel() != null)
     }
 
     fun setLanguage(language: SpokenLanguage) { _ui.value = _ui.value.copy(language = language) }

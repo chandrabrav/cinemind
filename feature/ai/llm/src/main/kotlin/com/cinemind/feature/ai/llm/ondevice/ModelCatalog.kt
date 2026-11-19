@@ -26,6 +26,8 @@ data class ModelSpec(
     val reasoning: Boolean = false,
     /** Typical decode speed on a flagship phone GPU (from the publisher's measurements). */
     val tokensPerSecond: Float = 25f,
+    /** A speech-to-text model (Whisper) run with LiteRT, not a language model. */
+    val speech: Boolean = false,
 )
 
 /**
@@ -96,14 +98,51 @@ object ModelCatalog {
         tokensPerSecond = 5f,
     )
 
+    /**
+     * OpenAI Whisper Tiny (multilingual, Apache-2.0 LiteRT export by litert-community, INT8):
+     * speech-to-text with real segment timestamps and language detection, run with Google's
+     * LiteRT. Small enough to run alongside nothing else heavy.
+     */
+    val WHISPER_TINY = ModelSpec(
+        id = "whisper-tiny",
+        name = "Whisper Tiny (speech, recommended)",
+        fileName = "whisper_tiny_30s_i8.tflite",
+        url = "https://huggingface.co/litert-community/whisper-tiny/resolve/main/whisper_tiny_30s_i8.tflite",
+        sizeBytes = 41_116_288L,
+        sha256 = "6748ac565a228c4a00b18d11ea1e2fd7cead3db6fba94e3f0bf35756b13ba4a9",
+        license = "Apache-2.0 (OpenAI Whisper)",
+        summary = "Captions from speech with exact timings, 99 languages, can translate to English. About 41 MB.",
+        supportsImages = false,
+        format = "tflite-1",
+        speech = true,
+    )
+
+    /** Whisper Base: more accurate, about twice as slow. */
+    val WHISPER_BASE = ModelSpec(
+        id = "whisper-base",
+        name = "Whisper Base (speech, more accurate)",
+        fileName = "whisper_base_30s_i8.tflite",
+        url = "https://huggingface.co/litert-community/whisper-base/resolve/main/whisper_base_30s_i8.tflite",
+        sizeBytes = 77_012_960L,
+        sha256 = "f6943d9d293138850b729e074057956c664891c57837692b1bac4608c4506cd1",
+        license = "Apache-2.0 (OpenAI Whisper)",
+        summary = "More accurate captions than Tiny, about twice as slow. About 77 MB.",
+        supportsImages = false,
+        format = "tflite-1",
+        speech = true,
+    )
+
     // Order matters: "automatic" picks the first installed planner, so Spark X2.5 4B comes first.
-    val ALL: List<ModelSpec> = listOf(GEMMA_4_E2B, GEMMA_4_E4B, SPARK_X25_4B, SPARK_X26_1_7B)
+    val ALL: List<ModelSpec> = listOf(GEMMA_4_E2B, GEMMA_4_E4B, SPARK_X25_4B, SPARK_X26_1_7B, WHISPER_TINY, WHISPER_BASE)
 
     /** Models that see and hear (Gemma). */
-    val VISUAL: List<ModelSpec> get() = ALL.filter { !it.reasoning }
+    val VISUAL: List<ModelSpec> get() = ALL.filter { !it.reasoning && !it.speech }
 
     /** Planning / reasoning models (Spark). */
     val PLANNERS: List<ModelSpec> get() = ALL.filter { it.reasoning }
+
+    /** Speech-to-text models (Whisper). */
+    val SPEECH: List<ModelSpec> get() = ALL.filter { it.speech }
 
     fun byId(id: String?): ModelSpec? = ALL.firstOrNull { it.id == id }
 }

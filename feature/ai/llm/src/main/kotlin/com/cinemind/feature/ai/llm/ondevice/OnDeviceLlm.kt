@@ -115,7 +115,17 @@ class OnDeviceLlm @Inject constructor(
     }
 
     /** Every model whose file is installed and verified. */
-    fun installedModels(): List<ModelSpec> = ModelCatalog.ALL.filter { store.isInstalled(it) }
+    fun installedModels(): List<ModelSpec> = ModelCatalog.ALL.filter { !it.speech && store.isInstalled(it) }
+
+    /** The installed speech-to-text model (Whisper): the chosen one, else the first installed; null = use Gemma's audio. */
+    fun speechModel(): ModelSpec? {
+        if (prefs.speechModelId == AiPreferences.PLANNER_OFF) return null
+        val preferred = ModelCatalog.byId(prefs.speechModelId)?.takeIf { it.speech && store.isInstalled(it) }
+        return preferred ?: ModelCatalog.SPEECH.firstOrNull { store.isInstalled(it) }
+    }
+
+    /** Where a model file lives (Whisper is run by the captions module with LiteRT). */
+    fun fileOf(spec: ModelSpec): java.io.File = store.file(spec)
 
     /** The model a text-only reasoning request goes to, or null when none is installed. */
     fun textModel(): ModelSpec? = reasoningModel() ?: installedModel()
