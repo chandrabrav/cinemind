@@ -199,3 +199,18 @@ interface TextLayerDao {
         insertAll(layers.map { it.copy(projectId = projectId) })
     }
 }
+
+@Dao
+interface GenerationJobDao {
+    @Query("SELECT * FROM generation_jobs WHERE projectId = :projectId ORDER BY createdAt DESC")
+    fun observe(projectId: String): Flow<List<com.cinemind.core.domain.aigen.GenerationJob>>
+
+    @Query("SELECT * FROM generation_jobs WHERE id = :id")
+    suspend fun get(id: String): com.cinemind.core.domain.aigen.GenerationJob?
+
+    @Query("SELECT * FROM generation_jobs WHERE outputAssetId = :assetId LIMIT 1")
+    suspend fun forAsset(assetId: String): com.cinemind.core.domain.aigen.GenerationJob?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(job: com.cinemind.core.domain.aigen.GenerationJob)
+}

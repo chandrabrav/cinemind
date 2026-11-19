@@ -78,6 +78,7 @@ class CloudAiViewModel @Inject constructor(
 
     fun setModel(m: CloudModel) = keys.setModel(m)
     fun setConsent(on: Boolean) = keys.setConsent(on)
+    fun setMode(mode: com.cinemind.core.domain.aigen.AiMode) = keys.setMode(mode)
 
     fun runTest() {
         if (_testing.value) return
@@ -105,6 +106,18 @@ fun CloudAiScreen(viewModel: CloudAiViewModel = hiltViewModel()) {
             .padding(bottom = Spacing.xl),
     ) {
         ScreenHeader(title = "Cloud AI", subtitle = "Optional · use your own Claude API key")
+
+        SectionHeader("AI mode")
+        GlassCard(modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.gutter)) {
+            Column {
+                com.cinemind.core.domain.aigen.AiMode.entries.forEach { m ->
+                    SettingRow(title = m.label, subtitle = m.note) {
+                        RadioButton(selected = s.mode == m, onClick = { viewModel.setMode(m) })
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(Spacing.l))
 
         GlassCard(modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.gutter)) {
             Column(verticalArrangement = Arrangement.spacedBy(Spacing.s)) {

@@ -20,7 +20,10 @@ class EditAssistant @Inject constructor(
     private val keys: CloudKeyStore,
     private val onDevice: OnDeviceLlm,
 ) {
-    val usesCloud: Boolean get() = keys.settings.value.let { it.hasKey && it.consented }
+    /** Cloud only when the AI mode allows it and the user added a key and agreed to send text. */
+    val usesCloud: Boolean get() = keys.settings.value.let {
+        com.cinemind.core.domain.aigen.AiRouter.cloudPlanningAllowed(it.mode, it.hasKey && it.consented)
+    }
 
     val engineName: String get() = if (usesCloud) keys.settings.value.model.label else "On-device AI"
 
@@ -59,12 +62,17 @@ class EditAssistant @Inject constructor(
         val key = keys.apiKey() ?: return null
         val client = ClaudeClient(key, keys.settings.value.model)
         val text = try {
-            client.ask(EditPlanJson.systemPrompt, EditPlanJson.userPrompt(request), EditPlanJson.schema, 12_000L, com.anthropic.models.messages.OutputConfig.Effort.MEDIUM)
+            client.ask(EditPlanJson.systemPrompt, EditPlanJson.userPrompt(request), EditPlanJson.schema, 12_000L, planEffort())
         } finally {
             client.close()
         }
         return EditPlanJson.parse(text) ?: throw CloudAiException("Claude's plan couldn't be read. Try again.")
     }
+
+    // Cloud-assisted mode buys deeper reasoning; Hybrid keeps plans quick and cheaper.
+    private fun planEffort() =
+        if (keys.settings.value.mode == com.cinemind.core.domain.aigen.AiMode.CLOUD) com.anthropic.models.messages.OutputConfig.Effort.HIGH
+        else com.anthropic.models.messages.OutputConfig.Effort.MEDIUM
 
     /** A tiny request to check the saved key works; returns Claude's reply. */
     suspend fun test(): String {

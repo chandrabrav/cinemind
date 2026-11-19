@@ -1,6 +1,7 @@
 package com.cinemind.feature.editor.timeline.ui
 
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.material.icons.filled.AutoAwesomeMotion
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.SettingsBackupRestore
 import androidx.compose.material.icons.filled.Wallpaper
@@ -240,6 +241,7 @@ fun TimelineScreen(
     var showMusicIdeas by remember { mutableStateOf(false) }
     var showTts by remember { mutableStateOf(false) }
     var showAssistant by remember { mutableStateOf(false) }
+    var showRemake by remember { mutableStateOf(false) }
     var toolCategory by remember { mutableStateOf<ToolCategory?>(null) }
     var musicMood by remember { mutableStateOf<String?>(null) }
     var musicTheme by remember { mutableStateOf("") }
@@ -519,6 +521,7 @@ fun TimelineScreen(
                                     tool(Icons.Default.ClosedCaption, "Auto captions") { showCaptions = true },
                                     tool(Icons.Default.Title, "Smart graphics") { showGraphics = true },
                                     tool(Icons.Default.TravelExplore, "Music ideas") { showMusicIdeas = true },
+                                    tool(Icons.Default.AutoAwesomeMotion, "Remake (KATANA)") { showRemake = true },
                                 ),
                             )
                             null -> EditorBottomBar(
@@ -559,6 +562,16 @@ fun TimelineScreen(
             loadVoices = { viewModel.ttsVoices() },
             onAdd = { t, v, r, p, done -> viewModel.addSpeech(t, v, r, p, done) },
             onDismiss = { showTts = false },
+        )
+    }
+
+    if (showRemake) {
+        com.cinemind.feature.editor.timeline.handoff.RemakeSheet(
+            projectId = projectId,
+            aspect = project?.aspectRatio,
+            onImported = { uri -> viewModel.addMedia(listOf(uri)) },
+            onOpenSettings = { showRemake = false; onOpenCloudAi() },
+            onDismiss = { showRemake = false },
         )
     }
 

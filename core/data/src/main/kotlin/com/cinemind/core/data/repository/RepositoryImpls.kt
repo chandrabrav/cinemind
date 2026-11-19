@@ -326,3 +326,12 @@ class TextLayerRepositoryImpl(
     override suspend fun get(projectId: String) = dao.get(projectId)
     override suspend fun save(projectId: String, layers: List<com.cinemind.core.domain.text.TextLayer>) = dao.replaceAll(projectId, layers)
 }
+
+class GenerationJobRepositoryImpl(
+    private val dao: com.cinemind.core.data.local.dao.GenerationJobDao,
+) : com.cinemind.core.domain.repository.GenerationJobRepository {
+    override fun observe(projectId: String) = dao.observe(projectId)
+    override suspend fun get(id: String) = dao.get(id)
+    override suspend fun save(job: com.cinemind.core.domain.aigen.GenerationJob) = dao.upsert(job)
+    override suspend fun forAsset(assetId: String) = dao.forAsset(assetId)
+}
