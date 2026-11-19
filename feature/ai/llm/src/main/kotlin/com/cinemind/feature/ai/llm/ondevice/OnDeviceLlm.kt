@@ -182,7 +182,13 @@ class OnDeviceLlm @Inject constructor(
             imageFile == null && audioFile == null && reasoning -> textModel()
             else -> installedModel()
         } ?: throw ModelNotInstalledException()
-        val budget = if (model.reasoning) (maxOutputTokens * 3).coerceIn(maxOutputTokens + 768, 6_000) else maxOutputTokens
+        // Room to think first; a slow model (Spark X2.5 4B, ~5 tok/s) gets a tighter cap so a plan
+        // takes minutes, not a quarter of an hour.
+        val budget = when {
+            !model.reasoning -> maxOutputTokens
+            model.tokensPerSecond < 10f -> (maxOutputTokens + 500).coerceAtMost(2_400)
+            else -> (maxOutputTokens * 3).coerceIn(maxOutputTokens + 768, 6_000)
+        }
         val raw = askLocked(model, prompt, imageFile, budget, audioFile)
         if (model.reasoning) stripThinking(raw) else raw
     } finally {

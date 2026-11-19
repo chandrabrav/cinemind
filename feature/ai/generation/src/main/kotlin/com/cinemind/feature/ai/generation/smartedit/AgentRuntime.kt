@@ -104,6 +104,8 @@ class AgentRuntime @Inject constructor(
 
     private companion object {
         /** Expected plan quality for this app (1..5); revisit with the on-phone benchmark results. */
-        val QUALITY = mapOf("gemma-4-e2b" to 2, "gemma-4-e4b" to 3, "spark-x2.6-1.7b" to 3, "spark-x2.5-4b" to 4)
+        // The owner chose Spark X2.5 4B as the planner: ranked high enough that its slower speed
+        // doesn't hand planning back to Gemma. Only the chosen planner is ever offered.
+        val QUALITY = mapOf("gemma-4-e2b" to 2, "gemma-4-e4b" to 3, "spark-x2.6-1.7b" to 4, "spark-x2.5-4b" to 6)
     }
 }
