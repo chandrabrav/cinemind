@@ -1,6 +1,6 @@
 # CineMind multi-agent AI: decision engine, agents, models
 
-Branch `agents`, 2026-11-19. It is stacked on `voice-and-cloud`.
+First built on branch `agents` (2026-11-19). Extended on branch `agent-framework` (2026-11-19, master specification) with the workflow engine, execution traces, the voice clean-up and Whisper speech agents, and developer diagnostics (sections 10–13).
 
 ## 1. Audit: what already existed, and how the brief maps onto it
 
@@ -8,7 +8,8 @@ Branch `agents`, 2026-11-19. It is stacked on `voice-and-cloud`.
 |---|---|---|
 | Versioned, validated `CineMindEditPlan` | `core/domain/aiedit`: `EditPlan` (versioned), `EditPlanValidator` (checks every id, time and name against the real media and refuses unsupported operations), `EditPlanExecutor` (turns a plan into real timeline objects with a step log) | Reused as the shared plan contract. AI never supplies media ids or paths: shots refer to sources by index, and times are clamped to the measured durations. |
 | Gemma visual intelligence | `OnDeviceLlm` (LiteRT-LM 0.19.1), Gemma 4 E2B/E4B, frame descriptions (`AiFrameDescriber`), brief reading | Kept as the vision and audio model. Unchanged. |
-| Whisper | Speech-to-text already runs on Gemma 4's audio encoder (`SpeechTranscriber`), with Android's recogniser as fallback | Not added. A second speech model would cost about 1 GB more for no gain. |
+| Whisper | Speech-to-text ran on Gemma 4's audio encoder (`SpeechTranscriber`), with Android's recogniser as fallback | **Added (PR #42)** as the dedicated speech agent: Whisper tiny (41 MB) or base (77 MB), int8 LiteRT builds from `litert-community`, run with the LiteRT interpreter. It produces real segment timestamps, detects the language, and can translate to English. Gemma stays the fallback. |
+| "Google audio enhancement agent" | No Google audio model exists in the repository. Voice clean-up is CineMind's own DSP `VoiceEnhancer` (`core/domain/audio/VoiceEnhance.kt`): spectral noise reduction, a speech-gated leveller and a presence boost, applied at preview and export by `VoiceEnhanceAudioProcessor` | Wrapped as the **Voice clean-up** agent (`AUDIO_ENHANCEMENT`). It is deterministic and needs no model. Nothing was invented. |
 | OpenCV, FFmpeg | `FrameAnalyzer` / `FrameMetrics` (sharpness, motion, exposure, faces) and Media3 for decoding, effects and export. FFmpeg is used only in CI. | Not added. Both are large native dependencies that would duplicate working code. |
 | Cloud gateway | `CloudKeyStore` + `CloudLlm`: Claude, ChatGPT, Gemini, OpenRouter. Each uses the user's own key, encrypted in the Android Keystore, with consent, AI mode, and text only. | Wrapped behind the model adapter. See section 7 about keys. |
 | Background work, cancellation | `BackgroundWork` foreground service and coroutine cancellation | Reused. |
@@ -57,12 +58,22 @@ Agents talk only through typed `DataKind`s, and use only allow-listed `Tool`s: n
 | Creative director | understand request, creative direction | request → creative brief | text + JSON | rules (`BriefInterpreter`) | yes (text) | `Prompts.brief`, `AiAssist.mergeBrief` |
 | Visual intelligence | visual understanding | media + footage report → shot descriptions | vision | skipped | **never** (frames stay on the phone) | `AiFrameDescriber` (Gemma) |
 | Video analysis | video analysis | media → footage report | none | always | no | `FrameAnalyzer`, `FrameMetrics` |
-| Audio intelligence | audio analysis, transcription | media → transcript | audio | Android recogniser | never | `SpeechTranscriber` |
+| Speech (transcription) v2 | audio analysis, transcription | media → transcript | transcription | Android recogniser | never | `SpeechTranscriber` → `WhisperEngine` (Whisper), else Gemma audio |
+| Voice clean-up v1 | audio enhancement | media → clean audio | none | always | no | `VoiceEnhancer` DSP, `VoiceEnhanceStore` |
 | Music director | beat analysis, music direction | media (+ brief) → music plan | none | always | no | `Beats`, `CreativeDirector` audio |
 | Editing planner | edit planning | footage report (+ brief, shots, transcript, music) → edit plan | text + JSON | built-in director | yes (text) | `EditPlanJson`, `CreativeDirector` |
 | Captions | captioning | transcript → captions | none | always | no | captions module |
 | Quality check | quality check | edit plan → QA report | none | always | no | `EditPlanValidator` |
-| Timeline and rendering | rendering, timeline operations | plan (+ QA, captions) → timeline | none | always | no | `EditPlanExecutor`, `TimelineRenderer` |
+| Timeline and rendering | rendering, timeline operations | plan (+ QA, captions, clean audio) → timeline | none | always | no | `EditPlanExecutor`, `TimelineRenderer` |
+
+Which model serves each skill, when installed:
+
+| Skill | First choice | Then | Last resort |
+|---|---|---|---|
+| Planning (text + JSON) | Spark X2.5 4B | Gemma 4 E4B / E2B, cloud (with consent) | built-in rules |
+| Vision | Gemma 4 E4B | Gemma 4 E2B | skipped |
+| Transcription | Whisper base / tiny | Gemma 4 audio | Android recogniser |
+| Audio enhancement | CineMind DSP (no model) | — | — |
 
 ## 5. Resource management
 
@@ -91,14 +102,14 @@ Copy the report and send it back. The quality scores in `AgentRuntime.QUALITY` s
   * Keys are never in the APK or the repository.
   * They are encrypted with the Android Keystore and sent only to their provider.
   * A backend gateway can replace `CloudLlm` later without touching agents, because agents see only `CineMindModel`.
-* **Spark X2.6 4B is not integrated.** It has no build for our runtime (section 2). Spark X2.6 1.7B, the same family and generation, is integrated instead.
+* **Spark X2.6 4B is not integrated.** It has no build for our runtime (section 2). The owner chose Spark X2.5 4B instead (2026-11-19). Spark X2.6 1.7B stays available as a faster option.
 * **Intent is structured but still basic.** Smart Edit builds `RequestIntent` from the brief (NEW_EDIT, creative or not, target length). Reading revision intent ("make it 30 s, keep the music") from free text with the planning model, and persisting earlier results between runs, is the next step. `RevisionPlanner` and the engine already handle such an intent: only the affected agents run, and kept aspects are reused (tested).
 
 ## 8. Configuration
 
 * **On-device:** AI models → On this phone.
   * Download a Gemma (pictures and speech).
-  * Optionally download Spark X2.6 1.7B (planning).
+  * Optionally download Spark X2.5 4B (planning; picked automatically when installed) and Whisper (speech).
   * "Don't use a planning model" turns planning back over to Gemma or the rules.
 * **Cloud:** AI models → Cloud. Pick a service, paste your key, choose a model, allow sending text, and choose an AI mode (Offline / Hybrid / Cloud-assisted).
 * The Smart Edit report's **How this was made** section lists which agents ran, and where: on this phone or in the cloud, with no model names. The model ids are in the app log (`Decision engine: …`) for diagnostics.
@@ -119,3 +130,44 @@ Copy the report and send it back. The quality scores in `AgentRuntime.QUALITY` s
 * resource budgets.
 
 Model-catalog hashes and URLs are covered by `PromptsTest.catalogFilesMatchTheirUrls`.
+
+`WorkflowTest` covers a cinematic travel film with clear voices and subtitles (10 agents; Whisper transcribes, Spark plans, Gemma sees), switched-off agents, and the runner itself (parallel groups, retries, timeouts, skips and dynamically added agents). `WhisperTest` covers the mel front end, the tokenizer and timestamp parsing.
+
+## 10. Workflow engine and tasks (`core/domain/agents/Workflow.kt`)
+
+The decision engine decides *what* runs. `WorkflowRunner` decides *how*:
+
+* Each planned step becomes an `AgentTask` with an id, a parent (the request), a priority, its input and output contracts (`DataKind`s), a status (`PENDING → RUNNING → SUCCEEDED / SKIPPED / FAILED / TIMED_OUT / CANCELLED`), a timeout and an error.
+* **Pipeline:** stages run in order, because each needs the data the one before produced.
+* **Parallel:** the agents of one stage run side by side (`async`). There is never more than one on-device model per group.
+* **Conditional:** an agent may return `Skip(reason)`, for example "no subtitles asked for", or "kept your captions".
+* **Dynamic:** an agent may return `Done(addAgents = …)`, and the engine plans those agents into the next stage.
+* **Failures:** a timeout or a failure goes to `DecisionEngine.recover`, which picks the next fallback runtime and retries. Cancelling the job cancels every task (structured concurrency).
+
+Smart Edit records its main pipeline (analysis, director, vision, each planner attempt, QA, rendering) and runs its audio sub-workflow through the runner: voice clean-up and transcription in parallel, then captions.
+
+## 11. Observability
+
+Every Smart Edit saves an `ExecutionTrace`: for each agent, the runtime (rules / phone / cloud), the model id, the status, the duration, the attempt number, the free memory and a note. The last 20 traces are kept in `files/ai-traces.tsv` on the phone. They hold text only: no media, and the request is cut to 120 characters.
+
+**AI models → Diagnostics** (for developers) shows:
+
+* every agent with its version, capabilities and the model skills it needs, with a switch to turn it off (`AgentSwitches`; the decision engine skips it with "switched off in developer settings");
+* the recent runs with every task's outcome.
+
+Model names appear only here and in the log. The user-facing report stays model-free.
+
+## 12. Adding a model later
+
+1. Add a `ModelSpec` to `ModelCatalog`: file URL, size and SHA-256, and its skills (vision, audio, reasoning).
+2. If it is a new kind (like Whisper), give it an engine behind the same boundary and a `ModelDescriptor` in `AgentRuntime.models()` with its skills, memory, speed and quality.
+3. Run the benchmark on the phone and set its quality score from the numbers.
+4. The decision engine picks it up through skills. No agent changes.
+
+A model with no LiteRT build (GGUF only, for example) needs a second runtime first. See section 2.
+
+## 13. Not done, and why
+
+* **Hybrid cloud for audio or frames:** never. Media stays on the phone. Only text goes to the cloud, with consent.
+* **Benchmarks on the Vivo:** they need the owner's phone (Spark X2.5 4B, Whisper tiny and base, Gemma). CI can't download multi-GB models or use a phone GPU.
+* **Per-agent memory limits enforced by the OS:** Android gives one process. The engine instead keeps one model loaded at a time and checks the budget before every model stage.
