@@ -1087,7 +1087,7 @@ private fun PlaybackBar(
         )
         if (clipFill != null) {
             // Quick framing for the selected clip, right under the picture.
-            Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xxs)) {
+            Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(Spacing.xxs)) {
                 com.cinemind.core.ui.components.Pill(text = "Fit", selected = !clipFill, onClick = onFit)
                 com.cinemind.core.ui.components.Pill(text = "Fill", selected = clipFill, onClick = onFill)
                 com.cinemind.core.ui.components.Pill(text = "Reset", selected = false, onClick = onResetFraming)
