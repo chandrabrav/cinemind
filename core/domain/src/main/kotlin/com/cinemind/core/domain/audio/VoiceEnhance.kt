@@ -49,8 +49,8 @@ data class VoiceEnhance(
  *  1. low cut below ~90 Hz (rumble, handling noise, wind thumps);
  *  2. noise floor per frequency tracked continuously (falls fast, rises slowly), so steady noise
  *     like fans, traffic and hiss is learnt within a second or two, even while someone talks;
- *  3. decision-directed Wiener gain (smooth, little "musical noise"), never below a floor so
- *     the room doesn't sound dead;
+ *  3. power subtraction against that floor, opening instantly and closing gently (no "musical"
+ *     noise), never below a floor so the room doesn't sound dead;
  *  4. a small presence lift (2–5 kHz) for clarity;
  * then a slow leveller and soft limiter on the result.
  */
@@ -63,7 +63,7 @@ class VoiceEnhancer(sampleRate: Int, private val level: EnhanceLevel) {
     private val binHz = sampleRate.toFloat() / n
 
     private val floor = if (level == EnhanceLevel.STRONG) 0.1f else 0.28f
-    private val overSubtract = if (level == EnhanceLevel.STRONG) 1.6f else 1.1f
+    private val overSubtract = if (level == EnhanceLevel.STRONG) 2.6f else 1.8f
     private val presence = if (level == EnhanceLevel.STRONG) 1.25f else 1.12f
     private val maxBoost = if (level == EnhanceLevel.STRONG) 2.8f else 1.6f
 
@@ -82,7 +82,7 @@ class VoiceEnhancer(sampleRate: Int, private val level: EnhanceLevel) {
     private val im = FloatArray(n)
     private val noise = FloatArray(bins)
     private val prevGain = FloatArray(bins) { 1f }
-    private val prevPost = FloatArray(bins) { 1f }
+    private val smooth = FloatArray(bins)
     private val gain = FloatArray(bins)
     private var frames = 0
 
@@ -136,24 +136,29 @@ class VoiceEnhancer(sampleRate: Int, private val level: EnhanceLevel) {
         for (i in 0 until n) { re[i] = inBuf[i] * window[i]; im[i] = 0f }
         fft(re, im, inverse = false)
 
-        val first = frames == 0
+        // The first frames (one is half silence from priming) just seed the estimates.
+        val seeding = frames < 3
         for (k in 0 until bins) {
             val p = re[k] * re[k] + im[k] * im[k] + 1e-12f
-            // Noise floor: quick to fall, slow to rise (~+3 dB per 1.5 s).
+            // Power smoothed over a few frames: steadier than single frames.
+            smooth[k] = if (seeding) p else 0.75f * smooth[k] + 0.25f * p
+            // Noise floor = lower envelope of the smoothed power: quick to fall, slow to rise
+            // (~+3 dB per 1.5 s), so speech pauses keep it accurate even while someone talks.
             noise[k] = when {
-                first -> p
-                p < noise[k] -> 0.7f * noise[k] + 0.3f * p
+                seeding -> smooth[k]
+                smooth[k] < noise[k] -> 0.8f * noise[k] + 0.2f * smooth[k]
                 else -> noise[k] * 1.0045f
             }
-            val post = p / (noise[k] * overSubtract)
-            val prio = 0.98f * prevGain[k] * prevGain[k] * prevPost[k] + 0.02f * max(post - 1f, 0f)
-            var g = prio / (1f + prio)
+            // Power subtraction (with headroom for the floor sitting below the mean noise level).
+            val sub = 1f - overSubtract * noise[k] / smooth[k]
+            var g = if (sub > 0f) sqrt(sub) else 0f
             val hz = k * binHz
             if (hz < 90f) g *= (hz / 90f) * (hz / 90f)
             g = max(g, if (hz < 90f) 0f else floor)
+            // Open instantly, close gently: keeps word endings and avoids "musical" noise.
+            g = max(g, 0.65f * prevGain[k])
             gain[k] = g
             prevGain[k] = g
-            prevPost[k] = post
         }
         // Smooth across neighbouring frequencies to avoid warbling artefacts.
         var prev = gain[0]
