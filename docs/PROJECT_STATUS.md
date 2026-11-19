@@ -17,7 +17,7 @@ _Last updated: 2026-11-19_
 | **Captions & speech (new, 2026-11-11)** | Editable caption layer (timeline lane, preview overlay, burned into export by the same painter), 7 style presets + full styling, sentence/phrase/word modes, karaoke highlight, animations; on-device speech-to-text with Gemma 4's audio encoder: Hinglish / Roman / native script / English translation as separate operations; Devanagari→Roman transliterator. See "Captions & speech-to-text". **Speech recognition itself is not yet run on a phone.** |
 | **Branding (new)** | "CineMind AI" on launch (wordmark after the system splash), home title and Settings → About CineMind AI (logo, version + build, "Developed by Gautam", description, privacy facts, open-source licences). |
 | **Current task** | Owner tests beta **#182** (motion graphics, AI cutout, text behind the person, Enhance voice, AI models hub) and the next beta (decision engine, Spark planning, Auto edit). **Owner to run AI models → Run benchmark on the Vivo and send the report**: it confirms that Spark X2.5 4B (the chosen planner) works on our LiteRT-LM 0.19.1 and how fast it is. Not tested on a phone yet: cutout speed, voice enhancer by ear, ChatGPT/Gemini/OpenRouter keys, KATANA handoff. See "2026-11-19 work" below. |
-| **Branch** | `main` (PRs #32–#38 merged 2026-11-16…19). Open: **#40** `ai-revisions` (prompt library, revisions, captions behind the person, text motion, progress bar, home + preview polish; all CI green). Latest beta: **#198**. Feature pushes don't build any more — open a PR or run the workflow by hand. |
+| **Branch** | `main` (PRs #32–#42 merged 2026-11-16…19, including Whisper speech #42 and the Spark crash fix #41). Open: `agent-framework` (workflow engine, execution traces, voice clean-up and Whisper speech agents in Smart edit, AI models → Diagnostics). Latest beta: **#203**. Feature pushes don't build any more — open a PR or run the workflow by hand. |
 | **Latest verified build** | CI run 43071502601 (#82), commit `baa29f9`: **all green** — 164 unit tests + 12 instrumented (export e2e ×3 incl. caption burn-in, speech audio ×3, screenshots ×6) — https://github.com/chandrabrav/cinemind/actions/runs/43071502601 — artifact `cinemind-debug-82` |
 | **Previous fully verified build** | CI run 43061916979 (#73), commit `82f97fa`: build + 131 unit + 6 instrumented tests. |
 
@@ -422,3 +422,14 @@ Production readiness (2026-11-19): about 90% of the briefed features are built, 
 * licence entries for Gemma and ML Kit.
 
 Per-overlay stacking (M4c) is still open.
+
+## Agent framework (2026-11-19, branch `agent-framework`)
+
+Master specification for the hybrid multi-agent architecture. Details are in `docs/AI_ORCHESTRATION.md` sections 10–13.
+
+* **Audit corrections.** The repository has no Google audio enhancement model. Voice clean-up is CineMind's own DSP `VoiceEnhancer`, now wrapped as the **Voice clean-up** agent. FFmpeg and OpenCV are not in the app: Media3 decodes and exports, and `FrameAnalyzer` measures frames.
+* **Whisper (PR #42).** Whisper tiny (41 MB) or base (77 MB), int8 LiteRT builds, run locally with the LiteRT interpreter. It produces real segment timestamps, detects the language among 99, and can translate to English. It is the first choice for speech, with Gemma audio and then Android's recogniser as fallbacks.
+* **Workflow engine.** Tasks with ids, parents, priorities, contracts, statuses, timeouts and cancellation. Stages run as a pipeline, agents within a stage in parallel. Agents can skip themselves or add agents, and failures retry through the decision engine's fallbacks.
+* **Smart edit** now cleans the voices (strong when the prompt mentions noise) and transcribes speech for subtitles when they are asked for and none exist.
+* **Diagnostics** (AI models → Diagnostics): agents with versions and on/off switches, plus the last 20 runs with every task's runtime, model, duration and outcome.
+* **Not verified on a phone yet:** the Spark X2.5 4B and Whisper benchmarks on the Vivo, and the Smart edit audio steps.
