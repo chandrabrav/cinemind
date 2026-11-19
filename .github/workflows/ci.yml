@@ -263,7 +263,8 @@ jobs:
           # afterwards, so the other emulator tests still run.
           script: |
             bash .github/scripts/upgrade-test.sh "$BASE_APK" "$NEW_APK" || touch upgrade-failed.flag
-            gradle --continue :feature:export:connectedDebugAndroidTest :feature:captions:connectedDebugAndroidTest :feature:settings:connectedDebugAndroidTest :core:ui:connectedDebugAndroidTest :feature:editor:timeline:connectedDebugAndroidTest --stacktrace
+            adb uninstall com.cinemind.app.debug >/dev/null 2>&1 || true  # guide screenshots start from a fresh install
+            gradle --continue :feature:export:connectedDebugAndroidTest :feature:captions:connectedDebugAndroidTest :feature:settings:connectedDebugAndroidTest :core:ui:connectedDebugAndroidTest :feature:editor:timeline:connectedDebugAndroidTest :app:connectedDebugAndroidTest --stacktrace
 
       - name: Update test result
         if: always()

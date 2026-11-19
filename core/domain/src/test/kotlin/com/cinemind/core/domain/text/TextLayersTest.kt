@@ -173,7 +173,7 @@ class LayerStackTest {
         assertTrue(s.copy(belowOverlays = true).isBelow("pip-c"))
         assertFalse(s.copy(belowOverlays = true).partlyBelow)
         // Moving the title past the picture-in-picture in the layer stack resets the per-overlay choice.
-        val t = layer("t", 0, 5_000_000, style = s.encode())
+        val t = TextLayer(id = "t", projectId = "p", startUs = 0, endUs = 5_000_000, text = "t", style = s.encode())
         val (moved, _) = LayerStack.move(listOf(t), LayerOrder(), false, true, LayerEntry.Title(t), up = false)
         assertTrue(moved[0].styleObj.belowOverlays)
         assertTrue(moved[0].styleObj.belowClips.isEmpty())
