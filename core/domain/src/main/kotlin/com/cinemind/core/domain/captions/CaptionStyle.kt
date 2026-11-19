@@ -89,6 +89,8 @@ data class CaptionStyle(
     /** Highlight the word being spoken. */
     val karaoke: Boolean = true,
     val animation: String = CaptionAnimation.POP.name,
+    /** Drawn behind the person (needs the clip's AI cutout; schema v11). */
+    @androidx.room.ColumnInfo(defaultValue = "0") val behindSubject: Boolean = false,
 ) {
     val fontEnum: CaptionFont get() = CaptionFont.entries.firstOrNull { it.name == font } ?: CaptionFont.SANS
     val modeEnum: CaptionMode get() = CaptionMode.entries.firstOrNull { it.name == mode } ?: CaptionMode.PHRASE

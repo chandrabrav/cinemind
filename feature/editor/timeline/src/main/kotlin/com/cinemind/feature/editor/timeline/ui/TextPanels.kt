@@ -188,7 +188,7 @@ private val SWATCHES = listOf(
 /** Adds a title (with a look) or a sticker at the playhead. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-internal fun AddTextSheet(onAddText: (String, TextPreset) -> Unit, onAddSticker: (String) -> Unit, onDismiss: () -> Unit, onSuggest: (() -> Unit)? = null) {
+internal fun AddTextSheet(onAddText: (String, TextPreset) -> Unit, onAddSticker: (String) -> Unit, onDismiss: () -> Unit, onSuggest: (() -> Unit)? = null, onAddProgress: (() -> Unit)? = null) {
     val c = CineMind.colors
     var tab by remember { mutableIntStateOf(0) }
     var text by remember { mutableStateOf("") }
@@ -223,6 +223,9 @@ internal fun AddTextSheet(onAddText: (String, TextPreset) -> Unit, onAddSticker:
                 modifier = Modifier.fillMaxWidth(),
             )
         } else {
+            if (onAddProgress != null) {
+                TextButton(onClick = { onAddProgress(); onDismiss() }) { Text("▬ Add a progress bar that fills as the video plays") }
+            }
             Stickers.sets.forEach { (name, items) ->
                 Text(name, style = MaterialTheme.typography.labelLarge, color = c.textSecondary, modifier = Modifier.padding(top = Spacing.s))
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.xs), verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
@@ -353,6 +356,18 @@ internal fun EditTextSheet(
                     TextPill("Longer", false) { onTrim(0, 500_000) }
                     TextPill("Start earlier", false) { onTrim(-500_000, 0) }
                     TextPill("Start later", false) { onTrim(500_000, 0) }
+                }
+                Spacer(Modifier.height(Spacing.m))
+                Text("Motion", style = MaterialTheme.typography.labelLarge, color = c.textSecondary)
+                if (st.from == null) {
+                    Text("Make the text glide: tap Start here, then move the playhead to the end of the text and drag it to where it should finish.", style = MaterialTheme.typography.bodySmall, color = c.textTertiary)
+                    TextPill("Start here", false) { setStyle(st.copy(from = com.cinemind.core.domain.text.TextFrom(layer.x, layer.y, layer.size))) }
+                } else {
+                    Text("Glides from where you marked to where it is now. Drag it at the end of its time to change where it finishes.", style = MaterialTheme.typography.bodySmall, color = c.textTertiary)
+                    Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+                        TextPill("Start here instead", false) { setStyle(st.copy(from = com.cinemind.core.domain.text.TextFrom(layer.x, layer.y, layer.size))) }
+                        TextPill("No motion", false) { setStyle(st.copy(from = null)) }
+                    }
                 }
             }
         }

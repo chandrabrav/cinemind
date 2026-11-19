@@ -288,7 +288,7 @@ fun TimelineScreen(
                 captionLayer = {
                     // Above the picture-in-picture, in the chosen order (layers set "below" are drawn
                     // into the video by the composition instead).
-                    val drawCaptions = layerOrder.captionsAboveOverlays
+                    val drawCaptions = layerOrder.captionsAboveOverlays && captionsUi.style?.behindSubject != true
                     if (drawCaptions && !layerOrder.captionsAboveTitles) CaptionOverlay(captionsUi.captions, captionsUi.style, preview.positionUs, Modifier.fillMaxSize())
                     TextLayersOverlay(
                         layers = shownTexts.filter { !it.styleObj.drawnInPicture },
@@ -340,6 +340,10 @@ fun TimelineScreen(
                     onToggleMute = viewModel::togglePreviewMute,
                     onVolume = viewModel::setPreviewVolume,
                     onFullscreen = { fullscreen = true; controlsVisible = true },
+                    clipFill = clips.firstOrNull { it.clip.id == editor.selectedClipId }?.let { com.cinemind.core.domain.editing.ClipFraming.decode(it.clip.framing).fill },
+                    onFit = { viewModel.setSelectedFill(false) },
+                    onFill = { viewModel.setSelectedFill(true) },
+                    onResetFraming = viewModel::resetSelectedFraming,
                 )
 
                 MultiTrackTimeline(
@@ -722,6 +726,7 @@ fun TimelineScreen(
             onAddSticker = { s -> viewModel.addSticker(s); showAddText = false },
             onDismiss = { showAddText = false },
             onSuggest = { showAddText = false; showGraphics = true },
+            onAddProgress = viewModel::addProgressBar,
         )
     }
 
@@ -901,8 +906,6 @@ private fun EditorHeader(
             project?.let {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     StatusPill(it.aspectRatio)
-                    Spacer(Modifier.width(Spacing.xs))
-                    Text("$clipCount clips · ${it.frameRate} fps", style = MaterialTheme.typography.labelSmall, color = c.textTertiary)
                 }
             }
         }
@@ -1045,6 +1048,11 @@ private fun PlaybackBar(
     onToggleMute: () -> Unit,
     onVolume: (Float) -> Unit,
     onFullscreen: () -> Unit,
+    /** The selected clip fills the frame (null = no clip selected: show the volume instead). */
+    clipFill: Boolean? = null,
+    onFit: () -> Unit = {},
+    onFill: () -> Unit = {},
+    onResetFraming: () -> Unit = {},
 ) {
     val c = CineMind.colors
     val interaction = remember { MutableInteractionSource() }
@@ -1077,6 +1085,14 @@ private fun PlaybackBar(
             maxLines = 1,
             modifier = Modifier.weight(1f),
         )
+        if (clipFill != null) {
+            // Quick framing for the selected clip, right under the picture.
+            Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(Spacing.xxs)) {
+                com.cinemind.core.ui.components.Pill(text = "Fit", selected = !clipFill, onClick = onFit)
+                com.cinemind.core.ui.components.Pill(text = "Fill", selected = clipFill, onClick = onFill)
+                com.cinemind.core.ui.components.Pill(text = "Reset", selected = false, onClick = onResetFraming)
+            }
+        } else {
         IconButton(onClick = onToggleMute) {
             Icon(
                 if (muted) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp,
@@ -1092,6 +1108,7 @@ private fun PlaybackBar(
                 .width(84.dp)
                 .semantics { contentDescription = "Preview volume" },
         )
+        }
         IconButton(onClick = hapticClick(onClick = onFullscreen), enabled = enabled) {
             Icon(Icons.Default.Fullscreen, contentDescription = "Full screen preview", tint = c.textSecondary)
         }

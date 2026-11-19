@@ -15,6 +15,7 @@ import com.cinemind.core.domain.text.TextLoop
 import com.cinemind.core.domain.text.TextFrame
 import com.cinemind.core.domain.text.TextKind
 import com.cinemind.core.domain.text.TextStyle
+import com.cinemind.core.domain.text.placedAt
 import kotlin.math.PI
 import kotlin.math.ceil
 import kotlin.math.sin
@@ -44,9 +45,11 @@ class TextLayerPainter {
 
     fun draw(canvas: Canvas, width: Int, height: Int, frame: TextFrame): RectF {
         val out = RectF()
-        val layer = frame.layer
+        // Motion path: drawn where it is along its glide at this moment.
+        val layer = frame.layer.placedAt(frame.localUs)
         if (width <= 0 || height <= 0 || layer.text.isBlank()) return out
         val st = layer.styleObj
+        if (layer.kindEnum == TextKind.PROGRESS) return drawProgress(canvas, width, height, layer, st, frame)
         val sticker = layer.kindEnum == TextKind.STICKER
         val short = min(width, height).toFloat()
         val textSize = (layer.size * short).coerceAtLeast(6f)
@@ -229,6 +232,25 @@ class TextLayerPainter {
         fill.shader = null
         canvas.restoreToCount(save)
         return out
+    }
+
+    /** A bar across the frame that fills from left to right over the layer's time. */
+    private fun drawProgress(canvas: Canvas, width: Int, height: Int, layer: com.cinemind.core.domain.text.TextLayer, st: TextStyle, frame: TextFrame): RectF {
+        val thick = (layer.size * min(width, height) * 0.35f).coerceAtLeast(3f)
+        val margin = width * 0.06f
+        val cy = layer.y * height
+        val p = (frame.localUs.toFloat() / layer.lengthUs.coerceAtLeast(1)).coerceIn(0f, 1f)
+        val r = thick / 2f
+        rect.set(margin, cy - r, width - margin, cy + r)
+        box.shader = null
+        box.color = withAlpha(st.color, 0.3f)
+        canvas.drawRoundRect(rect, r, r, box)
+        val filled = RectF(margin, cy - r, margin + (width - 2 * margin) * p, cy + r)
+        box.color = st.color
+        if (st.hasGradient) box.shader = LinearGradient(margin, 0f, width - margin, 0f, st.color, st.color2, Shader.TileMode.CLAMP)
+        if (filled.width() > 0.5f) canvas.drawRoundRect(filled, r, r, box)
+        box.shader = null
+        return RectF(rect.left, rect.top - thick, rect.right, rect.bottom + thick)
     }
 
     /** Offset / scale / opacity of one letter or word. */

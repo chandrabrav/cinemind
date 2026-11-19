@@ -9,7 +9,7 @@ import com.cinemind.core.domain.model.Project
 import java.util.Locale
 import java.util.UUID
 
-enum class TextKind { TEXT, STICKER }
+enum class TextKind { TEXT, STICKER, /** A bar that fills as the video plays (style colour; size = thickness). */ PROGRESS }
 
 /**
  * A title, label or sticker placed freely on the video (schema v9, table `text_layers`). Times are
@@ -36,7 +36,7 @@ data class TextLayer(
     val style: String = "",
     val lane: Int = 0,
 ) {
-    val kindEnum: TextKind get() = if (kind == TextKind.STICKER.name) TextKind.STICKER else TextKind.TEXT
+    val kindEnum: TextKind get() = TextKind.entries.firstOrNull { it.name == kind } ?: TextKind.TEXT
     val styleObj: TextStyle get() = TextStyle.decode(style)
     val lengthUs: Long get() = endUs - startUs
 }
@@ -87,6 +87,11 @@ data class TextStyle(
      * drawn normally, under the picture-in-picture.
      */
     val behindSubject: Boolean = false,
+    /**
+     * Motion path: where the text starts (centre x, y as 0..1 of the frame, and size); it glides
+     * to its own position and size over its duration. Null = it stays put.
+     */
+    val from: TextFrom? = null,
 ) {
     val hasGradient: Boolean get() = color2 != 0
 
@@ -95,10 +100,11 @@ data class TextStyle(
 
     fun encode(): String = String.format(
         Locale.ROOT,
-        "font=%s;w=%d;c=%08x;o=%.3f;oc=%08x;sh=%d;gl=%d;bc=%08x;bo=%.3f;up=%d;sp=%.3f;al=%d;in=%s;out=%s;bl=%d;c2=%08x;ex=%.3f;ec=%08x;lp=%s;bs=%d",
+        "font=%s;w=%d;c=%08x;o=%.3f;oc=%08x;sh=%d;gl=%d;bc=%08x;bo=%.3f;up=%d;sp=%.3f;al=%d;in=%s;out=%s;bl=%d;c2=%08x;ex=%.3f;ec=%08x;lp=%s;bs=%d%s",
         font.name, weight, color, outline, outlineColor, if (shadow) 1 else 0, if (glow) 1 else 0, boxColor, boxOpacity,
         if (uppercase) 1 else 0, spacing, align, animIn.name, animOut.name, if (belowOverlays) 1 else 0,
         color2, extrude, extrudeColor, loop.name, if (behindSubject) 1 else 0,
+        from?.let { String.format(Locale.ROOT, ";fr=%.4f,%.4f,%.4f", it.x, it.y, it.size) } ?: "",
     )
 
     companion object {
@@ -131,6 +137,7 @@ data class TextStyle(
                 extrudeColor = color("ec", d.extrudeColor),
                 loop = TextLoop.entries.firstOrNull { it.name == m["lp"] } ?: TextLoop.NONE,
                 behindSubject = m["bs"] == "1",
+                from = m["fr"]?.split(',')?.mapNotNull { it.toFloatOrNull() }?.takeIf { it.size == 3 }?.let { TextFrom(it[0].coerceIn(-0.5f, 1.5f), it[1].coerceIn(-0.5f, 1.5f), it[2].coerceIn(0.01f, 0.6f)) },
             )
         }
     }
@@ -199,7 +206,7 @@ object TextLayerEditing {
                 val enter = ((timeUs - l.startUs).toFloat() / inAnim).coerceIn(0f, 1f)
                 val exit = (1f - (l.endUs - timeUs).toFloat() / anim).coerceIn(0f, 1f)
                 // Running time only while something moves, so still text isn't redrawn every frame.
-                val moving = enter < 1f || l.styleObj.loop != TextLoop.NONE
+                val moving = enter < 1f || l.styleObj.loop != TextLoop.NONE || l.styleObj.from != null || l.kind == TextKind.PROGRESS.name
                 TextFrame(l, enter, exit, if (moving) timeUs - l.startUs else 0L)
             }
 
@@ -381,4 +388,15 @@ object LayerStack {
         }
         return t to o
     }
+}
+
+/** Start of a text's motion path (see [TextStyle.from]). */
+data class TextFrom(val x: Float, val y: Float, val size: Float)
+
+/** Where a layer is drawn at [localUs] into its life (its motion path applied, eased in and out). */
+fun TextLayer.placedAt(localUs: Long): TextLayer {
+    val f = styleObj.from ?: return this
+    val t = (localUs.toFloat() / lengthUs.coerceAtLeast(1)).coerceIn(0f, 1f)
+    val k = t * t * (3f - 2f * t)
+    return copy(x = f.x + (x - f.x) * k, y = f.y + (y - f.y) * k, size = f.size + (size - f.size) * k)
 }

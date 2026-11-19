@@ -149,8 +149,10 @@ class TimelineRenderer(private val context: Context) {
                 val overlapping = { l: com.cinemind.core.domain.text.TextLayer -> l.endUs > clip.timelineInUs && l.startUs < clip.timelineOutUs }
                 val behind = textsBehind.filter(overlapping)
                 val matte = source.matte?.let { java.io.File(it) }?.takeIf { it.isFile }
-                if (matte != null && (framing.subject != com.cinemind.core.domain.editing.SubjectLook.NONE || behind.isNotEmpty())) {
-                    add(SubjectEffect(clip, matte, com.cinemind.core.domain.editing.SubjectMapping.forClip(source.width, source.height, framing, size.width, size.height), framing.subject, behind))
+                // Captions set to sit behind the person go into the cutout effect when this clip has a cutout.
+                val capBehind = captions?.takeIf { it.style.behindSubject && matte != null }?.let { c -> c.copy(captions = c.captions.filter { it.endUs > clip.timelineInUs && it.startUs < clip.timelineOutUs }) }?.takeIf { it.captions.isNotEmpty() }
+                if (matte != null && (framing.subject != com.cinemind.core.domain.editing.SubjectLook.NONE || behind.isNotEmpty() || capBehind != null)) {
+                    add(SubjectEffect(clip, matte, com.cinemind.core.domain.editing.SubjectMapping.forClip(source.width, source.height, framing, size.width, size.height), framing.subject, behind, capBehind))
                 }
                 // Keyframed position / zoom / rotation / opacity, before transitions so those act on the moved picture.
                 if (framing.keys.any { !it.isIdentity }) {
@@ -166,7 +168,9 @@ class TimelineRenderer(private val context: Context) {
                 // Under the picture-in-picture (drawn into this clip before compositing): captions if so
                 // ordered, and titles marked "below", in the chosen order.
                 val under = buildList<androidx.media3.effect.TextureOverlay> {
-                    val cap = if (captions != null && !layerOrder.captionsAboveOverlays) CaptionBitmapOverlay.overlayFor(captions, size, clip.timelineInUs, clip.timelineOutUs) else null
+                    // Behind-the-person captions without a cutout fall back to being drawn here, inside the picture.
+                    val captionsHere = captions != null && (if (captions.style.behindSubject) matte == null else !layerOrder.captionsAboveOverlays)
+                    val cap = if (captionsHere) CaptionBitmapOverlay.overlayFor(captions, size, clip.timelineInUs, clip.timelineOutUs) else null
                     // Behind-subject text without a cutout falls back to plain "under the overlays" text.
                     val plain = textsBelow.filter { it.endUs > clip.timelineInUs && it.startUs < clip.timelineOutUs } + (if (matte == null) textsBehind.filter { it.endUs > clip.timelineInUs && it.startUs < clip.timelineOutUs } else emptyList())
                     val txt = TextBitmapOverlay.overlay(plain.sortedBy { it.lane }, size)
@@ -243,7 +247,7 @@ class TimelineRenderer(private val context: Context) {
         }
         // Titles and stickers after compositing: on top of overlay tracks too.
         val over = buildList<androidx.media3.effect.TextureOverlay> {
-            val cap = if (captions != null && layerOrder.captionsAboveOverlays) CaptionBitmapOverlay.overlayFor(captions, size, 0, Long.MAX_VALUE) else null
+            val cap = if (captions != null && layerOrder.captionsAboveOverlays && !captions.style.behindSubject) CaptionBitmapOverlay.overlayFor(captions, size, 0, Long.MAX_VALUE) else null
             val txt = TextBitmapOverlay.overlay(textsAbove, size)
             // Later overlays are drawn on top.
             if (layerOrder.captionsAboveTitles) { txt?.let { add(it) }; cap?.let { add(it) } } else { cap?.let { add(it) }; txt?.let { add(it) } }

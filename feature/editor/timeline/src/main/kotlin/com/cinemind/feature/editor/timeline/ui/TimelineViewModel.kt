@@ -531,7 +531,7 @@ class TimelineViewModel @Inject constructor(
         val order = _layerOrder.value
         preview.setUnderLayers(
             textHistory.present.filter { it.styleObj.drawnInPicture },
-            previewCaptions.takeIf { !order.captionsAboveOverlays },
+            previewCaptions.takeIf { !order.captionsAboveOverlays || it?.style?.behindSubject == true },
             order,
         )
     }
@@ -828,6 +828,20 @@ class TimelineViewModel @Inject constructor(
         commitText(textHistory.present + layer, select = layer.id)
     }
 
+    /** A progress bar along the bottom that fills over the whole video (restyle like any text). */
+    fun addProgressBar() {
+        val project = projectId.value ?: return
+        val total = mainLengthUs()
+        if (total <= 0) return
+        val layer = com.cinemind.core.domain.text.TextLayer(
+            projectId = project, startUs = 0, endUs = total, kind = com.cinemind.core.domain.text.TextKind.PROGRESS.name, text = "progress",
+            x = 0.5f, y = 0.965f, size = 0.04f,
+            style = com.cinemind.core.domain.text.TextStyle(color = 0xFFFFD43B.toInt(), shadow = false, animIn = com.cinemind.core.domain.text.TextAnim.NONE, animOut = com.cinemind.core.domain.text.TextAnim.NONE).encode(),
+            lane = (textHistory.present.maxOfOrNull { it.lane } ?: -1) + 1,
+        )
+        commitText(textHistory.present + layer, select = layer.id)
+    }
+
     /** Replaces one layer (text, look, position…), one undo step. */
     fun updateText(layer: com.cinemind.core.domain.text.TextLayer) {
         if (textHistory.present.none { it.id == layer.id }) return
@@ -922,6 +936,19 @@ class TimelineViewModel @Inject constructor(
         val framing = com.cinemind.core.domain.editing.ClipFraming.decode(clip.framing)
         val sourceUs = clip.sourceInUs + com.cinemind.core.domain.editing.SpeedMath.timelineToSource(clip, playheadOffsetIn(clip))
         setFraming(clipId, com.cinemind.core.domain.editing.TransformMath.setLook(framing, sourceUs, look, animate = framing.keys.size >= 2))
+    }
+
+    /** Fit (bars) or fill (crop to the frame) for the selected clip. */
+    fun setSelectedFill(fill: Boolean) {
+        val clip = history?.present?.firstOrNull { it.id == _editor.value.selectedClipId } ?: return
+        setFraming(clip.id, com.cinemind.core.domain.editing.ClipFraming.decode(clip.framing).copy(fill = fill))
+    }
+
+    /** Undoes moves, zooms, crop, turns, flips and fill on the selected clip (green screen, masks and cutout looks stay). */
+    fun resetSelectedFraming() {
+        val clip = history?.present?.firstOrNull { it.id == _editor.value.selectedClipId } ?: return
+        val f = com.cinemind.core.domain.editing.ClipFraming.decode(clip.framing)
+        setFraming(clip.id, f.copy(keys = emptyList(), crop = com.cinemind.core.domain.editing.CropRect(), quarterTurns = 0, flipH = false, flipV = false, fill = false))
     }
 
     /** Framing for one clip (one undo step). */

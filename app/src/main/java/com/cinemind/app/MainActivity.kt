@@ -57,6 +57,8 @@ import javax.inject.Inject
 private object Routes {
     const val HOME = "home"
     const val MEDIA_LIBRARY = "media_library"
+    /** Import, then straight to the Smart edit brief (Home → AI edit). */
+    const val MEDIA_LIBRARY_AI = "media_library_ai"
     const val EDITOR = "editor/{projectId}"
     const val BRIEF = "brief/{projectId}"
     const val EXPORT = "export/{projectId}"
@@ -100,6 +102,7 @@ class MainActivity : ComponentActivity() {
                     val route = backStackEntry?.destination?.route
                     val title = when (route) {
                         Routes.MEDIA_LIBRARY -> "Import media"
+                        Routes.MEDIA_LIBRARY_AI -> "Import for an AI edit"
                         Routes.EDITOR -> "Editor"
                         Routes.BRIEF -> "Smart edit"
                         Routes.EXPORT -> "Export"
@@ -188,6 +191,7 @@ fun CineMindNavHost(
         composable(Routes.HOME) {
             ProjectListScreen(
                 onNewProject = { navController.navigate(Routes.MEDIA_LIBRARY) },
+                onAiEdit = { navController.navigate(Routes.MEDIA_LIBRARY_AI) },
                 onOpenProject = { id -> navController.navigate(Routes.editor(id)) },
                 onTeleprompter = { navController.navigate(Routes.TELEPROMPTER) },
                 onTemplates = { navController.navigate(Routes.TEMPLATES) },
@@ -200,6 +204,13 @@ fun CineMindNavHost(
                     navController.navigate(Routes.editor(projectId)) {
                         popUpTo(Routes.HOME)
                     }
+                },
+            )
+        }
+        composable(Routes.MEDIA_LIBRARY_AI) {
+            MediaLibraryScreen(
+                onProjectCreated = { projectId ->
+                    navController.navigate(Routes.brief(projectId)) { popUpTo(Routes.HOME) }
                 },
             )
         }

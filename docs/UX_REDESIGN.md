@@ -94,14 +94,14 @@ layers and a vertical move never shifts time.
 | # | Milestone | Status |
 |---|---|---|
 | 1 | Audit, hierarchy, design rules (this doc) | done |
-| 2 | Editor workspace: top bar, preview, playback (largely done in #135–#143: own header, in-place full screen, contextual bar) — remaining: tidy top bar | in progress |
+| 2 | Editor workspace: top bar, preview, playback. Top bar is now exactly Back · name + format · ✦ · Undo · Redo · Export | done (2026-11-19) |
 | 3 | Adaptive two-track timeline (Music top, Video bottom, lanes only for content, compact zoom) | done (PR #29) |
 | 4a | Vertical drag = front/back order in the timeline (titles, stickers, captions, PiP group) via `LayerStack` | done (PR #29) |
-| 4b | Caption order inside undo/redo (a drag that changes titles and caption order is one undo step) | code done (branch `ux-toolbar`), CI pending |
-| 4c | Per-overlay stacking (each overlay its own stack entry; renderer interleaves) + emulator test | next |
-| 5 | Category tool bar: Edit · Audio · Text · Captions · Overlay · Colour · Speed · Transitions · AI. Edit/Audio/Text/Overlay/AI open a row of their tools; the others open their panel. Clip tools act on the clip under the playhead when nothing is selected. Effects/Filters/Adjust are folded into Colour, Edit and Transitions until there are real effects to put there (no empty buttons). | code done (branch `ux-toolbar`), CI pending |
-| 6 | Home: New Project / AI Edit first, recent projects with thumbnail · duration · resolution · date | later |
-| 7 | Preview polish: reset/fit/fill on the preview, opacity keyframes | later |
+| 4b | Caption order inside undo/redo (a drag that changes titles and caption order is one undo step) | done (PR #31) |
+| 4c | Per-overlay stacking (each overlay its own stack entry; renderer interleaves) + emulator test | **open**: all PiP clips share one compositor layer today, so a title between two overlays needs a compositor redesign (a full-frame text sequence between overlay sequences) and new emulator tests; not started, to avoid risking export |
+| 5 | Category tool bar: Edit · Audio · Text · Captions · Overlay · Colour · Speed · Transitions · AI. Edit/Audio/Text/Overlay/AI open a row of their tools; the others open their panel. Clip tools act on the clip under the playhead when nothing is selected. Effects/Filters/Adjust are folded into Colour, Edit and Transitions until there are real effects to put there (no empty buttons). | done (PR #31) |
+| 6 | Home: New Project / AI Edit first, recent projects with thumbnail · duration · resolution · date | done (2026-11-19) |
+| 7 | Preview polish: Fit · Fill · Reset under the preview for the selected clip; opacity keyframes (Framing panel) | done (2026-11-19) |
 | 8 | Tests on the Vivo X200 Pro (120 Hz scrolling, memory, thermals) | owner |
 
 ## 4. Visual rules (theme kept)
